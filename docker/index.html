@@ -1,0 +1,26 @@
+<!DOCTYPE html>
+<!--
+  The bare URL should land on the client that captures the mouse.
+
+  noVNC ships no index, so http://host:6080/ used to give a directory listing
+  and it was down to the reader to pick the right file. Anyone who reached
+  vnc.html got a remote desktop viewer: usable, but the pointer escapes the
+  window, which is no way to play a shooter.
+-->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta http-equiv="refresh" content="0; url=play.html">
+<title>Quake</title>
+<script>location.replace("play.html");</script>
+<style>
+  body { background: #000; color: #c0c0c0;
+         font: 14px/1.6 system-ui, sans-serif; padding: 40px; }
+  a { color: #b33; }
+</style>
+</head>
+<body>
+<p><a href="play.html">Play Quake</a></p>
+<p>If this page does not move on its own, follow the link.</p>
+</body>
+</html>

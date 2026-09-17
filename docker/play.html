@@ -1,0 +1,2497 @@
+<!DOCTYPE html>
+<!--
+  A noVNC client that captures the mouse.
+
+  Stock noVNC is a remote desktop client: it reports where the pointer is,
+  in absolute screen coordinates. That is the wrong shape for a game. The
+  pointer walks to an edge of the screen and stops, taking mouse
+  look with it, and the real cursor wanders out of the browser window.
+
+  This page uses the Pointer Lock API instead, which hides the cursor,
+  confines it to the canvas and reports relative movement. Each movement is
+  sent as the centre of the screen plus the delta; the engine warps the
+  pointer back to the centre after every motion, so what it measures is the
+  delta and nothing else.
+-->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Quake</title>
+<style>
+  html, body {
+    margin: 0;
+    height: 100%;
+    background: #000;
+    color: #c0c0c0;
+    font: 14px/1.5 system-ui, sans-serif;
+    overflow: hidden;
+  }
+  #screen {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+  /* The engine renders one fixed size. The canvas is scaled up to fill the
+     window, by the same factor in both directions so the picture keeps its
+     shape -- the black bars are whatever is left over on the other axis.
+
+     Set here with !important rather than as an inline style, because noVNC
+     writes its own width and height onto the canvas whenever the framebuffer
+     is resized and would otherwise win: an inline style beats a stylesheet
+     rule, but not an important one. */
+  #screen canvas {
+    image-rendering: pixelated;
+    image-rendering: crisp-edges;
+    width:  var(--fb-w, auto) !important;
+    height: var(--fb-h, auto) !important;
+  }
+  #overlay {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 12px;
+    background: rgba(0, 0, 0, 0.72);
+    text-align: center;
+    padding: 24px;
+    cursor: pointer;
+  }
+  #overlay[hidden] { display: none; }
+  #overlay h1 {
+    margin: 0;
+    font-size: 28px;
+    letter-spacing: 0.2em;
+    color: #b33;
+  }
+  #overlay p { margin: 0; max-width: 34em; }
+  #overlay .dim { color: #808080; font-size: 13px; }
+  #overlay .dim[hidden] { display: none; }
+  #overlay #build-note { color: #555; font-size: 11px; letter-spacing: 0.08em; }
+  #overlay kbd { font: inherit; color: #d0d0d0; border: 1px solid #555;
+                 border-radius: 3px; padding: 0 4px; }
+  #choices {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+    justify-content: center;
+  }
+  #choices button {
+    font: inherit;
+    color: #d8d8d8;
+    background: #1a1a1a;
+    border: 1px solid #4a4a4a;
+    border-radius: 4px;
+    padding: 9px 18px;
+    cursor: pointer;
+  }
+  #choices button:hover { background: #262626; border-color: #b33; }
+  #choices button:focus-visible { outline: 2px solid #b33; outline-offset: 2px; }
+  #play-fullscreen { border-color: #b33; }
+  /* The controller panel. An ordinary flex child of the start screen rather
+     than a dialog: it can only be open while that screen is up, which is the
+     one time the game is not reading the pad anyway. */
+  #pad-panel {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    width: min(540px, 100%);
+    max-height: min(68vh, 560px);
+    overflow-y: auto;
+    text-align: left;
+    background: #111;
+    border: 1px solid #4a4a4a;
+    border-radius: 6px;
+    padding: 14px 16px;
+    cursor: default;
+  }
+  #pad-panel[hidden] { display: none; }
+  #pad-panel h2 {
+    margin: 0; font-size: 12px; letter-spacing: 0.14em;
+    color: #b33; text-transform: uppercase; font-weight: normal;
+  }
+  #pad-note b { color: #d8a; font-weight: normal; }
+  #pad-note button, #pad-panel button {
+    font: inherit; font-size: 12px; color: #d8d8d8; background: #1a1a1a;
+    border: 1px solid #4a4a4a; border-radius: 3px; padding: 2px 8px;
+    cursor: pointer;
+  }
+  #pad-note button:hover, #pad-panel button:hover {
+    background: #262626; border-color: #b33;
+  }
+  #pad-note button:focus-visible, #pad-panel button:focus-visible {
+    outline: 2px solid #b33; outline-offset: 1px;
+  }
+  #pad-panel button.waiting { border-color: #b33; color: #b33; }
+  #pad-binds { width: 100%; border-collapse: collapse; font-size: 13px; }
+  #pad-binds td { padding: 3px 0; vertical-align: baseline; }
+  #pad-binds td.key { color: #d8d8d8; width: 7.5em; }
+  #pad-binds td.key.none { color: #666; }
+  #pad-binds td.act { width: 1%; white-space: nowrap; text-align: right; }
+  #pad-binds td.sends { color: #9a9a9a; width: 6em;
+                        font-family: ui-monospace, Menlo, Consolas, monospace;
+                        font-size: 11px; }
+  #pad-binds td.sends.custom { color: #d8a; }
+  #pad-binds td.sends.engine { color: #8b9; }
+  #pad-panel #pad-keys-hint { font-size: 12px; }
+  #pad-panel #pad-keys-hint b { color: #d8d8d8; }
+  #pad-panel #pad-keys-hint .k-eng { color: #8b9; }
+  #pad-panel #pad-keys-hint .k-own { color: #d8a; }
+  #pad-binds small { color: #666; }
+  #pad-sticks {
+    display: grid; grid-template-columns: auto 1fr auto;
+    gap: 7px 10px; align-items: center; font-size: 13px;
+  }
+  #pad-sticks label { color: #b0b0b0; }
+  #pad-sticks input[type=range] { width: 100%; }
+  #pad-sticks .val { color: #808080; font-size: 12px; min-width: 3em; }
+  #pad-sticks .wide { grid-column: 1 / -1; color: #b0b0b0; }
+  #pad-raw {
+    margin: 0; font-family: ui-monospace, Menlo, Consolas, monospace;
+    font-size: 11px; line-height: 1.5; color: #9a9a9a; white-space: pre-wrap;
+    word-break: break-word; background: #0b0b0b; border: 1px solid #2a2a2a;
+    border-radius: 4px; padding: 8px;
+  }
+  #pad-raw b { color: #d8d8d8; font-weight: normal; }
+  #pad-copy-row { display: flex; gap: 8px; align-items: center; }
+  #pad-copy-row .dim { color: #808080; font-size: 12px; }
+  #pad-foot { display: flex; gap: 8px; justify-content: flex-end; }
+  /* The controller strip, on screen while playing.
+     The panel cannot answer "why did that button do nothing": it is only
+     visible when the game is not, so the one moment worth watching is the one
+     moment it is hidden. This sits over the picture instead. */
+  #pad-live {
+    position: absolute;
+    top: 0; left: 0;
+    max-width: 100%;
+    padding: 4px 8px;
+    background: rgba(0, 0, 0, 0.78);
+    font-family: ui-monospace, Menlo, Consolas, monospace;
+    font-size: 11px; line-height: 1.5; color: #9a9a9a;
+    white-space: pre-wrap; word-break: break-word;
+    pointer-events: none;
+  }
+  #pad-live[hidden] { display: none; }
+  #pad-live b { color: #d8d8d8; font-weight: normal; }
+  #status {
+    position: absolute;
+    left: 0; right: 0; bottom: 0;
+    padding: 6px 10px;
+    background: rgba(0, 0, 0, 0.8);
+    font-size: 13px;
+  }
+  #status[hidden] { display: none; }
+</style>
+</head>
+<body>
+<div id="screen"></div>
+
+<div id="overlay">
+  <h1>QUAKE</h1>
+  <p id="overlay-blurb">The mouse is captured either way, so it cannot slide out
+     of the picture while you turn. Sound plays in this tab.</p>
+  <div id="choices">
+    <button id="play-fullscreen" type="button">Play fullscreen</button>
+    <button id="play-windowed" type="button">Play in this window</button>
+    <button id="play-menu" type="button">Game menu</button>
+  </div>
+  <p class="dim" id="esc-note"><kbd>Esc</kbd> releases the mouse and brings this
+     screen back — which is why <b>Game menu</b> is here rather than on a key:
+     the browser takes <kbd>Esc</kbd> while the mouse is captured, and
+     <kbd>Esc</kbd> is what opens Quake's menu. The <kbd>`</kbd> key opens the
+     console. Keys, the mouse and the sound are all configured in the game's
+     own Options.</p>
+  <p class="dim" id="pad-note" hidden></p>
+  <div id="pad-panel" hidden>
+    <h2>Buttons</h2>
+    <p class="dim" id="pad-which"></p>
+    <p class="dim" id="pad-keys-hint">Each action presses a <b>key</b>, so it has
+       to be the key your game listens for. Those are read from the game's own
+       config and shown below — <span class="k-eng">green</span> came from there,
+       <span class="k-own">pink</span> was set here by hand, grey is the engine
+       default. If one is wrong, press <b>Key</b> on its row and then the key you
+       actually use.</p>
+    <table id="pad-binds"><tbody></tbody></table>
+    <h2>Sticks</h2>
+    <div id="pad-sticks"></div>
+    <h2>What the pad is reporting</h2>
+    <pre id="pad-raw"></pre>
+    <div id="pad-copy-row">
+      <button type="button" id="pad-copy">Copy this</button>
+      <span class="dim" id="pad-copied"></span>
+    </div>
+    <div id="pad-foot">
+      <button type="button" id="pad-reset">Reset to defaults</button>
+      <button type="button" id="pad-done">Done</button>
+    </div>
+  </div>
+  <p class="dim" id="audio-note">Sound: not started.</p>
+  <!-- Hidden until asked for: videoNote() shows it when ?stats=1, and its
+       first tick is 500 ms away, which is long enough to be seen. -->
+  <p class="dim" id="video-note" hidden>Picture: not started.</p>
+  <p class="dim" id="build-note">__QUAKE_VERSION__</p>
+</div>
+
+<div id="pad-live" hidden></div>
+
+<div id="status" hidden></div>
+
+<!-- The ring buffer that both audio paths use. An ordinary script, not a
+     module: the worklet loads this same file into its own global scope. -->
+<script src="quake-ring.js"></script>
+
+<script type="module">
+import RFB from './core/rfb.js';
+import { QuakeGamepad, ACTIONS, keyName, inputName } from './quake-gamepad.js';
+// noVNC's own DOM-event-to-keysym translation, so a key learned from the
+// keyboard here sends exactly what pressing that key sends.
+import { getKeysym, getKeycode } from './core/input/util.js';
+
+const screenEl  = document.getElementById('screen');
+const overlayEl = document.getElementById('overlay');
+const statusEl  = document.getElementById('status');
+
+// Two things report through this line -- the mouse capture and the sound --
+// and either can have something to say while the other does not, so each gets
+// its own slot rather than overwriting the other's message.
+let statusMain = '';
+let statusAudio = '';
+
+function renderStatus() {
+  const text = [statusMain, statusAudio].filter(Boolean).join(' ');
+  statusEl.textContent = text;
+  statusEl.hidden = !text;
+}
+
+function status(text) {
+  statusMain = text;
+  renderStatus();
+}
+
+function audioStatus(text) {
+  statusAudio = text;
+  renderStatus();
+}
+
+const scheme = location.protocol === 'https:' ? 'wss' : 'ws';
+
+//
+// Count what the picture actually costs, by wrapping WebSocket for the one
+// moment noVNC creates its own.
+//
+// The frames-painted figure alone cannot tell a picture that is not being sent
+// from one that is being sent and not arriving. A container reporting a steady
+// 35 frames a second to a page painting 11 means two thirds of them are going
+// nowhere, and the number of bytes per second says whether that is the link
+// or something before it.
+//
+let videoBytes = 0;
+let videoRateKB = 0;
+let videoPlayBytes = 0;     // ... and over the whole spell of play, which is
+let videoPlayMs = 0;        //     what the note reports
+let videoPlayKB = 0;
+
+//
+// Both streams are counted, because the interesting question is what the sound
+// was doing while the picture was not arriving.
+//
+// The picture and the sound are separate connections to the same proxy over
+// the same link. If the picture stops for half a second and the sound keeps
+// coming, the link and the proxy are fine and it is x11vnc that went quiet. If
+// they stop together, it is the link or the proxy. Nothing else distinguishes
+// those two, and they need completely different answers.
+//
+// Declared up here because playing() below reads it, and a let that is read
+// before its declaration throws rather than reading as undefined.
+let videoBusy = false;        // was the last second one where anything moved?
+
+// Every figure below is meant to describe a spell of play. This is the one
+// test for that, because getting it wrong has now produced four sets of
+// confident numbers measured against a motionless screen.
+function playing() {
+  const o = document.getElementById('overlay');
+
+  // Not merely "the start screen is down", but "the picture is moving".
+  //
+  // VNC sends what changed and nothing else, so a player standing still gets
+  // no messages at all, for as long as they stand there -- and gating only on
+  // the start screen still measured that as a 355 ms stall on a machine whose
+  // longest real gap was 50. videoBusy is the same test the painted-frame
+  // figures use: at least ten frames painted in the last second.
+  return !!o && o.hidden && videoBusy;
+}
+
+let audioBytes = 0;
+let audioWorstGap = 0;        // longest the sound went without a message, ms
+let videoMsgGap = 0;          // ... and the picture, which is not the same as
+                              //     the longest it went without being painted
+let videoAskGap = 0;          // longest this page took to ask for the next one
+let videoHeldWorst = 0;       // ... of which this much was after it had a
+                              //     finished picture in hand and could have
+
+(function countBytes() {
+  const Native = window.WebSocket;
+  let audioLast = 0;
+  let videoLastMsg = 0;
+
+  window.WebSocket = function (...a) {
+    const sock = new Native(...a);
+    const isAudio = String(a[0]).indexOf('token=audio') >= 0;
+
+    //
+    // When this page asks for the next frame.
+    //
+    // VNC here is one frame per round trip -- x11vnc offers no continuous
+    // updates, so nothing arrives until the client asks -- and the container
+    // side has now shown x11vnc answering within a few milliseconds of every
+    // request while the browser takes hundreds to make one. Splitting that
+    // wait in two says whether the data was slow reaching this page or this
+    // page was slow to act on it.
+    //
+    if (!isAudio) {
+      const send = sock.send.bind(sock);
+      sock.send = (data) => {
+        //
+        // Only a request for a frame counts as asking for one.
+        //
+        // The first version timed the gap to the next send of anything, and
+        // during play most of what this page sends is pointer and key events
+        // -- a player mouse-looking sends them continuously. Any one of those
+        // ends the gap and makes the page look prompt when it was not, so the
+        // figure could only ever be too small. RFB client message 3 is the
+        // FramebufferUpdateRequest; a send may carry several messages, and
+        // the first byte is the one that matters because noVNC queues the
+        // request on its own.
+        //
+        const u = new Uint8Array(data.buffer || data,
+                                 data.byteOffset || 0,
+                                 data.byteLength || data.length);
+
+        if (u[0] === 3 && videoLastMsg && playing()) {
+          const since = performance.now() - videoLastMsg;
+          if (since > videoAskGap) videoAskGap = since;
+
+          // And how long it sat on a picture it had already finished with.
+          // This is the figure that decides whether the page is at fault at
+          // all: noVNC asks for the next frame the moment it finishes one, so
+          // if this is small then the page never held anything up and the
+          // wait is entirely upstream of it -- however long the gap above.
+          if (window.__frameDone) {
+            const held = performance.now() - window.__frameDone;
+            if (held > videoHeldWorst) videoHeldWorst = held;
+          }
+        }
+        return send(data);
+      };
+    }
+
+    sock.addEventListener('message', (e) => {
+      const n = (e.data && e.data.byteLength) || 0;
+
+      if (!isAudio) {
+        videoBytes += n;
+
+        const now = performance.now();
+
+        if (!playing()) {
+          // Nothing counts while this screen is up. Nobody is playing, so the
+          // picture legitimately goes quiet for as long as it likes -- and a
+          // figure gathered then describes the reader, not the game. This is
+          // the fourth thing in this file to have needed that said out loud.
+          videoLastMsg = 0;
+          return;
+        }
+
+        if (videoLastMsg && now - videoLastMsg > videoMsgGap)
+          videoMsgGap = now - videoLastMsg;
+        videoLastMsg = now;
+        return;
+      }
+
+      audioBytes += n;
+
+      //
+      // How long the sound went quiet, not how much of it eventually turned
+      // up. Counting bytes over the window was the first attempt and it is
+      // wrong: when a stall ends, the backlog arrives in a burst, so the
+      // volume comes out right and the stall is invisible. Freezing the whole
+      // container -- which stops both streams by definition -- was reported as
+      // "the picture alone went quiet". Only the timing shows it.
+      //
+      const now = performance.now();
+
+      if (!playing()) { audioLast = 0; return; }
+
+      if (audioLast && now - audioLast > audioWorstGap)
+        audioWorstGap = now - audioLast;
+
+      audioLast = now;
+    });
+    return sock;
+  };
+  window.WebSocket.prototype = Native.prototype;
+  Object.assign(window.WebSocket, Native);
+
+  window.__audioGapReset = () => { audioLast = 0; videoLastMsg = 0; };
+})();
+
+const rfb = new RFB(screenEl, `${scheme}://${location.host}`, {
+  wsProtocols: ['binary'],
+});
+
+//
+// How the picture is compressed, and why there is a switch for it.
+//
+// x11vnc and noVNC settle on Tight, and Tight sends the busiest parts of a
+// Quake screen as JPEG. noVNC decodes those by base64-encoding the bytes into
+// a data: URL, handing it to an <img>, and then STOPPING: the whole message
+// pump waits for that image to decode before it reads another byte off the
+// socket or asks for another frame. It is the one place in this client that
+// can go quiet for an unbounded time with the main thread still perfectly
+// responsive -- which is the exact shape of what the field reports, where the
+// browser sent nothing for 576 ms and the rAF loop below never missed 50 ms.
+//
+// Here it costs 2 ms a picture and never once blocked the pump, so whether it
+// is what stutters cannot be settled from a fast machine on loopback. The two
+// figures in the note say what it costs where it is actually being played.
+//
+// ?encoding=hextile drops Tight and lets the server fall back to Hextile,
+// which noVNC decodes synchronously -- no base64, no <img>, nothing to wait
+// for. It is not the default because it is not free: measured over the same
+// 25 seconds of walking into a room, 873 KB/s with Tight against 2286 KB/s
+// with Hextile. That is fine over a wire and probably not over wifi, so it
+// stays a switch to try rather than a change to everyone.
+//
+if (new URLSearchParams(location.search).get('encoding') === 'hextile') {
+  // 7 is Tight and -260 is TightPNG; both decode through an <img>. Filtering
+  // the list on its way out is the whole change -- the server picks the best
+  // of what is left, which is Hextile, and noVNC's Hextile decoder writes
+  // straight into the framebuffer.
+  const TIGHT = 7, TIGHT_PNG = -260;
+  const clientEncodings = RFB.messages.clientEncodings;
+
+  RFB.messages.clientEncodings = function (sock, encs) {
+    return clientEncodings.call(this, sock,
+      encs.filter((e) => e !== TIGHT && e !== TIGHT_PNG));
+  };
+}
+
+//
+// What the decoding above costs, measured where it matters.
+//
+// videoDecodeWorst is the longest a single picture took between being handed
+// to the browser and coming back decoded. videoBlockedWorst is the longest
+// the message pump actually sat waiting on one, which is the figure that
+// matters: while it is waiting, no frame is asked for, so every millisecond
+// here is a millisecond of the gap the container sees as "the browser asked
+// N ms in".
+//
+let videoDecodeWorst = 0;
+let videoBlockedWorst = 0;
+let videoDecoded = 0;         // pictures that went through the image decoder
+
+(function watchDecoding() {
+  const d = rfb._display;
+  if (!d || typeof d.imageRect !== 'function') return;
+
+  //
+  // When noVNC last finished a whole picture.
+  //
+  // It asks for the next one the instant it does -- the request goes out on
+  // the same turn, a couple of lines further down in _normalMsg -- so the
+  // time between these two is the page's own share of the wait and nothing
+  // else's. If it comes back near zero while the gap above is hundreds of
+  // milliseconds, the page never held anything up: the gap was spent part
+  // way through a picture, waiting for the rest of it to arrive.
+  //
+  const fbu = rfb._framebufferUpdate.bind(rfb);
+  rfb._framebufferUpdate = function () {
+    const done = fbu();
+    if (done) window.__frameDone = performance.now();
+    return done;
+  };
+
+  const imageRect = d.imageRect.bind(d);
+  d.imageRect = function (x, y, w, h, mime, arr) {
+    const started = performance.now();
+    const r = imageRect(x, y, w, h, mime, arr);
+
+    // imageRect queues exactly one entry. If it is not there, the queue
+    // drained synchronously and there was nothing to wait for; skip the
+    // sample rather than guess at which image this was.
+    const q = d._renderQ && d._renderQ[d._renderQ.length - 1];
+    if (q && q.type === 'img' && q.img) {
+      q.img.addEventListener('load', () => {
+        const took = performance.now() - started;
+        if (!playing()) return;
+        videoDecoded++;
+        if (took > videoDecodeWorst) videoDecodeWorst = took;
+      });
+    }
+    return r;
+  };
+
+  const flush = d.flush.bind(d);
+  let blockedAt = 0;
+  let blockedWhilePlaying = false;
+
+  d.flush = function () {
+    if (d._renderQ && d._renderQ.length) {
+      blockedAt = performance.now();
+
+      // Whether this counts is decided here, at the start of the block, as
+      // well as at the end of it. A long enough block stops frames being
+      // painted, videoBusy goes false, and playing() then reports that nobody
+      // was playing -- so asking only at the end would throw away exactly the
+      // worst blocks and keep the harmless ones. Same trap as the four before
+      // it, one layer further in.
+      //
+      // Asking only at the start is not enough either: that dropped a real
+      // 300 ms block in one calibration run out of three, because the paint
+      // rate had dipped under the ten-a-second mark in the instant the block
+      // began. Either end counts, which still needs the picture to have been
+      // moving within a second of the block and so keeps the hole this was
+      // guarding against shut.
+      blockedWhilePlaying = playing();
+    }
+    return flush();
+  };
+
+  // d.onflush, not rfb._onFlush: the constructor takes a bound copy of
+  // _onFlush and the display calls that, so replacing the method on rfb
+  // afterwards is replacing something nothing ever calls again. The first
+  // version of this did exactly that and would have reported a confident
+  // zero forever.
+  const onflush = d.onflush;
+  d.onflush = function () {
+    if (blockedAt) {
+      const held = performance.now() - blockedAt;
+      if ((blockedWhilePlaying || playing()) && held > videoBlockedWorst)
+        videoBlockedWorst = held;
+      blockedAt = 0;
+    }
+    return onflush.call(this);
+  };
+})();
+
+// The engine has one fixed resolution; never rescale it to the window.
+window.__rfb = rfb;   // for automated checks; harmless otherwise
+rfb.scaleViewport = false;
+rfb.clipViewport  = false;
+rfb.focusOnClick  = true;
+
+rfb.addEventListener('connect', () => {
+  status('');
+  overlayEl.hidden = false;
+  fitCanvas();
+  rfb.focus();
+});
+
+rfb.addEventListener('disconnect', (e) => {
+  overlayEl.hidden = true;
+  status(e.detail.clean ? 'Disconnected.' : 'Connection lost. Reload to try again.');
+});
+
+rfb.addEventListener('securityfailure', (e) => {
+  status(`Authentication failed: ${e.detail.reason || 'unknown reason'}`);
+});
+
+rfb.addEventListener('credentialsrequired', () => {
+  const password = prompt('VNC password:');
+  if (password !== null) rfb.sendCredentials({ password });
+});
+
+//
+// Integer scaling.
+//
+// noVNC sizes its canvas to the framebuffer. Scale it up with CSS so the
+// picture fills the window without the engine having to render more pixels
+// than a software renderer wants to.
+//
+function canvas() {
+  return screenEl.querySelector('canvas');
+}
+
+function fitCanvas() {
+  const c = canvas();
+  if (!c || !c.width || !c.height) return;
+
+  // The smaller of the two ratios, so the picture fits in both directions;
+  // applying it to both axes is what keeps it from being stretched. Whole
+  // numbers were sharper but wasted most of a large screen -- a 640x400
+  // picture on a 2560x1440 display could only manage 3x.
+  const scale = Math.min(window.innerWidth  / c.width,
+                         window.innerHeight / c.height);
+
+  document.documentElement.style.setProperty(
+    '--fb-w', `${Math.round(c.width  * scale)}px`);
+  document.documentElement.style.setProperty(
+    '--fb-h', `${Math.round(c.height * scale)}px`);
+}
+
+// Fullscreen resizes the window after the event, so refit on both.
+document.addEventListener('fullscreenchange', fitCanvas);
+
+// The framebuffer size is not known when the connection opens; noVNC sets the
+// canvas dimensions once the server has said how big it is, and resizes it
+// again if that ever changes. Refit whenever it does, or the picture keeps
+// whatever size it happened to have when we first looked.
+const fbObserver = new MutationObserver(fitCanvas);
+
+function watchCanvas() {
+  const c = canvas();
+  if (!c) return false;
+  fbObserver.observe(c, { attributes: true, attributeFilter: ['width', 'height'] });
+  fitCanvas();
+  return true;
+}
+
+if (!watchCanvas()) {
+  const waitForCanvas = setInterval(() => {
+    if (watchCanvas()) clearInterval(waitForCanvas);
+  }, 100);
+}
+
+window.addEventListener('resize', fitCanvas);
+
+//
+// Pointer capture.
+//
+// While locked the cursor does not exist and mousemove reports movementX and
+// movementY instead of a position. Those go out as centre + delta.
+//
+let buttons = 0;
+
+// Movement seen since the last thing actually sent.
+let pendingX = 0;
+let pendingY = 0;
+let flushQueued = false;
+
+// Where the remote pointer currently is. Reports walk this around the screen
+// rather than always naming centre-plus-delta: a steady drag has a steady
+// delta, so that named the same coordinates over and over, and x11vnc drops a
+// pointer report that does not move the pointer. Most of the movement never
+// reached X at all, which is what the jitter was.
+let vx = 0;
+let vy = 0;
+
+function locked() {
+  return document.pointerLockElement === canvas();
+}
+
+//
+// Whether capturing the mouse is a thing this device can do at all.
+//
+// iOS has no Pointer Lock API, so on an iPhone the request is never even made
+// and the "did not capture the mouse" warning fired every time -- telling
+// somebody holding a phone to click the picture and turn off a mouse setting,
+// neither of which means anything there. A missing API is not a failure.
+//
+function canLock() {
+  // Asked of the platform, not of an element: this is called before the canvas
+  // exists as well as after, and a missing canvas is not a missing API.
+  return typeof Element !== 'undefined'
+      && typeof Element.prototype.requestPointerLock === 'function'
+      && 'pointerLockElement' in document;
+}
+
+
+function centreOf(c) {
+  return [Math.round(c.width / 2), Math.round(c.height / 2)];
+}
+
+function resetPointer() {
+  const c = canvas();
+  if (!c) return;
+  [vx, vy] = centreOf(c);
+  pendingX = 0;
+  pendingY = 0;
+}
+
+//
+// One report per frame, not one per mouse event.
+//
+// A gaming mouse reports several hundred times a second. Sending each one
+// straight out floods the VNC link, and the button state rides on those same
+// reports -- so a release could sit behind a queue of movement. Batching the
+// movement into one report per frame keeps the link quiet, and button changes
+// go out immediately and on their own.
+//
+function flushMouse() {
+  flushQueued = false;
+  // A captured pointer is the usual driver, but not the only one: the gamepad
+  // turns by feeding this same queue, and a phone has no pointer to lock.
+  if (!locked() && !padMayTurn()) return;
+  if (pendingX === 0 && pendingY === 0) return;
+
+  const c = canvas();
+  if (!c || typeof rfb._sendMouse !== 'function') return;
+
+  const [cx, cy] = centreOf(c);
+  const edgeX = cx - 4;
+  const edgeY = cy - 4;
+
+  let dx = pendingX;
+  let dy = pendingY;
+  pendingX = 0;
+  pendingY = 0;
+
+  // Walking off the screen would clamp, and clamping silently eats movement.
+  // Put the pointer back in the middle first: a report landing exactly on the
+  // centre is the one the engine ignores, so it costs no turn and simply
+  // re-bases where the next delta is measured from.
+  if (vx + dx < cx - edgeX || vx + dx > cx + edgeX ||
+      vy + dy < cy - edgeY || vy + dy > cy + edgeY) {
+    rfb._sendMouse(cx, cy, buttons | padMouseMask);
+    vx = cx;
+    vy = cy;
+  }
+
+  // Whatever still will not fit is kept for the next frame rather than lost,
+  // so a fast flick turns further instead of mysteriously turning less.
+  const nx = Math.max(0, Math.min(c.width  - 1, vx + dx));
+  const ny = Math.max(0, Math.min(c.height - 1, vy + dy));
+  pendingX = (vx + dx) - nx;
+  pendingY = (vy + dy) - ny;
+
+  if (nx !== vx || ny !== vy) {
+    vx = nx;
+    vy = ny;
+    rfb._sendMouse(vx, vy, buttons | padMouseMask);
+  }
+
+  if (pendingX !== 0 || pendingY !== 0) queueFlush();
+}
+
+function queueFlush() {
+  if (flushQueued) return;
+  flushQueued = true;
+  requestAnimationFrame(flushMouse);
+}
+
+// What the controller is holding, kept apart from the real mouse's own state so
+// that releasing one does not release the other.
+let padMouseMask = 0;
+
+// A button change on its own. Sent at the centre, which the engine ignores for
+// movement, so pressing fire cannot also nudge the view.
+function sendButtons() {
+  const c = canvas();
+  if (!c || typeof rfb._sendMouse !== 'function') return;
+  const [cx, cy] = centreOf(c);
+  vx = cx;
+  vy = cy;
+  rfb._sendMouse(cx, cy, buttons | padMouseMask);
+}
+
+// Let go of everything. Losing the capture with a button held would otherwise
+// leave the game holding it down for ever -- firing, in Quake's case.
+function releaseButtons() {
+  if (buttons === 0) return;
+  buttons = 0;
+  sendButtons();
+}
+
+//
+// The figures below are diagnostics, and they are off unless asked for.
+//
+// They are what finally placed the stutter, after eleven releases of not
+// placing it -- but that hunt is over, and answering Esc with three paragraphs
+// of measurements is no use to somebody who only wanted to stop playing for a
+// moment. `?stats=1` brings them back in full. Without it the page stays quiet
+// while things are well and still says what is wrong when they are not, which
+// is the half that was ever load-bearing.
+//
+const SHOW_STATS = new URLSearchParams(location.search).get('stats') === '1';
+
+//
+// Where the sound comes out, on a phone with something plugged into it.
+//
+// Reported from an iPhone with a Backbone controller attached: the game's sound
+// came out of the controller's headphone socket and never out of the phone's
+// own speaker, while every other app on the same phone, with the same
+// controller attached, used the speaker perfectly well. So iOS is not routing
+// everything to the accessory -- it is routing *this* to the accessory.
+//
+// The difference is which audio session the sound belongs to. Web Audio going
+// straight to ctx.destination is WebKit's own, and a page has no API to choose
+// an output device for it -- setSinkId does not exist on iOS. Sound played
+// through a media element is governed like any other app's audio instead, and a
+// MediaStreamAudioDestinationNode is how the same samples get there.
+//
+// Confirmed from the phone it was reported on: with this, the sound comes out
+// of the iPhone's own speaker. So it is the default wherever there is no
+// pointer to capture, which is the same test the rest of this page uses for
+// "a phone". Desktop browsers keep the plain output, which has never had the
+// problem and is one object fewer in the way.
+//
+// `?speaker=1` forces it on anywhere, `?speaker=0` forces it off.
+//
+const AUDIO_SPEAKER_PARAM =
+      new URLSearchParams(location.search).get('speaker');
+
+const AUDIO_VIA_ELEMENT =
+      AUDIO_SPEAKER_PARAM === '1' ? true
+    : AUDIO_SPEAKER_PARAM === '0' ? false
+    : !canLock();
+
+
+//
+// The controller.
+//
+// It presses the same keys a keyboard would and moves the view with the same
+// relative pointer reports the captured mouse produces, so the engine is told
+// nothing new and needed no change for any of this. quake-gamepad.js holds the
+// bindings and the stick maths; this is the part that needs the connection.
+//
+const gamepad = new QuakeGamepad({
+  // The code name is passed through, so this is the same call the keyboard
+  // handler makes for the same key -- same branch inside sendKey, same bytes on
+  // the wire. Leaving it off worked in the lab and made this path the only one
+  // in the page that could not be compared against a keyboard that is known to
+  // work, which is not a difference worth keeping.
+  press:    (keysym, code) => rfb.sendKey(keysym, code, true),
+  release:  (keysym, code) => rfb.sendKey(keysym, code, false),
+  turn:     (dx) => { pendingX += dx; queueFlush(); },
+  //
+  // The pad's mouse buttons, folded into the same mask the real mouse uses.
+  //
+  // The engine reads fire as `gamekeydown[key_fire] || mousebuttons[mousebfire]`,
+  // so a player whose fire is the mouse has no key for it and a controller
+  // sending only keys can never fire, whatever it is bound to. The pad's bits sit
+  // above the real mouse's so neither clears the other.
+  mouse:    (mask) => { padMouseMask = mask; sendButtons(); },
+  onChange: () => renderPad(),
+});
+
+// Whether the pad should be reaching the game at all: play is on, and this tab
+// is in front. A pad knocked off the desk while the start screen is up should
+// not empty a nailgun into a room nobody is looking at.
+function padActive() {
+  return !!overlayEl && overlayEl.hidden && !document.hidden;
+}
+
+function padMayTurn() {
+  return gamepad.settings.enabled && gamepad.available() && padActive();
+}
+
+//
+// Its own frame loop.
+//
+// The Gamepad API has no events -- button state only exists in the snapshot
+// getGamepads() hands back -- so something has to look every frame. It cannot
+// share the measuring loop above, which stops while the start screen is up;
+// binding a button needs polling to carry on precisely then.
+//
+(function padLoop() {
+  function step() {
+    gamepad.poll(padActive());
+    reportPad();
+    padWatch();
+    padLive();
+    refreshNoMouse();
+    requestAnimationFrame(step);
+  }
+  requestAnimationFrame(step);
+})();
+
+//
+// The strip, updated ten times a second while playing.
+//
+// Only with `?stats=1`, which is already this page's switch for "show me the
+// instruments". It answers the one question the panel cannot, because it is
+// readable at the instant a button fails: did the page see the button, and did
+// it put a key on the wire? If both, whatever is wrong is past this page. If
+// neither, the pad is not reaching the page and nothing here can rebind it.
+//
+const padLiveEl = document.getElementById('pad-live');
+let padLiveAt = 0;
+let padSentTotal = 0;
+
+function padLive() {
+  if (!padLiveEl) return;
+  if (!SHOW_STATS || !padActive()) {
+    if (!padLiveEl.hidden) padLiveEl.hidden = true;
+    return;
+  }
+
+  const now = performance.now();
+  if (now - padLiveAt < 100) return;
+  padLiveAt = now;
+
+  const s = gamepad.snapshot();
+  padSentTotal = Math.max(padSentTotal, s.log.length);
+
+  const bits = ['pads ' + s.pads];
+  if (s.pads) {
+    bits.push('layout ' + s.mapping);
+    bits.push('pressed ' + (s.down.length ? s.down.map(inputName).join(',') : '\u2014'));
+    bits.push('holding ' + (s.held.length ? s.held.map(keyName).join(',') : '\u2014'));
+    const last = s.log[s.log.length - 1];
+    bits.push('last key ' + (last
+      ? keyName(last.keysym) + (last.down ? ' down' : ' up')
+      : 'none sent yet'));
+  }
+
+  padLiveEl.textContent = '';
+  const b = document.createElement('b');
+  b.textContent = bits.join('  \u00b7  ');
+  padLiveEl.append(b);
+  padLiveEl.hidden = false;
+}
+
+// Same hazard as a held mouse button: a key the pad is holding when the tab
+// goes away is a key the engine goes on obeying.
+window.addEventListener('blur', () => gamepad.releaseAll());
+document.addEventListener('visibilitychange', () => {
+  if (document.hidden) gamepad.releaseAll();
+});
+
+//
+// Binding it, on the start screen.
+//
+// The bindings cannot live in the game's own Options → Customize controls:
+// that menu writes `config.cfg` in the container, and the container has never heard of
+// a controller. So the panel is here, and what it saves stays in this browser
+// -- which is also the right place for it, because the pad on a phone and the
+// pad on a desk want different layouts and they are different browsers.
+//
+const padNoteEl   = document.getElementById('pad-note');
+const padPanelEl  = document.getElementById('pad-panel');
+const padWhichEl  = document.getElementById('pad-which');
+const padBindsEl  = document.querySelector('#pad-binds tbody');
+const padSticksEl = document.getElementById('pad-sticks');
+
+// "Xbox Wireless Controller (STANDARD GAMEPAD Vendor: 045e Product: 0b13)"
+// is the name the browser gives; the useful half is in front of the bracket.
+function padName(id) {
+  const s = String(id || '');
+  const cut = s.indexOf(' (');
+  return (cut > 0 ? s.slice(0, cut) : s).trim() || 'controller';
+}
+
+function renderPad() {
+  renderPadNote();
+  if (padPanelEl && !padPanelEl.hidden) {
+    renderPadWhich();
+    renderPadBinds();
+    renderPadSticks();
+  }
+}
+
+//
+// One line, and only once there is a controller to say it about.
+//
+// Not a word before then. The alternative was a line explaining that a browser
+// reports no gamepad until a button on it has been pressed -- true, and the
+// reason a paired, charged, idle pad is invisible -- but that is a sentence
+// every keyboard player would read for ever to spare a pad owner one press of
+// a button that they are about to make anyway. It is in DOCKER.md instead.
+//
+let padNoteState = null;
+
+//
+// "No mouse to capture", while that is still true.
+//
+// Only on a device with no pointer lock, only while actually playing, and only
+// until a pad turns up -- then it goes, because it has been answered. It owns
+// nothing else on the status line: it will not overwrite another message and
+// will not clear one it did not write.
+//
+// Same screen, different device. Explaining mouse capture to a phone is the
+// start screen's version of the note below: true of the code, and of nothing
+// the person holding it can see or do.
+(function fixBlurb() {
+  if (canLock()) return;
+  const blurb = document.getElementById('overlay-blurb');
+  if (blurb)
+    blurb.textContent = 'There is no mouse to capture here, so a game '
+      + 'controller is the whole of the input: the sticks move and turn. '
+      + 'Sound plays in this tab.';
+})();
+
+const NO_MOUSE_NOTE = 'No mouse to capture on this device — pair a game '
+                    + 'controller and press a button on it. Everything else works.';
+let noMouseShown = false;
+
+function refreshNoMouse() {
+  if (canLock()) return;
+
+  const want = !gamepad.available() && !!overlayEl && overlayEl.hidden;
+
+  if (want === noMouseShown) return;
+  noMouseShown = want;
+
+  if (want) status(NO_MOUSE_NOTE);
+  else if (statusMain === NO_MOUSE_NOTE) status('');
+}
+
+function renderPadNote() {
+  if (!padNoteEl) return;
+
+  const pad = gamepad.pad();
+
+  // With ?stats=1 the line is there whether a pad was found or not, because
+  // that is the switch for "show me the instruments" -- and a pad that is not
+  // being seen at all is precisely the fault the readout has to explain.
+  if (!pad && !SHOW_STATS) {
+    padNoteEl.hidden = true;
+    padNoteEl.textContent = '';
+    padNoteState = null;
+    return;
+  }
+
+  // Anything that cannot work is named here rather than left in the panel.
+  // Six releases went by with a controller half working and this screen saying
+  // only that a controller was present, which was the least useful true thing
+  // it could have said.
+  const bad = pad ? gamepad.troubled() : [];
+  const state = (pad ? pad.id : 'none') + '|'
+              + (padPanelEl && !padPanelEl.hidden ? 'open' : 'shut') + '|'
+              + bad.map(b => b.id + b.why).join(',');
+  if (state === padNoteState) return;
+  padNoteState = state;
+
+  padNoteEl.textContent = '';
+  padNoteEl.append(pad
+    ? 'Controller: ' + padName(pad.id) + '. '
+    : 'Controller: none seen \u2014 press a button on it. ');
+
+  if (bad.length) {
+    // Named, but never at length: this screen is meant to be read at a glance,
+    // and a pad that reports almost nothing as buttons could otherwise fill it.
+    const say = document.createElement('b');
+    const shown = bad.slice(0, 3).map(b => b.label).join(', ');
+    const rest  = bad.length > 3 ? ' and ' + (bad.length - 3) + ' more' : '';
+    say.textContent = bad.every(b => b.why === 'button')
+      ? shown + rest + ': no such button on this pad. '
+      : shown + rest + ': needs a key. ';
+    padNoteEl.append(say);
+  }
+
+  const open = document.createElement('button');
+  open.type = 'button';
+  open.textContent = padPanelEl && !padPanelEl.hidden ? 'Close' : 'Buttons';
+  open.addEventListener('click', () => {
+    if (padPanelEl.hidden) openPad(); else closePad();
+  });
+  padNoteEl.append(open);
+  padNoteEl.hidden = false;
+}
+
+function renderPadWhich() {
+  if (!padWhichEl) return;
+  const pad = gamepad.pad();
+  if (!pad) {
+    padWhichEl.textContent = 'No controller seen yet. Press a button on it and'
+                           + ' this will fill in.';
+    return;
+  }
+  padWhichEl.textContent = pad.mapping === 'standard'
+    ? padName(pad.id) + ' \u2014 standard layout, so the names below are the'
+      + ' names on the pad.'
+    : padName(pad.id) + ' \u2014 this browser does not report a standard'
+      + ' layout for it, so the button names below are guesses. Rebinding still'
+      + ' works: bind by pressing.';
+}
+
+let padBinding = null;
+let padButtons = 0;      // how many buttons this pad admits to having
+
+function renderPadBinds() {
+  if (!padBindsEl) return;
+  padBindsEl.textContent = '';
+  padButtons = gamepad.snapshot().buttonsPresent;
+
+  for (const a of ACTIONS) {
+    const tr = document.createElement('tr');
+
+    const name = document.createElement('td');
+    name.textContent = a.label;
+    if (a.note) {
+      const s = document.createElement('small');
+      s.textContent = ' \u2014 ' + a.note;
+      name.append(s);
+    }
+
+    const i = gamepad.inputFor(a.id);
+    const key = document.createElement('td');
+    key.className = 'key' + (i === null ? ' none' : '');
+    const all = gamepad.inputsFor(a.id);
+    key.textContent = all.length ? all.map(inputName).join(' or ') : 'not bound';
+    // A layout naming a button this pad does not have is worth saying out loud:
+    // it is exactly what a trigger reported as an axis looks like.
+    const bm = i && /^b(\d+)$/.exec(i);
+    if (bm && padButtons && Number(bm[1]) >= padButtons) {
+      key.classList.add('none');
+      key.textContent = inputName(i) + ' \u2014 not on this pad';
+    }
+
+    // Which key this action actually presses. The whole point of the panel is
+    // that this is a key and not an intention, so it is on screen rather than
+    // implied.
+    const sends = document.createElement('td');
+    const src = gamepad.keySource(a.id);
+    sends.className = 'sends' + (src === 'learned' ? ' custom' : '')
+                              + (src === 'engine' ? ' engine' : '');
+    const mb = gamepad.mouseFor(a.id);
+    const rawv = gamepad.rawFor(a.id);
+    // The mouse button is only a fallback, so it is only mentioned where it is
+    // actually what gets sent -- the branch below handles that case.
+    sends.textContent = gamepad.keysFor(a.id).map(([sym]) => keyName(sym)).join('+')
+      + (rawv !== null ? ' (' + rawv + ')' : '');
+    if (gamepad.wasAutoBound(a.id)) {
+      const s2 = document.createElement('small');
+      s2.textContent = ' \u2014 found as a trigger axis';
+      name.append(s2);
+    }
+    sends.title = src === 'learned' ? 'set here by hand'
+                : src === 'engine'  ? "from the game's own config"
+                : 'the engine default';
+
+    // A setting this page could not turn into a keysym is worth saying out
+    // loud, because the alternative is pressing the default at an engine that
+    // is listening for something else and looking broken for no stated reason.
+    const unknown = gamepad.unknownKeyFor(a.id);
+    if (unknown !== null) {
+      if (mb !== null) {
+        // There is still a way to do it: the engine accepts a mouse button for
+        // this one, and that is what gets sent.
+        sends.textContent = 'mouse ' + (mb + 1) + ' (key ' + unknown + ' unusable)';
+        sends.title = 'The engine has no usable key for this, but it accepts'
+                    + ' mouse button ' + (mb + 1) + ', which is what the pad sends.';
+      } else {
+        sends.classList.add('none');
+        sends.textContent = 'key ' + unknown + ' \u2014 nothing to send';
+        sends.title = 'The engine is bound to key number ' + unknown + ', which'
+                    + ' this page cannot express, and there is no mouse button for'
+                    + ' it. Press Key and press the key you use.';
+      }
+    }
+
+    const act = document.createElement('td');
+    act.className = 'act';
+    const bind = document.createElement('button');
+    bind.type = 'button';
+    bind.textContent = padBinding === a.id ? 'press or squeeze\u2026' : 'Bind';
+    if (padBinding === a.id) bind.classList.add('waiting');
+    bind.addEventListener('click', () => beginBind(a.id));
+    act.append(bind);
+
+    const learn = document.createElement('button');
+    learn.type = 'button';
+    learn.textContent = padLearning === a.id ? 'press a key\u2026' : 'Key';
+    if (padLearning === a.id) learn.classList.add('waiting');
+    learn.addEventListener('click', () => beginLearn(a.id));
+    act.append(' ', learn);
+
+    if (i !== null) {
+      const clear = document.createElement('button');
+      clear.type = 'button';
+      clear.textContent = 'Clear';
+      clear.addEventListener('click', () => gamepad.bindAction(a.id, null));
+      act.append(' ', clear);
+    }
+    if (gamepad.isCustomKey(a.id)) {
+      const rev = document.createElement('button');
+      rev.type = 'button';
+      rev.textContent = 'Default key';
+      rev.addEventListener('click', () => gamepad.clearKey(a.id));
+      act.append(' ', rev);
+    }
+
+    tr.append(name, key, sends, act);
+    padBindsEl.append(tr);
+  }
+}
+
+//
+// Learning a key from the keyboard.
+//
+// Capture phase and preventDefault, so the keypress is consumed here rather
+// than reaching the game behind the overlay or the page's own Escape handler --
+// otherwise learning Escape would close the start screen instead of being
+// learned.
+//
+let padLearning = null;
+
+function beginLearn(actionId) {
+  padLearning = padLearning === actionId ? null : actionId;
+  renderPadBinds();
+}
+
+window.addEventListener('keydown', (e) => {
+  if (!padLearning) return;
+  e.preventDefault();
+  e.stopPropagation();
+
+  const keysym = getKeysym(e);
+  const action = padLearning;
+  padLearning = null;
+  if (keysym) gamepad.setKey(action, keysym, getKeycode(e));
+  else renderPadBinds();
+}, true);
+
+async function beginBind(actionId) {
+  padLearning = null;
+  gamepad.cancelCapture();
+  padBinding = actionId;
+  renderPadBinds();
+  const i = await gamepad.captureButton();
+  padBinding = null;
+  // bindAction re-renders through onChange; a cancelled capture does not.
+  if (i === null) renderPadBinds();
+  else gamepad.bindAction(actionId, i);
+}
+
+function renderPadSticks() {
+  if (!padSticksEl) return;
+  padSticksEl.textContent = '';
+  const s = gamepad.settings;
+
+  const check = (key, label) => {
+    const wrap = document.createElement('label');
+    wrap.className = 'wide';
+    const box = document.createElement('input');
+    box.type = 'checkbox';
+    box.checked = !!s[key];
+    box.addEventListener('change', () => gamepad.set(key, box.checked));
+    wrap.append(box, ' ' + label);
+    padSticksEl.append(wrap);
+  };
+
+  const slider = (key, label, min, max, step, fmt) => {
+    const l = document.createElement('label');
+    l.textContent = label;
+    const r = document.createElement('input');
+    r.type = 'range';
+    r.min = min; r.max = max; r.step = step; r.value = s[key];
+    const v = document.createElement('span');
+    v.className = 'val';
+    v.textContent = fmt(s[key]);
+    r.addEventListener('input', () => {
+      v.textContent = fmt(Number(r.value));
+      // Straight onto settings while dragging; saved on release, so a drag is
+      // not a hundred writes to localStorage.
+      s[key] = Number(r.value);
+    });
+    r.addEventListener('change', () => gamepad.set(key, Number(r.value)));
+    padSticksEl.append(l, r, v);
+  };
+
+  check('enabled', 'Use the controller');
+  slider('turnSpeed', 'Turn speed', 2, 40, 1, v => String(Math.round(v)));
+  slider('deadzone', 'Deadzone', 0, 0.5, 0.01, v => Math.round(v * 100) + '%');
+  check('invertTurn', 'Invert turning');
+  check('swapSticks', 'Swap sticks (left turns, right moves)');
+  check('autoRun', 'Push the stick all the way to run');
+}
+
+//
+// The readout.
+//
+// Live, because the useful question is "does this button reach the page at
+// all", and the answer has to be visible while the button is being held. The
+// key log is not live -- it cannot be, since nothing is sent while this panel
+// is up -- so it is kept from the last spell of play: press things, press
+// Escape, open this, read what actually went out.
+//
+const padRawEl = document.getElementById('pad-raw');
+let padRawTimer = 0;
+
+function renderPadRaw() {
+  if (!padRawEl || !padPanelEl || padPanelEl.hidden) return;
+  const s = gamepad.snapshot();
+  const line = (label, value) => {
+    padRawEl.append(label + ' ');
+    const b = document.createElement('b');
+    b.textContent = value;
+    padRawEl.append(b, '\n');
+  };
+
+  padRawEl.textContent = '';
+  line('pads seen  ', String(s.pads));
+  if (!s.pads) {
+    padRawEl.append('\nNothing is being reported. A browser hides a gamepad'
+      + ' until a button on it has been pressed, so press one now. If this'
+      + ' stays at 0 the page is not being given the pad at all and no'
+      + ' binding here can help.\n');
+    return;
+  }
+  line('name       ', String(s.id));
+  line('layout     ', String(s.mapping));
+  line('buttons    ', s.buttonCount + ' reported');
+  line('axes       ', s.axisCount + ': ' + s.axes.join(', '));
+  line('pressed now', s.down.length ? s.down.map(inputName).join('  ') : '\u2014');
+  line('raw buttons', s.active.length
+    ? s.active.map(b => b.i + (b.pressed ? '' : ' (' + b.value + ')')).join('  ')
+    : '\u2014');
+  line('enabled    ', s.enabled ? 'yes' : 'no \u2014 switch it on above');
+  line('holding    ', s.held.length ? s.held.map(keyName).join(' ') : '\u2014');
+
+  padRawEl.append('\nkeys sent while last playing\n');
+  if (!s.log.length) {
+    padRawEl.append('  nothing. If a button showed up as "pressed now" but'
+      + ' nothing is listed here after a spell of play, the page saw the'
+      + ' button and did not send a key. If keys are listed and the game did'
+      + ' not react, they reached the far end and the engine ignored them.\n');
+  } else {
+    for (const e of s.log)
+      padRawEl.append('  ' + keyName(e.keysym) + (e.down ? ' down' : ' up') + '\n');
+  }
+}
+
+function openPad() {
+  if (!padPanelEl) return;
+  padPanelEl.hidden = false;
+  renderPad();
+  renderPadRaw();
+  if (!padRawTimer) padRawTimer = setInterval(renderPadRaw, 120);
+}
+
+function closePad() {
+  if (!padPanelEl) return;
+  gamepad.cancelCapture();
+  padBinding = null;
+  padLearning = null;
+  padPanelEl.hidden = true;
+  if (padRawTimer) { clearInterval(padRawTimer); padRawTimer = 0; }
+  renderPad();
+}
+
+document.getElementById('pad-copy').addEventListener('click', async () => {
+  const said = document.getElementById('pad-copied');
+  const text = (padRawEl && padRawEl.textContent) || '';
+  try {
+    await navigator.clipboard.writeText(text);
+    said.textContent = 'copied';
+  } catch (e) {
+    // A clipboard a browser will not give up is not worth an error: select it
+    // instead and let the ordinary copy do it.
+    const r = document.createRange();
+    r.selectNodeContents(padRawEl);
+    const sel = getSelection();
+    sel.removeAllRanges();
+    sel.addRange(r);
+    said.textContent = 'selected \u2014 copy it';
+  }
+  setTimeout(() => { said.textContent = ''; }, 2500);
+});
+
+document.getElementById('pad-done').addEventListener('click', closePad);
+document.getElementById('pad-reset').addEventListener('click', () => {
+  gamepad.reset();
+  renderPad();
+});
+
+//
+// The engine's own key bindings, which the container reads out of `config.cfg` and
+// serves beside this page because only it can see them.
+//
+// This is what makes a controller work in a level rather than only in the
+// menus. Fetched rather than baked in because it is per-installation: the
+// engine writes that file whenever anybody changes a binding under Options →
+// Customize controls, and a pad pressing the built-in defaults goes dead the
+// moment they do.
+//
+// A failure here is not worth interrupting anybody over: the defaults stand,
+// and the panel still says which key each action sends and still lets it be
+// set by hand.
+//
+// It is worth a line in the container's log, though, and so is success. A page
+// quietly running the built-in defaults at an engine that was rebound behaves
+// exactly like a controller that does not work, and from the log of a
+// container that is serving the file perfectly well the two look identical.
+//
+let padKeysSettled = false;
+
+// One line per page load, whether or not there is ever a controller: which
+// build the browser is actually running, and what it believes the engine's
+// bindings to be. A report that begins "the pad does nothing" against a log
+// with no line here at all is a browser that never loaded this page.
+function padKeysDone(note) {
+  if (padKeysSettled) return;
+  padKeysSettled = true;
+  // Two lines, not one: together they run past what a single log line carries,
+  // and the keymap is the half that was getting cut off.
+  padLog('client __QUAKE_VERSION__, pointerlock ' + (canLock() ? 'yes' : 'no'));
+  padLog('keymap ' + note);
+}
+
+fetch('quake-keys.json', { cache: 'no-store' })
+  .then(r => (r.ok ? r.json() : null))
+  .then(cfg => {
+    if (!cfg) return padKeysDone('unreadable, built-in defaults stand');
+    gamepad.useEngineKeys(cfg);
+    const seen = Object.entries(cfg)
+      .map(([k, v]) => k + '=' + v).sort().join(' ');
+    padKeysDone(seen ? 'from the engine: ' + seen : 'empty, built-in defaults stand');
+  })
+  .catch(() => padKeysDone('could not be fetched, built-in defaults stand'));
+
+// A request that never answers would otherwise hold back the plan below for
+// ever, and the plan is the half of the log worth having.
+setTimeout(() => padKeysDone('did not arrive in five seconds, carrying on'), 5000);
+
+//
+// Tell the container's log which controller this is, and what it will do.
+//
+// Every controller report so far has come down to a question only the pad can
+// answer -- how many buttons does it claim, where do its axes rest, which key
+// is each one going to send -- and none of it is visible from the container.
+// So it is written into the container's log, which is the thing somebody
+// actually pastes when a controller misbehaves.
+//
+// Once per pad, and nothing leaves the machine: it goes to the same container
+// that is serving this page, over the same connection.
+//
+let padReported = null;
+let padPlanned = null;
+
+function reportPad() {
+  const r = gamepad.padReport();
+  if (!r) return;
+
+  if (r.id !== padReported) {
+    padReported = r.id;
+    padLog('found id=' + r.id + ' mapping=' + r.mapping
+           + ' buttons=' + r.buttons + ' axes=' + r.axes
+           + (padActive() ? '' : ' (start screen, nothing sent yet)'));
+  }
+
+  // The plan waits for the engine's bindings. Printed any earlier it describes
+  // the built-in defaults and then the page goes and does something else, which
+  // is precisely the sort of wrong log that costs a release to believe.
+  if (padKeysSettled && r.id !== padPlanned) {
+    padPlanned = r.id;
+    if (gamepad.filledIn.length)
+      padLog('filled in from the defaults, saved layout had no button for: '
+             + gamepad.filledIn.join(' '));
+    for (const line of gamepad.plan()) padLog('plan ' + line);
+
+    // A control the engine has on a key it eats itself cannot work at all --
+    // Enter, Tab, Escape, the F-keys and Pause never reach the code that reads
+    // gamekeydown. Said outright, because the panel row alone is not where
+    // anybody looks, and because the engine's own Controls screen used to let
+    // Enter bind itself, so a config can carry one without anybody choosing it.
+    for (const a of ACTIONS) {
+      const raw = gamepad.rawFor(a.id);
+      if (raw !== null && gamepad.unknownKeyFor(a.id) === raw)
+        padLog('note ' + a.id + ' is key ' + raw + ' in the engine, which the'
+               + ' game never sees -- rebind it in Options > Customize controls');
+    }
+  }
+}
+
+//
+// A real log of what the controller does, in the container's log.
+//
+// Six releases went out on inference because the only instruments were on this
+// screen and nobody was going to read them mid-game. This writes what actually
+// happens to the place a report gets pasted from: every input as it goes down
+// and comes up, and every key or mouse button sent because of it.
+//
+// quake-wsproxy answers this URL itself and prints the lines for the entrypoint
+// to pick up. An earlier version aimed at a URL that did not exist and counted
+// on websockify's request log to carry the query string: it never appeared,
+// because that log is only written under --verbose and is block-buffered on the
+// way out besides. Nothing about this is a side effect any more.
+//
+// Batched, because one request per press would be absurd, and capped, because a
+// log that floods is a log nobody can read. Unbound axes are left out entirely
+// or the sticks would fill it by themselves.
+//
+const PAD_LOG_MAX = 400;
+let padLogQueue = [];
+let padLogSent = 0;
+let padLogTimer = 0;
+
+function padLog(line) {
+  if (padLogSent >= PAD_LOG_MAX) return;
+  padLogSent++;
+  if (padLogSent === PAD_LOG_MAX) line += ' (log full, no more)';
+  padLogQueue.push(line);
+  if (!padLogTimer) padLogTimer = setTimeout(padLogFlush, 400);
+}
+
+//
+// The same channel, for the sound.
+//
+// "I can't hear anything" has causes on both sides of the glass, and from the
+// container the two are identical. This says what the page is doing, so a
+// silent phone can be told apart from a silent page: if this line says the
+// sound is playing, the page has done its part and the fault is the volume, the
+// phone's silent switch, or wherever the audio is being routed -- a controller
+// with its own headphone socket takes the output on some phones, and then
+// nothing comes out of the speaker whatever the page does.
+//
+// Not batched with the controller's lines: they go out under their own tag so
+// `docker logs | grep sound:` finds them on their own.
+//
+let soundLogged = 0;
+
+function soundLog(line) {
+  if (soundLogged >= 8) return;
+  soundLogged++;
+  try {
+    fetch('quake-pad-log?t=sound&l=' + encodeURIComponent(line),
+          { cache: 'no-store' }).catch(() => {});
+  } catch (e) { /* nothing to be done */ }
+}
+
+function padLogFlush() {
+  padLogTimer = 0;
+  if (!padLogQueue.length) return;
+  // A batch at a time, and never a URL long enough to be refused.
+  const batch = [];
+  let size = 0;
+  while (padLogQueue.length && size < 1200) {
+    const line = padLogQueue.shift();
+    size += line.length + 3;
+    batch.push(line);
+  }
+  try {
+    fetch('quake-pad-log?l=' + encodeURIComponent(batch.join('|')),
+          { cache: 'no-store' }).catch(() => {});
+  } catch (e) { /* nothing to be done */ }
+  if (padLogQueue.length) padLogTimer = setTimeout(padLogFlush, 400);
+}
+
+//
+// Watch what the pad is doing and write down the changes.
+//
+// Buttons always, so a press that is bound to nothing still shows up. Axes only
+// where something is bound to them, or the sticks would log continuously.
+//
+let padWasDown = [];
+let padWasKeys = 0;
+let padWasMouse = 0;
+
+function padWatch() {
+  if (!gamepad.available()) return;
+  const s = gamepad.snapshot();
+
+  const interesting = t => /^b/.test(t) || gamepad.bindings[t];
+  const now = s.down.filter(interesting);
+  for (const t of now)
+    if (!padWasDown.includes(t))
+      padLog('down ' + t + ' -> ' + (gamepad.bindings[t] || 'nothing bound')
+             + (padActive() ? '' : ' (start screen, not sent)'));
+  for (const t of padWasDown)
+    if (!now.includes(t)) padLog('up   ' + t);
+  padWasDown = now;
+
+  // And what actually went on the wire because of it. By sequence number, since
+  // the module's own log is a ring and its length says nothing about what is new.
+  for (const e of s.log)
+    if (e.seq > padWasKeys) padLog('sent ' + keyName(e.keysym) + (e.down ? ' down' : ' up'));
+  padWasKeys = s.logSeq;
+
+  // The mouse mask too, which is how fire works for anybody without a fire key.
+  if (s.mouseMask !== padWasMouse) {
+    padLog('mouse mask ' + padWasMouse + ' -> ' + s.mouseMask);
+    padWasMouse = s.mouseMask;
+  }
+}
+
+// The pad appears and disappears without a page load, so the line has to be
+// kept honest on a timer as well as on the connect and disconnect events --
+// Safari has been known not to fire them.
+renderPad();
+setInterval(renderPadNote, 1000);
+
+
+//
+// Sound.
+//
+// VNC carries a picture and nothing else, so the game's audio arrives on a
+// second WebSocket to the same port: raw signed 16 bit stereo, mixed in the
+// container by audiostream, with a short header saying at what rate.
+//
+// It is played through an AudioWorklet rather than a stream of scheduled
+// buffers. The container sends at a steady real-time rate and this machine
+// consumes at its own, which are never quite the same; a worklet with a ring
+// buffer in front of it can absorb that -- pad a little when it runs dry,
+// drop a little when it runs long -- where a queue of scheduled buffers
+// would drift until it either stuttered or fell behind.
+//
+const AUDIO_MAGIC = 'QUAKAUD1';
+
+// How much sound to keep ahead of the speakers. Enough to ride out a network
+// hiccup, little enough that a gunshot is not late: this is added to what the
+// pipes in the container already hold.
+// What the ring buffer starts with and what it will grow to if that turns out
+// not to be enough. Every millisecond here is a millisecond between pulling
+// the trigger and hearing it, so it starts small and earns more only when it
+// actually runs dry -- see quake-ring.js.
+const AUDIO_TARGET_MS     = 25;
+const AUDIO_MAX_TARGET_MS = 250;
+const AUDIO_MAX_MS        = 400;
+
+// The fallback runs on the main thread, alongside noVNC decoding and blitting
+// every frame the game draws. Its own buffer is the bigger cost: a
+// ScriptProcessorNode is handed to the page roughly two buffers ahead of when
+// it is heard, so 4096 frames was about 190 ms of delay on its own, and 1024
+// is a quarter of that.
+//
+// 512 was tried and is worse, not better: it halves that 46 ms but leaves the
+// main thread 11 ms a callback next to noVNC's decoding, and on a busy
+// machine the ring buffer answers the underruns by growing its target to
+// 125 ms -- giving back twice what the smaller buffer saved.
+const AUDIO_FALLBACK_TARGET_MS = 25;
+const AUDIO_FALLBACK_BUFFER    = 1024;
+
+
+let audioCtx = null;
+let audioSocket = null;
+let audioNode = null;
+let audioPush = null;
+let audioRing = null;      // the fallback's, for the note; the worklet has its own
+let audioWanted = true;
+let audioFrames = 0;
+let audioSrcRate = 0;
+let audioEl = null;          // the media element, where one is used
+let audioOutVia = '';        // ... and which way the sound went out
+let audioWatchdog = null;
+let audioVia = '';
+
+// For automated checks; harmless otherwise, like __rfb above.
+window.__audio = () => ({
+  build: '__QUAKE_VERSION__',
+  secure: window.isSecureContext,
+  via: audioVia,
+  state: audioCtx ? audioCtx.state : 'none',
+  rate: audioCtx ? audioCtx.sampleRate : 0,
+  srcRate: audioSrcRate,
+  node: !!audioNode,
+  frames: audioFrames,
+  heldMs: audioRing ? Math.round(audioRing.heldMs()) : null,
+  targetMs: audioRing ? Math.round(audioRing.target * 1000 / audioRing.srcRate) : null,
+  underruns: audioRing ? audioRing.underruns : null,
+  reason: audioReason,
+});
+
+// Sound that does not arrive used to arrive as nothing at all: no message, no
+// way to tell a container sending silence from a page that never connected.
+// Whatever goes wrong now says so, once, in the status line.
+let audioComplained = false;
+let audioReason = '';
+
+function audioFailed(why) {
+  if (audioComplained) return;
+  audioComplained = true;
+  audioReason = why;
+  soundLog('not playing: ' + why);
+  audioStatus('No sound: ' + why + ' The game is unaffected; the picture and '
+            + 'the controls do not depend on it.');
+  audioNote();
+}
+
+//
+// What the sound is actually doing, on the page rather than in a console.
+//
+// Twice now a silent game has been indistinguishable from a broken one from
+// the outside: the container's log is identical either way, and everything
+// that decides whether sound arrives happens in the browser. This says which,
+// where the overlay already is -- press Esc or ` and it is on screen.
+//
+const audioNoteEl = document.getElementById('audio-note');
+
+function audioNote() {
+  if (!audioNoteEl) return;
+
+  let text;
+
+  if (audioComplained)
+    text = 'Sound: ' + audioReason;
+  else if (!audioCtx)
+    text = 'Sound: not started — click to play.';
+  else if (!audioNode)
+    text = 'Sound: connecting…';
+  else if (!SHOW_STATS)
+    // Arriving and playing, so there is nothing the page has to explain. The
+    // rates, the buffer and the underrun count are all diagnostics.
+    text = '';
+  else
+    text = `Sound: on — ${audioSrcRate} Hz in, ${Math.round(audioCtx.sampleRate)}`
+         + ` Hz out, ${(audioFrames / (audioSrcRate || 1)).toFixed(1)} s received`
+         + (audioRing ? `, holding ${Math.round(audioRing.heldMs())} ms` : '')
+         + (audioRing && audioRing.underruns
+              ? ` (grown from ${Math.round(audioRing.minTarget*1000/audioRing.srcRate)}`
+                + ` after ${audioRing.underruns} underrun`
+                + (audioRing.underruns === 1 ? ')' : 's)')
+              : '')
+         + (audioVia === 'worklet' ? '' : ', via the fallback')
+         + (audioCtx.state === 'running' ? '.' : `, context ${audioCtx.state}.`);
+
+  audioNoteEl.textContent = text;
+  audioNoteEl.hidden = !text;
+}
+
+setInterval(audioNote, 500);
+
+
+//
+// The same argument for the picture.
+//
+// The engine can report a healthy 35 frames a second while the browser paints
+// far fewer: VNC only sends what changed, websockify relays it in Python, and
+// the tab has to decode and draw it. Nothing in the container can see the far
+// end of that, so the page counts what it actually painted -- by watching the
+// canvas change, which is the one measure that cannot be fooled by a frame
+// that was sent and never arrived.
+//
+// The engine's own figure is in the container log. Together they say which
+// half of the path a stutter is in, which took an afternoon of guessing the
+// first time.
+//
+const videoNoteEl = document.getElementById('video-note');
+
+let videoPainted = 0;         // canvas changes seen in the current second
+let videoRate = 0;            // ... and in the last full second
+let videoBest = 0;            // the best second lately, which is the real test
+let videoWorstGap = 0;        // longest wait between two of them, ms
+let videoLate = 0;            // paints that took over a tic and a quarter
+let videoStalls = 0;          // times the browser's own frame loop went away
+let videoWorstStall = 0;      // ... and for how long, ms
+const VIDEO_TIC_MS = 1000 / 35;
+
+// VNC sends what changed and nothing else, so a player standing still paints
+// nothing and every figure here reads as a catastrophe -- 1 frame a second,
+// worst wait 1467 ms -- when the truth is that nothing moved. The first
+// version of this said exactly that, and it is the same mistake that made an
+// earlier test harness report its own robot standing still as a 200 ms stall.
+// So: gaps are only counted while the picture is actually changing, and a
+// still screen is reported as a still screen.
+const VIDEO_BUSY_RATE = 10;
+
+(function watchPicture() {
+  const screenEl = document.getElementById('screen');
+  const probe = document.createElement('canvas');
+  probe.width = 48;
+  probe.height = 30;
+  const g = probe.getContext('2d', { willReadFrequently: true });
+
+  let last = 0, prev = null, secondStart = 0, lastTick = 0;
+
+  function frame(now) {
+    //
+    // How late this callback itself was.
+    //
+    // Everything the page does happens on one thread: noVNC decoding the
+    // picture, the sound when it is running through the fallback rather than a
+    // worklet, and this probe. If that thread is busy, frames that arrived
+    // perfectly well never reach the screen -- and from the container's side
+    // that is indistinguishable from frames that never arrived. It is the last
+    // link in the chain with nothing measuring it.
+    //
+    // The browser aims for one of these every 16 ms; 50 is late enough to mean
+    // something held the thread.
+    //
+    if (lastTick && now - lastTick > 50) {
+      videoStalls++;
+      if (now - lastTick > videoWorstStall) videoWorstStall = now - lastTick;
+    }
+    lastTick = now;
+
+    const cv = screenEl && screenEl.querySelector('canvas');
+
+    // Nothing counts while the overlay is up. It covers the picture, so the
+    // canvas stops changing and every figure below would record the reader
+    // looking at them as the worst stutter of the session -- which is exactly
+    // what the first version of this did.
+    if (overlayEl && !overlayEl.hidden) {
+      last = 0;
+      prev = null;
+      secondStart = 0;
+      lastTick = 0;
+      requestAnimationFrame(frame);
+      return;
+    }
+
+    if (cv && cv.width) {
+      try {
+        g.drawImage(cv, 0, 0, probe.width, probe.height);
+        const d = g.getImageData(0, 0, probe.width, probe.height).data;
+        let sum = 0;
+        for (let i = 0; i < d.length; i += 4) sum += d[i] * 3 + d[i+1] * 5 + d[i+2];
+
+        if (prev !== null && sum !== prev) {
+          if (last && videoBusy) {
+            const gap = now - last;
+            if (gap > videoWorstGap) videoWorstGap = gap;
+            if (gap > VIDEO_TIC_MS * 1.25) videoLate++;
+          }
+          last = now;
+          videoPainted++;
+        }
+        prev = sum;
+      } catch (e) {
+        // A canvas that is not ready to be read is not worth a message.
+      }
+    }
+
+    if (!secondStart) secondStart = now;
+    else if (now - secondStart >= 1000) {
+      videoRate = videoPainted * 1000 / (now - secondStart);
+      videoBusy = videoRate >= VIDEO_BUSY_RATE;
+      if (videoRate > videoBest) videoBest = videoRate;
+      videoRateKB = videoBytes / 1024 * 1000 / (now - secondStart);
+      videoPlayBytes += videoBytes;
+      videoPlayMs += now - secondStart;
+      videoPlayKB = videoPlayBytes / 1024 * 1000 / Math.max(1, videoPlayMs);
+      videoBytes = 0;
+      videoPainted = 0;
+      secondStart = now;
+    }
+
+    requestAnimationFrame(frame);
+  }
+
+  requestAnimationFrame(frame);
+})();
+
+function videoNote() {
+  if (!videoNoteEl) return;
+
+  if (!SHOW_STATS) {
+    videoNoteEl.textContent = '';
+    videoNoteEl.hidden = true;
+    return;
+  }
+  videoNoteEl.hidden = false;
+
+  if (!videoBest) {
+    videoNoteEl.textContent = 'Picture: nothing measured yet — play for a few'
+                            + ' seconds, then press Esc.';
+    return;
+  }
+
+  //
+  // These figures describe the last spell of play, and they hold.
+  //
+  // They used to age out on a timer that kept running while this screen was
+  // up -- and this screen can only be read when you have stopped playing, so
+  // what you read was whatever had survived being wiped, measured against a
+  // motionless picture. That is how a quarter-size run came back reporting 8
+  // frames a second and sent me chasing bandwidth that was never the problem.
+  // They are cleared when play starts again instead, so what is on screen is
+  // always the run you just did.
+  //
+  videoNoteEl.textContent =
+    `Picture, while you were playing: best ${videoBest.toFixed(0)} frames a`
+    + ` second of the 35 the game draws`
+    + `, arriving at ${videoPlayKB.toFixed(0)} KB/s`
+    + (videoWorstGap
+         ? `, longest gap ${Math.round(videoWorstGap)} ms, ${videoLate} late`
+         : '')
+    + '.'
+    + (videoStalls
+         ? ` This browser's own drawing stopped ${videoStalls} times, worst`
+           + ` ${Math.round(videoWorstStall)} ms — frames that arrive during`
+           + ` one of those are never painted.`
+         : '')
+    + ` The picture's data arrived in gaps of at most`
+    + ` ${Math.round(videoMsgGap)} ms, and this page took at most`
+    + ` ${Math.round(videoAskGap)} ms to ask for the next frame after one`
+    + ` arrived — ${Math.round(videoHeldWorst)} ms of that with a finished`
+    + ` picture already in hand.`
+    //
+    // Reported every time, not only when it is bad: a run where this is 2 ms
+    // rules the decoder out, and ruling something out is worth as much here
+    // as catching it. Nothing is asked for while the pump is held, so this
+    // figure comes straight off the front of the one above it.
+    //
+    + (videoDecoded
+         ? ` Decoding held this page up for at most`
+           + ` ${Math.round(videoBlockedWorst)} ms of that, the slowest of`
+           + ` ${videoDecoded} pictures taking`
+           + ` ${Math.round(videoDecodeWorst)} ms.`
+         : ` Nothing went through the browser's image decoder, so none of`
+           + ` that wait was decoding.`)
+    + (videoWorstGap
+         ? ` The sound, over the same link, went quiet for at most`
+           + ` ${Math.round(audioWorstGap)} ms.`
+           //
+           // Only worth a conclusion when there is a real stall to explain.
+           // Below that the two figures are both just the ordinary lumpiness
+           // of two streams through one proxy, and comparing them said "both
+           // stopped together" about a perfectly healthy 83 ms gap.
+           //
+           + (videoWorstGap > 200
+                ? (audioWorstGap > videoWorstGap * 0.5
+                     ? ' Both stopped together, so it is the link or the proxy,'
+                       + ' not the picture.'
+                     : ' The sound kept coming through the gap, so the link and'
+                       + ' the proxy were working and the picture alone went'
+                       + ' quiet.')
+                : '')
+         : '');
+}
+
+setInterval(videoNote, 500);
+
+// Cleared when play starts, so every figure describes one spell of play.
+function videoReset() {
+  videoBest = 0;
+  videoStalls = 0;
+  videoWorstStall = 0;
+  audioWorstGap = 0;
+  videoMsgGap = 0;
+  videoAskGap = 0;
+  videoHeldWorst = 0;
+  videoDecodeWorst = 0;
+  videoBlockedWorst = 0;
+  videoDecoded = 0;
+  if (window.__audioGapReset) window.__audioGapReset();
+  videoWorstGap = 0;
+  videoLate = 0;
+  videoPlayBytes = 0;
+  videoPlayMs = 0;
+  videoPlayKB = 0;
+  videoBytes = 0;
+}
+
+window.__video = () => ({
+  painted: videoRate,
+  best: videoBest,
+  kbPerSec: Math.round(videoRateKB),
+  playKB: Math.round(videoPlayKB),
+  busy: videoBusy,
+  worstGapMs: Math.round(videoWorstGap),
+  late: videoLate,
+  stalls: videoStalls,
+  worstStallMs: Math.round(videoWorstStall),
+  audioWorstGapMs: Math.round(audioWorstGap),
+  msgGapMs: Math.round(videoMsgGap),
+  askGapMs: Math.round(videoAskGap),
+  heldWorstMs: Math.round(videoHeldWorst),
+  decoded: videoDecoded,
+  decodeWorstMs: Math.round(videoDecodeWorst),
+  blockedWorstMs: Math.round(videoBlockedWorst),
+});
+
+function audioURL() {
+  return `${scheme}://${location.host}/websockify?token=audio`;
+}
+
+//
+// Called from the click that starts play: an AudioContext created without a
+// gesture behind it starts suspended and stays that way.
+//
+async function startAudio() {
+  if (!audioWanted || audioCtx) return;
+
+  // Only the context constructor. Requiring AudioWorkletNode here was wrong:
+  // the worklet is probed properly below and falls back to a ScriptProcessor
+  // when it is missing, so a browser that has no worklet still has sound -- and
+  // this gate turned it off before the fallback was ever reached. iOS Safari is
+  // where that showed up, reporting "no Web Audio" on a device that has it.
+  const Ctx = window.AudioContext || window.webkitAudioContext;
+
+  if (!Ctx) {
+    audioFailed('this browser has no Web Audio.');
+    return;
+  }
+
+  if (!window.QuakeRing) {
+    audioFailed('quake-ring.js did not load.');
+    return;
+  }
+
+  let ctx;
+
+  try {
+    ctx = new Ctx({ latencyHint: 'interactive' });
+  } catch (e) {
+    audioFailed('the browser would not start an audio context.');
+    return;
+  }
+
+  audioCtx = ctx;
+
+  // AudioWorklet is the better of the two -- it runs on the audio thread,
+  // where nothing the page is doing can interrupt it -- but it is gated on a
+  // secure context, and this page is normally served over plain HTTP from a
+  // machine on the network. `ctx.audioWorklet` is simply absent there, while
+  // the AudioWorkletNode constructor is present, which is what made the first
+  // attempt at this look supported right up until it threw.
+  //
+  // So where there is no worklet the sound goes through a ScriptProcessorNode
+  // instead: deprecated for years, implemented everywhere, and needing no
+  // secure context. Both feed the same QuakeRing.
+  if (ctx.audioWorklet && typeof ctx.audioWorklet.addModule === 'function') {
+    try {
+      await ctx.audioWorklet.addModule('quake-ring.js');
+      await ctx.audioWorklet.addModule('quake-audio.js');
+      audioVia = 'worklet';
+    } catch (e) {
+      audioVia = '';
+    }
+  }
+
+  if (!audioVia) {
+    if (typeof ctx.createScriptProcessor !== 'function') {
+      audioFailed('this browser offers no way to play a stream of audio.');
+      return;
+    }
+    audioVia = 'fallback';
+  }
+
+  let sock;
+
+  try {
+    sock = new WebSocket(audioURL(), 'binary');
+  } catch (e) {
+    audioFailed('the audio connection could not be opened.');
+    return;
+  }
+
+  sock.binaryType = 'arraybuffer';
+  audioSocket = sock;
+
+  // Nothing below reports a stream that connects and then says nothing --
+  // a container built before the sound existed, or one told to send its audio
+  // to PulseAudio instead -- so time it.
+  audioWatchdog = setTimeout(() => {
+    if (!audioFrames)
+      audioFailed('the container is not sending any. Check its log for a '
+                + '"sound:" line, and that PULSE_SERVER is unset.');
+  }, 4000);
+
+  // A WebSocket message is whatever came out of the socket, which is not the
+  // same as whatever went in: the header can arrive split and a message can
+  // end in the middle of a frame. Anything left over waits here for the rest
+  // of itself, because dropping a stray byte would swap the two channels for
+  // the remainder of the session.
+  let carry = new Uint8Array(0);
+  let haveHeader = false;
+
+  sock.onmessage = (e) => {
+    const chunk = new Uint8Array(e.data);
+    let bytes;
+
+    if (carry.length) {
+      bytes = new Uint8Array(carry.length + chunk.length);
+      bytes.set(carry, 0);
+      bytes.set(chunk, carry.length);
+    } else {
+      bytes = chunk;
+    }
+
+    let off = 0;
+
+    if (!haveHeader) {
+      if (bytes.length - off < 16) { carry = bytes.slice(off); return; }
+
+      let magic = '';
+      for (let i = 0; i < 8; i++) magic += String.fromCharCode(bytes[off + i]);
+
+      if (magic !== AUDIO_MAGIC) {
+        audioFailed('what arrived on the audio connection was not sound.');
+        sock.close();
+        return;
+      }
+
+      const srcRate = bytes[off+8] | (bytes[off+9] << 8)
+                    | (bytes[off+10] << 16) | (bytes[off+11] << 24);
+      off += 16;
+      haveHeader = true;
+      audioSrcRate = srcRate;
+
+      try {
+        if (audioVia === 'worklet') {
+          audioNode = new AudioWorkletNode(ctx, 'quake-audio', {
+            outputChannelCount: [2],
+            processorOptions: {
+              srcRate,
+              targetMs: AUDIO_TARGET_MS,
+              maxTargetMs: AUDIO_MAX_TARGET_MS,
+              maxMs: AUDIO_MAX_MS,
+            },
+          });
+
+          audioPush = (f) => audioNode.port.postMessage(f, [f.buffer]);
+        } else {
+          const ring = new QuakeRing(srcRate, ctx.sampleRate,
+                                    AUDIO_FALLBACK_TARGET_MS,
+                                    AUDIO_MAX_TARGET_MS, AUDIO_MAX_MS);
+          audioRing = ring;
+
+          // One input channel, not none: a node with no inputs at all is not
+          // pulled by every implementation, and this one is never connected
+          // to anything, so what it reads is silence either way.
+          audioNode = ctx.createScriptProcessor(AUDIO_FALLBACK_BUFFER, 1, 2);
+
+          audioNode.onaudioprocess = (e) => {
+            const out = e.outputBuffer;
+            ring.read(out.getChannelData(0), out.getChannelData(1));
+          };
+
+          audioPush = (f) => ring.push(f);
+        }
+      } catch (err) {
+        audioFailed('the browser would not start playback (' + err + ').');
+        sock.close();
+        return;
+      }
+
+      // Straight out, or through a media element -- see AUDIO_VIA_ELEMENT.
+      if (AUDIO_VIA_ELEMENT && typeof ctx.createMediaStreamDestination === 'function') {
+        try {
+          const dest = ctx.createMediaStreamDestination();
+          audioNode.connect(dest);
+
+          audioEl = document.createElement('audio');
+          audioEl.setAttribute('playsinline', '');   // or iOS takes it fullscreen
+          audioEl.autoplay = true;
+          audioEl.srcObject = dest.stream;
+
+          // Kept out of the layout but in the document, which Safari wants
+          // before it will play one.
+          audioEl.style.display = 'none';
+          document.body.appendChild(audioEl);
+
+          const started = audioEl.play();
+          if (started && started.catch)
+            started.catch((e) => soundLog('the media element would not play ('
+                                          + e + '); the sound is still going to'
+                                          + ' the default output'));
+
+          audioOutVia = 'a media element';
+        } catch (e) {
+          // Anything goes wrong and the ordinary output is still there.
+          audioEl = null;
+          audioNode.connect(ctx.destination);
+          audioOutVia = 'the default output (the media element failed: ' + e + ')';
+        }
+      } else {
+        audioNode.connect(ctx.destination);
+        audioOutVia = 'the default output';
+      }
+
+      soundLog('playing via the ' + audioVia + ' into ' + audioOutVia + ', '
+               + srcRate + ' Hz in, '
+               + ctx.sampleRate + ' Hz out, context ' + ctx.state
+               + '. If nothing can be heard from here the page is not the'
+               + ' cause: check the volume, a phone\'s silent switch, and'
+               + ' whether a controller with a headphone socket has taken the'
+               + ' output.');
+    }
+
+    // Whole frames only: two channels of 16 bits each.
+    const whole = (bytes.length - off) & ~3;
+    carry = bytes.slice(off + whole);
+
+    if (!whole || !audioNode) return;
+
+    const view = new DataView(bytes.buffer, bytes.byteOffset + off, whole);
+    const f = new Float32Array(whole >> 1);
+
+    for (let i = 0; i < f.length; i++) f[i] = view.getInt16(i * 2, true) / 32768;
+
+    if (!audioFrames && audioWatchdog) {
+      clearTimeout(audioWatchdog);
+      audioWatchdog = null;
+      audioComplained = false;
+      audioReason = '';
+      audioStatus('');
+    }
+
+    audioFrames += whole >> 2;
+    audioPush(f);
+  };
+
+  sock.onclose = () => {
+    audioSocket = null;
+    if (!audioFrames)
+      audioFailed('the container refused the audio connection. It is probably '
+                + 'older than the sound support -- pull the current image.');
+  };
+
+  sock.onerror = () => {
+    if (!audioFrames)
+      audioFailed('the audio connection failed.');
+  };
+
+  // Autoplay policy: a context made inside a click is running, but one made
+  // just before the page was interacted with is not.
+  if (ctx.state === 'suspended') {
+    ctx.resume().catch(() => {});
+
+    // resume() is a promise, and a browser that refuses it does so quietly.
+    setTimeout(() => {
+      if (audioCtx && audioCtx.state === 'suspended')
+        audioFailed('the browser is holding the sound until you interact with '
+                  + 'the page. Click the picture.');
+    }, 1500);
+  }
+}
+
+function stopAudio() {
+  if (audioWatchdog) { clearTimeout(audioWatchdog); audioWatchdog = null; }
+  if (audioSocket) { audioSocket.close(); audioSocket = null; }
+  if (audioNode)   {
+    audioNode.onaudioprocess = null;   // no-op on a worklet node
+    audioNode.disconnect();
+    audioNode = null;
+  }
+  if (audioEl) {
+    // Stopped and detached, or Safari keeps the session -- and the route it
+    // chose -- alive after the game has finished with it.
+    try { audioEl.pause(); } catch (e) { /* already gone */ }
+    audioEl.srcObject = null;
+    audioEl.remove();
+    audioEl = null;
+  }
+  audioOutVia = '';
+  audioPush = null;
+  audioRing = null;
+  if (audioCtx)    { audioCtx.close().catch(() => {}); audioCtx = null; }
+}
+
+window.addEventListener('pagehide', stopAudio);
+
+//
+// Escape belongs to the browser: it releases the mouse and brings this screen
+// back, in both modes and in every browser.
+//
+// It used to be taken from the browser with the Keyboard Lock API, because
+// Escape was the game's own menu key and Pointer Lock hands Escape to the
+// browser. That reasoning stopped being true in 1.10.14, when the menu moved
+// to ` -- but the lock stayed, and with it a way out that behaved differently
+// depending on whether you had started fullscreen and whether the browser
+// granted the lock at all. Keyboard Lock needs a secure context, so the same
+// container answered Esc one way over HTTPS and another over plain HTTP on a
+// LAN, which is not something anyone should have to know.
+//
+// So: ` opens the game menu, Esc gets you out. Nothing to explain.
+//
+
+// Which way play was last started, so clicking the picture after Esc resumes
+// the same way rather than surprising anyone with fullscreen.
+let wantFullscreen = true;
+
+//
+// A way into the game's own menu, because Esc is not available to give it.
+//
+// DOOM moved its menu onto ` and was done. Quake cannot: ` is the console, and
+// the console is how you load a map, change a skill or start the music, so
+// taking it would cost more than it gained. Quake's menu key is Esc, and while
+// the pointer is locked Esc belongs to the browser -- that is Pointer Lock's
+// one reserved key and there is no asking for it back outside a secure
+// context.
+//
+// So the menu is opened from here instead. One press of Escape goes to the
+// engine, then play resumes the way it was last started, and the game comes
+// back with its menu already up.
+//
+const XK_ESCAPE = 0xff1b;
+
+function openGameMenu() {
+  // The same call the keyboard handler and the controller make: same branch
+  // inside sendKey, same bytes on the wire.
+  rfb.sendKey(XK_ESCAPE, 'Escape', true);
+  setTimeout(() => rfb.sendKey(XK_ESCAPE, 'Escape', false), 40);
+  // Long enough for the engine to have read the key before the picture is
+  // handed back, so the menu is up by the time anybody looks at it.
+  setTimeout(() => enterPlay(wantFullscreen), 90);
+}
+
+function enterPlay(fullscreen) {
+  const c = canvas();
+  if (!c) return;
+
+  wantFullscreen = fullscreen;
+
+  // Both requests go out inside the click, before anything is awaited.
+  //
+  // Awaiting fullscreen first and asking for the pointer afterwards spends
+  // the click's user activation on the way, and the browser then refuses the
+  // pointer lock -- silently. That left the game running with an ordinary
+  // remote-desktop pointer while the engine recentred underneath it, which is
+  // the worst of both and jitters.
+  if (c.requestPointerLock) c.requestPointerLock();
+
+  // Inside the click too: this is the user activation that lets sound play.
+  startAudio();
+  if (audioCtx && audioCtx.state === 'suspended') audioCtx.resume().catch(() => {});
+
+  let fs = Promise.resolve();
+  if (fullscreen && !document.fullscreenElement
+      && document.documentElement.requestFullscreen) {
+    try {
+      fs = document.documentElement.requestFullscreen({ navigationUI: 'hide' })
+             || Promise.resolve();
+    } catch (e) {
+      fs = Promise.reject(e);
+    }
+  }
+
+  // Fullscreen may be refused -- an iframe without permission, or a browser
+  // that says no -- and it is playable either way.
+  fs.then(fitCanvas).catch(() => {});
+
+  rfb.focus();
+  fitCanvas();
+  retireEscNote();
+  closePad();
+
+  //
+  // Start playing on a device that cannot lock the pointer.
+  //
+  // The only thing that hides this screen is the pointerlockchange handler
+  // further down, and without a Pointer Lock API that event never fires. So on
+  // iOS the start screen stayed up over the game for ever: the picture was
+  // behind it, the buttons did nothing that lasted, and padActive() -- which is
+  // `overlay.hidden` -- never became true, so the controller was never allowed
+  // to send a single key. Everything else about the pad was working.
+  //
+  // Escape puts it back: the handler there already checks locked(), which is
+  // false here, so it shows this screen again without help.
+  //
+  if (!canLock()) {
+    overlayEl.hidden = true;
+    videoReset();
+    resetPointer();
+    rfb.focus();
+  }
+
+  // Nothing reports a refused pointer lock reliably, so check. But only where
+  // there was a lock to refuse: a device without the API has not failed at
+  // anything, and on a phone every word of that warning is wrong.
+  setTimeout(() => {
+    if (canLock() && !locked()) {
+      status('The browser did not capture the mouse. Click the picture to try '
+           + 'again. Until it does the view will jump about, because the '
+           + 'engine is measuring a pointer that is not being recentred.');
+    } else if (canLock()) {
+      status('');
+    }
+    // The no-pointer-lock case is not decided here. It is answered every frame
+    // by refreshNoMouse() below, because the answer changes: iOS hands the page
+    // a controller only once a button has been pressed on it, which is the very
+    // thing the note asks for -- so a note written once, 700 ms in, went on
+    // telling somebody holding a connected pad to go and connect a pad.
+    refreshNoMouse();
+  }, 700);
+}
+
+// Told once. Anybody reading this screen again got here with Esc, so
+// explaining Esc to them is just something else to read.
+function retireEscNote() {
+  const note = document.getElementById('esc-note');
+  if (note) note.hidden = true;
+}
+
+document.getElementById('play-fullscreen')
+  .addEventListener('click', () => enterPlay(true));
+document.getElementById('play-windowed')
+  .addEventListener('click', () => enterPlay(false));
+document.getElementById('play-menu')
+  .addEventListener('click', openGameMenu);
+
+// Clicking the picture after the capture is released resumes however play was
+// started, so Escape then click does not drop anyone into fullscreen.
+screenEl.addEventListener('click', () => {
+  if (!locked()) enterPlay(wantFullscreen);
+});
+
+document.addEventListener('fullscreenchange', fitCanvas);
+
+//
+// Esc, handled here rather than left to the browser.
+//
+// Releasing the mouse on Esc was the browser's own behaviour, and the page
+// only watched for the result. That works until it does not: a browser that
+// keeps the key, a client that swallows it, a fullscreen that eats the first
+// press. Two releases have now gone by with Esc still not bringing this screen
+// back for somebody, and every one of them was a guess about what the browser
+// would do. So the page does it itself, in the capture phase before noVNC sees
+// the key, and asks for the same thing the browser would have: drop the
+// pointer, leave fullscreen.
+//
+// The browser's own handling still runs; both arriving at the same end is
+// harmless, since exitPointerLock on an already-released pointer does nothing.
+//
+window.addEventListener('keydown', (e) => {
+  if (e.key !== 'Escape' && e.keyCode !== 27) return;
+  if (!locked() && !document.fullscreenElement) return;
+
+  // The game's menu is on `, so Esc is not the game's to handle.
+  e.preventDefault();
+  e.stopPropagation();
+
+  try { if (document.exitPointerLock) document.exitPointerLock(); } catch (err) {}
+  try { if (document.fullscreenElement && document.exitFullscreen)
+          document.exitFullscreen(); } catch (err) {}
+
+  // Belt and braces: if neither of those produced an event -- which is the
+  // failure this exists for -- show the screen anyway.
+  setTimeout(() => { if (!locked()) overlayEl.hidden = false; }, 150);
+}, true);
+
+document.addEventListener('pointerlockchange', () => {
+  overlayEl.hidden = locked();
+  if (locked()) {
+    videoReset();
+    resetPointer();
+    rfb.focus();
+  } else {
+    releaseButtons();
+  }
+});
+
+// A button held while the window goes away is the other way to get stuck.
+window.addEventListener('blur', releaseButtons);
+document.addEventListener('visibilitychange', () => {
+  if (document.hidden) releaseButtons();
+});
+
+document.addEventListener('pointerlockerror', () => {
+  status('The browser would not capture the mouse; playing without capture.');
+});
+
+// Capture phase on the window, so these run before noVNC's own handlers on
+// the canvas and can stop them sending absolute positions that are frozen
+// while the pointer is locked.
+window.addEventListener('mousemove', (e) => {
+  if (!locked()) return;
+  e.stopPropagation();
+  pendingX += e.movementX || 0;
+  pendingY += e.movementY || 0;
+  queueFlush();
+}, true);
+
+window.addEventListener('mousedown', (e) => {
+  if (!locked()) return;
+  e.stopPropagation();
+  e.preventDefault();
+  buttons |= 1 << e.button;
+  // Send the movement that is already waiting, then the press on its own, so
+  // it cannot sit behind a frame's worth of queued motion.
+  flushMouse();
+  sendButtons();
+}, true);
+
+window.addEventListener('mouseup', (e) => {
+  if (!locked()) return;
+  e.stopPropagation();
+  e.preventDefault();
+  buttons &= ~(1 << e.button);
+  flushMouse();
+  sendButtons();
+}, true);
+
+window.addEventListener('contextmenu', (e) => {
+  if (locked()) e.preventDefault();
+});
+
+status('Connecting…');
+</script>
+</body>
+</html>

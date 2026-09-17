@@ -414,3 +414,16 @@ void CDAudio_Shutdown(void)
 	close(cdfile);
 	cdfile = -1;
 }
+
+
+/*
+==================
+CDAudio_MixPaintBuffer
+
+Nothing to mix: this backend plays through the drive's own DAC, which never
+passes through the engine. See cd_stream.c for the one that does.
+==================
+*/
+void CDAudio_MixPaintBuffer (portable_samplepair_t *buffer, int count)
+{
+}

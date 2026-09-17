@@ -30,8 +30,12 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 #define MAXWORKINGVERTS	(MAXVERTS+4)	// max points in an intermediate
 										//  polygon (while processing)
 // !!! if this is changed, it must be changed in d_ifacea.h too !!!
-#define	MAXHEIGHT		1024
-#define	MAXWIDTH		1280
+// 1280x1024 was the ceiling in 1996 and it is the wrong shape for anything
+// sold since. These bound the renderer's static tables (d_scantable,
+// zspantable, the edge lists, the warp sine tables) and a few stack arrays,
+// so raising them costs about 90 KB of bss and a slightly deeper frame.
+#define	MAXHEIGHT		1200
+#define	MAXWIDTH		1920
 #define MAXDIMENSION	((MAXHEIGHT > MAXWIDTH) ? MAXHEIGHT : MAXWIDTH)
 
 #define SIN_BUFFER_SIZE	(MAXDIMENSION+CYCLE)

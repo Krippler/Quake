@@ -325,6 +325,10 @@ void S_PaintChannels(int endtime)
 															  
 		}
 
+	// Music, on top of the effects and before the transfer scales and clips.
+	// On the CD this never went through the mixer at all -- see cd_stream.c.
+		CDAudio_MixPaintBuffer (paintbuffer, end - paintedtime);
+
 	// transfer out according to DMA format
 		S_TransferPaintBuffer(end);
 		paintedtime = end;
@@ -357,7 +361,8 @@ void SND_PaintChannelFrom8 (channel_t *ch, sfxcache_t *sc, int count)
 		
 	lscale = snd_scaletable[ch->leftvol >> 3];
 	rscale = snd_scaletable[ch->rightvol >> 3];
-	sfx = (signed char *)sc->data + ch->pos;
+	sfx = (unsigned char *)sc->data + ch->pos;	// signed samples, read back
+												// through snd_scaletable's signed index
 
 	for (i=0 ; i<count ; i++)
 	{

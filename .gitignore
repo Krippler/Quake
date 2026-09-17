@@ -1,0 +1,21 @@
+# Build output
+WinQuake/linux/
+audiostream/linux/
+*.o
+*.d
+
+# Game data is not distributed with this source, and cannot be: id's shareware
+# licence covers passing the shareware release along whole, in its original
+# archive, not a pak file lifted out of it.
+*.pak
+*.PAK
+quakedata/
+id1/
+music/
+
+# Runtime artefacts
+config.cfg
+s0.sav
+s*.sav
+quake0*.pcx
+__pycache__/

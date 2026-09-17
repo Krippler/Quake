@@ -44,6 +44,11 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 #include <stdio.h>
 #include <stdlib.h>
 #include <setjmp.h>
+// uintptr_t and offsetof, for the handful of places that stuff a small value
+// into a pointer or take a member offset. Both were written as (int) in 1996,
+// which is a different size from a pointer here.
+#include <stdint.h>
+#include <stddef.h>
 
 #if defined(_WIN32) && !defined(WINDED)
 
@@ -94,7 +99,7 @@ void	VID_UnlockBuffer (void);
 
 
 #define	MAX_QPATH		64			// max length of a quake game pathname
-#define	MAX_OSPATH		128			// max length of a filesystem pathname
+#define	MAX_OSPATH		512			// max length of a filesystem pathname
 
 #define	ON_EPSILON		0.1			// point on plane side epsilon
 

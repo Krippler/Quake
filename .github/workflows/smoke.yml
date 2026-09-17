@@ -1,0 +1,74 @@
+name: Smoke test
+
+# There is no game data in this repository and there cannot be, so this builds
+# its own: tools/make-test-data.py writes a pak holding the palette, the
+# colormap, a gfx.wad with every lump the startup path asks for by name, and a
+# 440 Hz tone. The engine then starts on a throwaway Xvfb and has to draw a
+# frame and put the tone on its audio pipe at the right pitch.
+#
+# It does not reach a level -- that needs progs.dat and a BSP -- so the 3D
+# renderer, the server and the QuakeC interpreter are not covered. What is
+# covered is every piece that a 64-bit build broke first time round: the pak
+# and WAD readers, the zone and hunk allocators, the palette upload, the 2D
+# blitter, the X11 8-bit path, the mixer, the resampler, and a clean shutdown
+# on a signal.
+
+on:
+  push:
+    branches: ["master", "claude/**", "fix/**", "feat/**"]
+  pull_request:
+    branches: ["master"]
+
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install build and test dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            gcc libc6-dev make pkg-config \
+            libx11-dev libxext-dev libsndfile1-dev \
+            xvfb x11-apps imagemagick
+
+      - name: Build the engine
+        run: make -C WinQuake -j"$(nproc)"
+
+      - name: Build audiostream
+        run: make -C audiostream -j"$(nproc)"
+
+      # Every combination has to keep linking: MUSIC=none and SOUND=oss are the
+      # ones nobody builds by hand and so the ones that rot.
+      - name: Build the other configurations
+        run: |
+          set -e
+          for combo in "SOUND=oss MUSIC=cd" "SOUND=stream MUSIC=none" "SOUND=none"; do
+            echo "== $combo"
+            make -C WinQuake clean >/dev/null
+            make -C WinQuake -j"$(nproc)" $combo
+          done
+          make -C WinQuake clean >/dev/null
+          make -C WinQuake -j"$(nproc)"
+
+      - name: Run the smoke test
+        run: tools/smoke-test.sh "${RUNNER_TEMP}/quake-smoke"
+
+      - name: Keep the screenshot
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: smoke-screenshot
+          path: ${{ runner.temp }}/quake-smoke/screen.png
+          if-no-files-found: ignore
+
+      - name: Check the shell and the client parse
+        run: |
+          sh -n docker/entrypoint.sh
+          sh -n tools/smoke-test.sh
+          python3 -c "import ast,sys; ast.parse(open('docker/quake-wsproxy.py').read())"
+          python3 -c "import ast,sys; ast.parse(open('tools/make-test-data.py').read())"
+          node --check docker/quake-gamepad.js
+          node --check docker/quake-ring.js
+          python3 -c "import xml.dom.minidom; xml.dom.minidom.parse('templates/unraid.xml')"
