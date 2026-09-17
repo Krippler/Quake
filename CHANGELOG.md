@@ -74,6 +74,31 @@ on the default branch publishes that version, `## [Unreleased]` publishes only
 - `vid_menudrawfn` and `vid_menukeyfn` were defined in both `menu.c` and
   `vid_x.c`, and only `-fcommon` merged the two into one symbol. `menu.c` owns
   them now.
+- **A command line longer than 1023 bytes killed the engine.** `Cbuf_Execute`
+  copies each line out of the 8 KB command buffer into a 1024-byte array on the
+  stack with `memcpy`, using the length it measured in the buffer and not the
+  size of the array, then writes a nul one past that. One command with no
+  newline or semicolon in it — a config file whose last line has no terminator,
+  or a long enough `bind` — overran it; glibc's `_FORTIFY_SOURCE` check turns
+  that into `SIGABRT`, which is why it aborts rather than doing something
+  worse. Such a line is now reported and dropped, because half a command is not
+  the command that was asked for.
+- **`Cbuf_AddText: overflow` now says what overflowed.** The 1996 message was
+  that one word: not how large the buffer is, not how much was in use, and not
+  what was being added. Whatever fills the buffer is usually still going, so it
+  arrived scores of times and pushed anything that might have explained it off
+  the top of the console. It reports once, with the size, the amount in use and
+  the start of the text that was dropped, counts the rest, and says how many
+  were lost when there is room again.
+- **The mouse wheel could flood the command buffer.** The wheel handling added
+  in this release called `Key_Event` straight from the X event loop rather than
+  through the key queue that everything else goes through. `Sys_SendKeyEvents`
+  dispatches at most one queue's worth per frame, and that bound is what keeps
+  a frame's key events from outgrowing the command buffer — which `Cbuf_Execute`
+  drains only once per frame. Bypassing it meant one frame could take an
+  unbounded number of notches, each writing its binding into the buffer. All
+  four wheel events go through the queue now, as do the two key paths, so there
+  is one way in.
 - The X11 driver ignored `MappingNotify`. Xlib caches the keyboard mapping when
   the connection opens, and x11vnc types a character the keymap does not have
   by binding it to a spare keycode and putting the keymap back afterwards, so

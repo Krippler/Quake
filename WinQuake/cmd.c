@@ -83,6 +83,9 @@ Cbuf_AddText
 Adds command text at the end of the buffer
 ============
 */
+static qboolean	cmd_full;		// the buffer filled and has stayed full
+static int		cmd_dropped;	// how many commands were lost to it
+
 void Cbuf_AddText (char *text)
 {
 	int		l;
@@ -91,8 +94,42 @@ void Cbuf_AddText (char *text)
 
 	if (cmd_text.cursize + l >= cmd_text.maxsize)
 	{
-		Con_Printf ("Cbuf_AddText: overflow\n");
+	// The 1996 message was the word "overflow" and nothing else: not how
+	// large the buffer is, not how much of it was in use, and not what was
+	// being added. Whatever filled the buffer is usually still going, so the
+	// message arrives hundreds of times and pushes everything that might have
+	// explained it off the top of the console -- which is how it reached a bug
+	// report as a screenshot of one line repeated fourteen times.
+	//
+	// Say it once, with the text that was dropped, and count the rest.
+		if (!cmd_full)
+		{
+			char	what[65];
+			int		n;
+
+			for (n = 0 ; n < (int)sizeof(what) - 1 && text[n] ; n++)
+				what[n] = (text[n] == '\n' || text[n] == '\r')
+						  ? ' ' : text[n];
+			what[n] = 0;
+
+			Con_Printf ("Cbuf_AddText: the command buffer is full -- %d of "
+						"%d bytes used, and %d more will not fit.\n",
+						cmd_text.cursize, cmd_text.maxsize, l);
+			Con_Printf ("  dropped: %s%s\n", what, text[n] ? "..." : "");
+			cmd_full = true;
+		}
+		cmd_dropped++;
 		return;
+	}
+
+	if (cmd_full)
+	{
+	// Room again. Report the total rather than leaving it to be guessed from
+	// how many lines went past.
+		Con_Printf ("Cbuf_AddText: room again; %d command%s dropped.\n",
+					cmd_dropped, cmd_dropped == 1 ? " was" : "s were");
+		cmd_full = false;
+		cmd_dropped = 0;
 	}
 
 	SZ_Write (&cmd_text, text, Q_strlen (text));
@@ -146,6 +183,7 @@ void Cbuf_Execute (void)
 	char	*text;
 	char	line[1024];
 	int		quotes;
+	qboolean	too_long;
 	
 	while (cmd_text.cursize)
 	{
@@ -164,8 +202,25 @@ void Cbuf_Execute (void)
 		}
 			
 				
-		memcpy (line, text, i);
-		line[i] = 0;
+// A line too long for the array it is copied into.
+//
+// The original copied cmd_text.cursize bytes -- up to the whole 8 KB command
+// buffer -- into this 1024-byte stack array and then wrote a nul one past
+// that, so one long command with no newline or semicolon in it smashed the
+// stack. It takes a config file whose last line has no terminator, or a bind
+// with a long enough argument, and nothing anywhere said the length mattered.
+//
+// Dropped rather than truncated: half of a command is not the command that
+// was asked for, and running it would be a worse outcome than not.
+		too_long = (i > (int)sizeof(line) - 1);
+		if (too_long)
+			Con_Printf ("Cbuf_Execute: dropped a %d byte command line; the "
+						"limit is %d\n", i, (int)sizeof(line) - 1);
+		else
+		{
+			memcpy (line, text, i);
+			line[i] = 0;
+		}
 		
 // delete the text from the command buffer and move remaining commands down
 // this is necessary because commands (exec, alias) can insert data at the
@@ -181,7 +236,8 @@ void Cbuf_Execute (void)
 		}
 
 // execute the command line
-		Cmd_ExecuteString (line, src_command);
+		if (!too_long)
+			Cmd_ExecuteString (line, src_command);
 		
 		if (cmd_wait)
 		{	// skip out while text still remains in buffer, leaving it

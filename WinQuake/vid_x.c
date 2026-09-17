@@ -1069,6 +1069,27 @@ struct
 int keyq_head=0;
 int keyq_tail=0;
 
+/*
+================
+Keyq_Add
+
+Everything that turns into a key goes through here, and Sys_SendKeyEvents
+dispatches at most one ring's worth per frame. That bound matters: Key_Event
+writes the key's binding into the command buffer, and the command buffer is
+only drained once per frame by Cbuf_Execute. Calling Key_Event straight from
+the event loop -- which the wheel handling below used to do -- lets one frame
+feed it an unbounded amount of text, and a stall long enough to queue a few
+hundred notches then fills the 8 KB buffer and turns the console into a column
+of "Cbuf_AddText: overflow".
+================
+*/
+static void Keyq_Add (int key, qboolean down)
+{
+	keyq[keyq_head].key = key;
+	keyq[keyq_head].down = down;
+	keyq_head = (keyq_head + 1) & 63;
+}
+
 int config_notify=0;
 int config_notify_width;
 int config_notify_height;
@@ -1081,14 +1102,10 @@ void GetEvent(void)
 	XNextEvent(x_disp, &x_event);
 	switch(x_event.type) {
 	case KeyPress:
-		keyq[keyq_head].key = XLateKey(&x_event.xkey);
-		keyq[keyq_head].down = true;
-		keyq_head = (keyq_head + 1) & 63;
+		Keyq_Add (XLateKey(&x_event.xkey), true);
 		break;
 	case KeyRelease:
-		keyq[keyq_head].key = XLateKey(&x_event.xkey);
-		keyq[keyq_head].down = false;
-		keyq_head = (keyq_head + 1) & 63;
+		Keyq_Add (XLateKey(&x_event.xkey), false);
 		break;
 
 	case MotionNotify:
@@ -1145,12 +1162,12 @@ void GetEvent(void)
 	case ButtonPress:
 		if (x_event.xbutton.button == 4)
 		{
-			Key_Event (K_MWHEELUP, true);
+			Keyq_Add (K_MWHEELUP, true);
 			break;
 		}
 		if (x_event.xbutton.button == 5)
 		{
-			Key_Event (K_MWHEELDOWN, true);
+			Keyq_Add (K_MWHEELDOWN, true);
 			break;
 		}
 		b=-1;
@@ -1167,12 +1184,12 @@ void GetEvent(void)
 	case ButtonRelease:
 		if (x_event.xbutton.button == 4)
 		{
-			Key_Event (K_MWHEELUP, false);
+			Keyq_Add (K_MWHEELUP, false);
 			break;
 		}
 		if (x_event.xbutton.button == 5)
 		{
-			Key_Event (K_MWHEELDOWN, false);
+			Keyq_Add (K_MWHEELDOWN, false);
 			break;
 		}
 		b=-1;
