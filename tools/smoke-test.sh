@@ -109,26 +109,45 @@ if command -v xdpyinfo >/dev/null 2>&1; then
 
     # And at runtime, which is what the Video Options menu does: it writes
     # vid_width and vid_height and the next frame picks them up.
+    #
+    # Waited for rather than slept on: typing goes in through XTEST and the
+    # engine acts on it a frame later, and how long that takes is up to
+    # whatever else the machine is doing. A fixed sleep here is a test that
+    # passes on a laptop and flakes on a shared runner.
+    wait_for_screen() {
+        i=0
+        while [ "$i" -lt 100 ]; do
+            [ "$(screen_size)" = "$1" ] && return 0
+            i=$((i + 1))
+            sleep 0.2
+        done
+        return 1
+    }
+
     if command -v xdotool >/dev/null 2>&1; then
+        # XTEST delivers to whatever has the input focus, and with no window
+        # manager that is the window under the pointer.
         DISPLAY="$disp" xdotool mousemove 100 100
         DISPLAY="$disp" xdotool key grave
         sleep 0.5
         DISPLAY="$disp" xdotool type --delay 25 "vid_width 512;vid_height 384"
         DISPLAY="$disp" xdotool key Return
-        sleep 2
-        size=$(screen_size)
-        [ "$size" = "512x384" ] \
-            || die "after vid_width/vid_height the screen is $size, not 512x384"
-        say "a mode change at runtime took the screen to $size"
+        wait_for_screen 512x384 \
+            || die "after vid_width/vid_height the screen is $(screen_size), not 512x384"
+        say "a mode change at runtime took the screen to 512x384"
 
+        # Back up again, which is the direction that used to crash: the
+        # console is redrawn into the new, larger framebuffer part-way through
+        # the reallocation. See block_drawing in vid_x.c.
         DISPLAY="$disp" xdotool type --delay 25 "vid_width 640;vid_height 480"
         DISPLAY="$disp" xdotool key Return
-        sleep 2
+        wait_for_screen 640x480 \
+            || die "the screen did not come back to 640x480 (it is $(screen_size))"
+        kill -0 "$game_pid" 2>/dev/null \
+            || die "the engine died changing mode to a larger one; see $work/quake.log"
+        say "and back up to 640x480, which is the direction that used to crash"
         DISPLAY="$disp" xdotool key grave
         sleep 0.5
-        size=$(screen_size)
-        [ "$size" = "640x480" ] \
-            || die "the screen did not come back to 640x480 (it is $size)"
     else
         say "xdotool missing; skipping the runtime mode change"
     fi
