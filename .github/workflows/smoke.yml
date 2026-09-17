@@ -37,8 +37,8 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
             gcc libc6-dev make pkg-config \
-            libx11-dev libxext-dev libsndfile1-dev \
-            xvfb x11-apps imagemagick
+            libx11-dev libxext-dev libxrandr-dev libsndfile1-dev \
+            xvfb x11-apps x11-utils xdotool imagemagick
 
       - name: Build the engine
         run: make -C WinQuake -j"$(nproc)"

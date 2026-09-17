@@ -90,13 +90,17 @@ drops to that user; started with `--user` it stays as whoever you gave it.
 The software renderer draws every pixel on the CPU, so the resolution is a real
 choice rather than a free one. 640x480 is the default; the ceiling is 1920x1200.
 
+Pick it in the game — **Options → Video Options** lists twenty modes and
+switches to the one you choose, and remembers it. Or set where it starts:
+
 ```
 docker run --rm -p 6080:6080 -e QUAKE_WIDTH=1280 -e QUAKE_HEIGHT=800 \
   -v /path/to/quake:/quakedata:ro ghcr.io/krippler/quake
 ```
 
 The browser scales whatever it is given to fit the window, so a lower number is
-not a smaller picture — it is a softer one, and a faster one.
+not a smaller picture — it is a softer one, and a faster one. Switching mode
+resizes the X screen the browser is watching, so the picture blinks once.
 
 ## Images
 

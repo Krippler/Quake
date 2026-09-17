@@ -42,7 +42,9 @@ endif
 
 ALL_CFLAGS = $(BASE_CFLAGS) $(QUIET_WARNINGS) $(CFLAGS) $(MUSIC_CFLAGS) $(EXTRA_CFLAGS)
 
-XLDFLAGS = -lX11 -lXext
+# -lXrandr is what lets the video menu resize the X screen as well as the
+# window; see VID_SetScreenSize in vid_x.c.
+XLDFLAGS = -lX11 -lXext -lXrandr
 # -rdynamic puts the engine's own symbols in the dynamic symbol table, which is
 # where backtrace_symbols_fd looks. Without it a crash backtrace is a column of
 # addresses; with it, function names. See Sys_CrashHandler in sys_linux.c.

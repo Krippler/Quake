@@ -50,12 +50,16 @@ cd "$work"
 say "building synthetic game data"
 python3 "$here/tools/make-test-data.py" "$work" >/dev/null
 
-say "starting Xvfb on $disp at 640x480x8"
+# Deliberately larger than the window the engine is asked for, so that the
+# screen resize -resizescreen does at startup is something this test can see
+# happen. An X server's maximum screen size is fixed when it starts, which is
+# why the container starts Xvfb at the largest mode rather than the one in use.
+say "starting Xvfb on $disp at 800x600x8"
 # -noreset, as the container's entrypoint passes: without it Xvfb resets the
 # server when the last client disconnects, and the second phase below -- which
 # connects after the first engine has exited -- lands in the middle of that
 # and cannot open the display at all.
-Xvfb "$disp" -screen 0 640x480x8 -nolisten tcp -noreset >"$work/xvfb.log" 2>&1 &
+Xvfb "$disp" -screen 0 800x600x8 -nolisten tcp -noreset >"$work/xvfb.log" 2>&1 &
 xvfb_pid=$!
 
 cleanup() {
@@ -78,13 +82,59 @@ cat_pid=$!
 
 say "running the engine"
 DISPLAY="$disp" QUAKE_AUDIO_FIFO="$work/audio.fifo" \
-    "$engine" -basedir "$work" -width 640 -height 480 \
+    "$engine" -basedir "$work" -resizescreen -width 640 -height 480 \
     >"$work/quake.log" 2>&1 &
 game_pid=$!
 
 sleep 8
 
 kill -0 "$game_pid" 2>/dev/null || die "the engine exited; see $work/quake.log"
+
+# ------------------------------------------------------------------ video mode
+#
+# xdpyinfo opens a fresh connection each time it runs, which is the point:
+# DisplayWidth/DisplayHeight are cached per connection and do not follow a
+# RANDR resize, so anything holding one open reports the old size.
+#
+screen_size() {
+    DISPLAY="$disp" xdpyinfo 2>/dev/null \
+        | sed -n 's/^  dimensions: *\([0-9]*x[0-9]*\) .*/\1/p' | head -1
+}
+
+if command -v xdpyinfo >/dev/null 2>&1; then
+    size=$(screen_size)
+    [ "$size" = "640x480" ] \
+        || die "the screen is $size; -resizescreen should have brought 800x600 down to 640x480"
+    say "the engine resized the screen to $size"
+
+    # And at runtime, which is what the Video Options menu does: it writes
+    # vid_width and vid_height and the next frame picks them up.
+    if command -v xdotool >/dev/null 2>&1; then
+        DISPLAY="$disp" xdotool mousemove 100 100
+        DISPLAY="$disp" xdotool key grave
+        sleep 0.5
+        DISPLAY="$disp" xdotool type --delay 25 "vid_width 512;vid_height 384"
+        DISPLAY="$disp" xdotool key Return
+        sleep 2
+        size=$(screen_size)
+        [ "$size" = "512x384" ] \
+            || die "after vid_width/vid_height the screen is $size, not 512x384"
+        say "a mode change at runtime took the screen to $size"
+
+        DISPLAY="$disp" xdotool type --delay 25 "vid_width 640;vid_height 480"
+        DISPLAY="$disp" xdotool key Return
+        sleep 2
+        DISPLAY="$disp" xdotool key grave
+        sleep 0.5
+        size=$(screen_size)
+        [ "$size" = "640x480" ] \
+            || die "the screen did not come back to 640x480 (it is $size)"
+    else
+        say "xdotool missing; skipping the runtime mode change"
+    fi
+else
+    say "xdpyinfo missing; skipping the video mode checks"
+fi
 
 # --------------------------------------------------------------------- picture
 if command -v xwd >/dev/null 2>&1 && command -v convert >/dev/null 2>&1; then
@@ -133,7 +183,12 @@ loud = [i for i, v in enumerate(left) if abs(v) > 500]
 if not loud:
     raise SystemExit("[smoke] FAILED: the pipe carried nothing but silence")
 
-seg = left[loud[0]:loud[-1] + 1]
+# Half a second from where the sound starts. The fixture plays one 0.6 s tone
+# at startup and then nothing, so measuring from the first loud sample to the
+# last stretched the window across however long the engine happened to stay up
+# afterwards -- which made the pitch a function of the test's own runtime and
+# read 440 Hz as 33 Hz once this phase grew a few seconds longer.
+seg = left[loud[0]:loud[0] + 22050 // 2]
 crossings = sum(1 for i in range(1, len(seg)) if (seg[i-1] < 0) != (seg[i] < 0))
 hz = crossings / 2 / (len(seg) / 22050.0)
 
