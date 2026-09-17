@@ -5,6 +5,32 @@ top section's heading is what the release workflow reads: `## [X.Y.Z] — DATE`
 on the default branch publishes that version, `## [Unreleased]` publishes only
 `edge`.
 
+## [Unreleased]
+
+### Fixed
+
+- **The engine crashed while reporting that it could not open the display.**
+  `VID_Init` answers a display it cannot open with `Sys_Error`, which calls
+  `Host_Shutdown` and so `VID_Shutdown` — the one path where there is no
+  display to close. `XAutoRepeatOn` then dereferenced a null `Display` and the
+  process died on `SIGSEGV` at `0x968`.
+
+  The real message had already been printed, but what the container saw next
+  was a segfault, so it reported a crash, restarted, crashed identically, and
+  gave up three runs later — with the signal in the log and the reason sitting
+  above it looking like part of the previous run. That is the shape of the
+  startup crash reported against 1.0.0 and never explained.
+
+- The container starts the engine at the resolution `config.cfg` asks for
+  rather than at `QUAKE_WIDTH`/`QUAKE_HEIGHT` and resizing into it a frame
+  later. `vid_width` is archived and `config.cfg` is exec'd after `VID_Init`,
+  so the window was always created at one size and resized to another; now it
+  is not, which removes a browser reconnect from every start. Re-read before
+  each run, because the engine rewrites `config.cfg` when it exits.
+
+  This is **not** a fix for the wrong colours after quitting; see the note in
+  DOCKER.md for where that stands.
+
 ## [1.1.0] — 2026-09-17
 
 ### Added
