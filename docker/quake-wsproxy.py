@@ -15,6 +15,7 @@
 # So the token lookup is left alone and only the "no token" case is changed,
 # to mean the screen -- the one thing every client that predates this wanted.
 #
+import os
 import sys
 import time
 from urllib.parse import parse_qs, urlparse
@@ -220,6 +221,20 @@ class _WatchedTarget(object):
 # gap lines above.
 #
 PAD_PATH = '/quake-pad-log'
+
+#
+# Which run of the engine the page is looking at.
+#
+# The entrypoint bumps a counter in this file every time it starts the engine.
+# The page reads it, and when it moves it opens a new VNC session, because
+# x11vnc's 8-bit to 24-bit conversion does not survive the engine's window
+# being destroyed and recreated: it goes on converting through the colormap
+# that went with the old window, and the picture comes back in the wrong 256
+# colours. Nothing in the VNC protocol reports that, so the page has to be
+# told. See the note in DOCKER.md.
+#
+RUN_PATH = '/quake-run'
+RUN_FILE = os.environ.get('QUAKE_RUN_ID_FILE', '')
 PAD_MAX_LINES = 40
 PAD_MAX_CHARS = 400
 
@@ -228,6 +243,23 @@ _do_GET = ProxyRequestHandler.do_GET
 
 def do_GET(self):
     split = urlparse(self.path)
+
+    if split.path == RUN_PATH:
+        try:
+            with open(RUN_FILE) as fh:
+                body = fh.read().strip().encode('ascii', 'replace')[:32]
+        except (OSError, ValueError):
+            # No file yet, or no path configured. An empty answer means "do
+            # not act on this", which is what the page does with it.
+            body = b''
+
+        self.send_response(200)
+        self.send_header('Content-Type', 'text/plain')
+        self.send_header('Cache-Control', 'no-store')
+        self.send_header('Content-Length', str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+        return
 
     if split.path != PAD_PATH:
         return _do_GET(self)

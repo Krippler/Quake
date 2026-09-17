@@ -906,8 +906,23 @@ void VID_SetPalette(unsigned char *palette)
 void	VID_Shutdown (void)
 {
 	Con_Printf("VID_Shutdown\n");
+
+// Sys_Error calls Host_Shutdown, which calls this -- and VID_Init calls
+// Sys_Error when it cannot open the display, which is the one case where
+// there is no display to close. XAutoRepeatOn then dereferenced a null
+// Display and the engine died on SIGSEGV while it was in the middle of
+// printing why it was stopping.
+//
+// The message was already out ("VID: Could not open display"), but what the
+// container saw afterwards was a segfault, so it reported a crash, restarted,
+// crashed the same way, and gave up three runs later with the signal in the
+// log and the reason above it looking like part of the previous run.
+	if (!x_disp)
+		return;
+
 	XAutoRepeatOn(x_disp);
 	XCloseDisplay(x_disp);
+	x_disp = NULL;
 }
 
 int XLateKey(XKeyEvent *ev)

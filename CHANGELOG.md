@@ -5,6 +5,50 @@ top section's heading is what the release workflow reads: `## [X.Y.Z] — DATE`
 on the default branch publishes that version, `## [Unreleased]` publishes only
 `edge`.
 
+## [Unreleased]
+
+### Fixed
+
+- **The engine crashed while reporting that it could not open the display.**
+  `VID_Init` answers a display it cannot open with `Sys_Error`, which calls
+  `Host_Shutdown` and so `VID_Shutdown` — the one path where there is no
+  display to close. `XAutoRepeatOn` then dereferenced a null `Display` and the
+  process died on `SIGSEGV` at `0x968`.
+
+  The real message had already been printed, but what the container saw next
+  was a segfault, so it reported a crash, restarted, crashed identically, and
+  gave up three runs later — with the signal in the log and the reason sitting
+  above it looking like part of the previous run. That is the shape of the
+  startup crash reported against 1.0.0 and never explained.
+
+- The container starts the engine at the resolution `config.cfg` asks for
+  rather than at `QUAKE_WIDTH`/`QUAKE_HEIGHT` and resizing into it a frame
+  later. `vid_width` is archived and `config.cfg` is exec'd after `VID_Init`,
+  so the window was always created at one size and resized to another; now it
+  is not, which removes a browser reconnect from every start. Re-read before
+  each run, because the engine rewrites `config.cfg` when it exits.
+
+  On its own this is not what fixes the colours below; it removes a gratuitous
+  resize, which is worth having anyway.
+
+- **The picture came back in the wrong colours after quitting to the title
+  screen.** Teal and magenta instead of Quake's browns, and it stayed that way.
+
+  The engine exits, the container starts it again, and the new window has a
+  colormap of its own. x11vnc shows this 8-bit screen to the browser by
+  converting it through the window's colormap, and it carried on converting
+  through the one that died with the old window. x11vnc's manual owns the
+  limitation: "if there are multiple 8bpp windows using different colormaps,
+  one may have to iconify all but one for the colors to be correct."
+
+  A VNC session that connects afresh is correct every time; nothing else tried
+  was — not `x11vnc -R refresh`, not `-fixscreen 8=t`, not re-uploading the
+  palette from the engine, not starting the engine at the config's resolution.
+  So the container counts engine starts, serves the count at `/quake-run`, and
+  the page opens a new session when it moves, about five seconds after a
+  restart. Nothing in the VNC protocol says a window was replaced, so it has to
+  be counted rather than noticed.
+
 ## [1.1.0] — 2026-09-17
 
 ### Added

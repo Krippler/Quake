@@ -146,6 +146,7 @@ esac
 [ "$MAX_WIDTH"  -ge "$WIDTH" ]  || MAX_WIDTH="$WIDTH"
 [ "$MAX_HEIGHT" -ge "$HEIGHT" ] || MAX_HEIGHT="$HEIGHT"
 
+
 ##############################################################################
 # The state directory holds config.cfg, savegames, logs and the links to the
 # game data, so it has to be writable. A bind-mounted host directory arrives
@@ -393,6 +394,54 @@ cleanup() {
     wait 2>/dev/null || true
 }
 trap cleanup EXIT INT TERM
+
+##############################################################################
+# The resolution to start at.
+#
+# vid_width and vid_height are archived cvars, and config.cfg is exec'd well
+# after VID_Init has run -- so the engine creates its window at the size on the
+# command line and then resizes it a frame later to whatever the config says.
+#
+# That resize is harmless while the engine keeps running. It is not harmless
+# just after the engine has been restarted: the window is new, and x11vnc goes
+# on compositing this 8-bit screen through the colormap of the window that has
+# gone. The browser then gets the right picture in the wrong 256 colours, and
+# it does not recover, because x11vnc rebuilds that mapping only for a client
+# that connects afresh. Measured at about 70% of pixels landing outside the
+# palette; on screen it is the whole picture in the wrong colours.
+#
+# So start at the size the config asks for. Then nothing resizes, and the one
+# sequence that produced it -- quit, restart, config restores a resolution --
+# cannot arise. QUAKE_WIDTH and QUAKE_HEIGHT stay the default for a state
+# volume that has no config yet, which is what the documentation says.
+##############################################################################
+config_size() {
+    cfg="$BASEDIR/id1/config.cfg"
+    [ -f "$cfg" ] || return 0
+
+    cw=$(sed -n 's/^vid_width "\([0-9][0-9]*\)\.[0-9]*"$/\1/p' "$cfg" | tail -1)
+    ch=$(sed -n 's/^vid_height "\([0-9][0-9]*\)\.[0-9]*"$/\1/p' "$cfg" | tail -1)
+
+    [ -n "$cw" ] && [ -n "$ch" ] || return 0
+
+    # The engine clamps these itself; doing it here too keeps the size the
+    # engine ends up at and the size it was started at the same, which is the
+    # whole point.
+    [ "$cw" -ge 320 ] || cw=320
+    [ "$ch" -ge 200 ] || ch=200
+    [ "$cw" -le "$MAX_WIDTH" ]  || cw="$MAX_WIDTH"
+    [ "$ch" -le "$MAX_HEIGHT" ] || ch="$MAX_HEIGHT"
+    cw=$(( cw / 8 * 8 ))
+
+    if [ "$cw" != "$WIDTH" ] || [ "$ch" != "$HEIGHT" ]; then
+        log "config.cfg asks for ${cw}x${ch}; starting there rather than at"
+        log "  ${WIDTH}x${HEIGHT} and resizing into it"
+        WIDTH="$cw"
+        HEIGHT="$ch"
+    fi
+}
+
+config_size
 
 ##############################################################################
 # The display.
@@ -702,6 +751,11 @@ log "starting noVNC on port $WEB_PORT"
 # container and nobody notices; run the same script on a host and the next start
 # fails with "Address already in use" and no explanation.
 #
+# The page reads this to notice that the engine has been restarted; see the
+# note on RUN_PATH in quake-wsproxy.py and the one below where it is written.
+QUAKE_RUN_ID_FILE="$STATE/run-id"
+export QUAKE_RUN_ID_FILE
+
 WSLOG="$STATE/websockify.fifo"
 rm -f "$WSLOG"
 mkfifo -m 600 "$WSLOG"
@@ -732,9 +786,12 @@ log ""
 ##############################################################################
 # The engine takes the window size from these; the Xvfb screen is already
 # exactly that, so the window fills it and there is no desktop around the edge.
+# Not folded into "$@" here: config_size runs again before each start below,
+# because the engine rewrites config.cfg when it exits and the resolution it
+# saved is the one the next run has to begin at.
+MANAGE_SIZE=1
 case " $* " in
-    *" -width "*|*" -winsize "*) ;;
-    *) set -- -width "$WIDTH" -height "$HEIGHT" "$@" ;;
+    *" -width "*|*" -winsize "*) MANAGE_SIZE=0 ;;
 esac
 
 # Nothing else is on this display, so the engine may resize the screen itself
@@ -848,13 +905,33 @@ watch_helpers () {
 crash_runs=0
 
 while :; do
-    log "running: xquake $*"
+    # Re-read it every time round: the engine writes config.cfg on the way out,
+    # so a resolution picked in the video menu is in there by now, and starting
+    # at it is what keeps the window from being resized straight after it is
+    # created. See the note on config_size above for what that costs.
+    [ "$MANAGE_SIZE" = 1 ] && config_size
+
+    # Count the starts, so the page can tell that the engine it is looking at
+    # is not the one it connected to. x11vnc keeps converting this 8-bit screen
+    # through the colormap of the window that has gone, so the picture comes
+    # back in the wrong 256 colours and stays that way; a new VNC session is
+    # the only thing that rebuilds it. Nothing in the VNC protocol says the
+    # window was replaced, which is why this is counted here rather than
+    # noticed there.
+    RUN_ID=$(( ${RUN_ID:-0} + 1 ))
+    printf '%s\n' "$RUN_ID" >"$STATE/run-id" 2>/dev/null || true
 
     started=$(date +%s 2>/dev/null || echo 0)
 
     # Run in the background and wait: a foreground child would block every trap
     # until it exited, so `docker stop` could not shut the stack down.
-    "$QUAKE_BIN" "$@" &
+    if [ "$MANAGE_SIZE" = 1 ]; then
+        log "running: xquake -width $WIDTH -height $HEIGHT $*"
+        "$QUAKE_BIN" -width "$WIDTH" -height "$HEIGHT" "$@" &
+    else
+        log "running: xquake $*"
+        "$QUAKE_BIN" "$@" &
+    fi
     GAME_PID=$!
 
     watch_helpers
