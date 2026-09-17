@@ -257,6 +257,28 @@ asking for frames or x11vnc stopped answering — those are opposite faults. A
 software renderer at 1920x1200 on a starved container is a third possibility;
 try `QUAKE_WIDTH=640`.
 
+**The engine crashes at startup, or "Quake crashed (SIGSEGV, status 139)".**
+The log now carries what it needs to diagnose that. Since 1.0.1 the engine
+line-buffers its output, so everything it printed on the way down survives the
+crash, and it prints a backtrace before it goes:
+
+```
+=== Quake died on signal SIGSEGV (bad address) at 0x... ===
+/usr/local/games/xquake(Mod_LoadTexinfo+0x1f)[0x...]
+...
+```
+
+Include that whole block and the twenty or so lines above it. The last thing
+the engine printed says how far it got, and the top named frame says where it
+went. Before 1.0.1 a crash during startup printed nothing at all, because
+stdout is a pipe and the library held the log in a buffer the crash never
+flushed.
+
+Also worth checking in that log: the line listing what ended up in each game
+directory. If your mount holds an extracted copy of the game as well as the
+pak files, the engine searches the loose files first, and a stale or partial
+one there will be found in preference to the good copy in the pak.
+
 **"connection lost" with the container still running.** One of the supporting
 processes exited. The container notices within a second and prints the reason
 from that process's own log. The usual cause is a `QUAKE_VNC_ARGS` value that
