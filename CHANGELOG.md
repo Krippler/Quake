@@ -28,8 +28,26 @@ on the default branch publishes that version, `## [Unreleased]` publishes only
   is not, which removes a browser reconnect from every start. Re-read before
   each run, because the engine rewrites `config.cfg` when it exits.
 
-  This is **not** a fix for the wrong colours after quitting; see the note in
-  DOCKER.md for where that stands.
+  On its own this is not what fixes the colours below; it removes a gratuitous
+  resize, which is worth having anyway.
+
+- **The picture came back in the wrong colours after quitting to the title
+  screen.** Teal and magenta instead of Quake's browns, and it stayed that way.
+
+  The engine exits, the container starts it again, and the new window has a
+  colormap of its own. x11vnc shows this 8-bit screen to the browser by
+  converting it through the window's colormap, and it carried on converting
+  through the one that died with the old window. x11vnc's manual owns the
+  limitation: "if there are multiple 8bpp windows using different colormaps,
+  one may have to iconify all but one for the colors to be correct."
+
+  A VNC session that connects afresh is correct every time; nothing else tried
+  was — not `x11vnc -R refresh`, not `-fixscreen 8=t`, not re-uploading the
+  palette from the engine, not starting the engine at the config's resolution.
+  So the container counts engine starts, serves the count at `/quake-run`, and
+  the page opens a new session when it moves, about five seconds after a
+  restart. Nothing in the VNC protocol says a window was replaced, so it has to
+  be counted rather than noticed.
 
 ## [1.1.0] — 2026-09-17
 

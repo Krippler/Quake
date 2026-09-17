@@ -285,26 +285,26 @@ actually sent — so `docker logs` answers the question on its own.
 
 ## Troubleshooting
 
-### The colours go wrong after quitting to the title screen
+### The colours went wrong after quitting to the title screen
 
-Known, and not yet fixed. **Reload the browser tab** and they come back.
+Fixed. If you are on an older image, **reload the browser tab** and they come
+back.
 
-Quitting makes the engine exit; the container starts it again, which creates a
-new window. x11vnc is showing this 8-bit screen to the browser by converting it
-through the window's colormap, and after the old window has gone it carries on
-converting through the colormap that went with it. Its own manual admits the
-limitation: "if there are multiple 8bpp windows using different colormaps, one
-may have to iconify all but one for the colors to be correct."
+Quitting makes the engine exit and the container start it again, which creates
+a new window with a colormap of its own. x11vnc shows this 8-bit screen to the
+browser by converting it through the window's colormap, and it went on
+converting through the one that died with the old window — so the picture came
+back in teal and magenta and stayed there. Its own manual owns the limitation:
+"if there are multiple 8bpp windows using different colormaps, one may have to
+iconify all but one for the colors to be correct."
 
-It needs the screen to have been resized at some point in the session — so it
-follows a visit to Video Options, and not a plain quit. Measured at about 70%
-of pixels landing outside Quake's palette, which on screen is the whole picture
-in the wrong colours.
-
-A fresh VNC connection always rebuilds the mapping correctly, which is why
-reloading the tab fixes it. What does not fix it: `x11vnc -R refresh`,
-`-fixscreen 8=t`, re-uploading the palette from the engine, or starting the
-engine at the resolution the config asks for.
+A VNC session that connects afresh is correct every time, and nothing else
+tried was: not `x11vnc -R refresh`, not `-fixscreen 8=t`, not re-uploading the
+palette from the engine, not starting the engine at the resolution the config
+asks for. So the container counts engine starts in a file the page can read at
+`/quake-run`, and the page opens a new session when that count moves — about
+five seconds after a restart. Nothing in the VNC protocol reports that a window
+was replaced, which is why it has to be counted rather than noticed.
 
 
 **"nothing to play", and the container stops.** No pak files were found in

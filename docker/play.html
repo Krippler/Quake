@@ -439,9 +439,10 @@ let videoHeldWorst = 0;       // ... of which this much was after it had a
   window.__audioGapReset = () => { audioLast = 0; videoLastMsg = 0; };
 })();
 
-const rfb = new RFB(screenEl, `${scheme}://${location.host}`, {
-  wsProtocols: ['binary'],
-});
+// Replaced, not kept: openRFB below builds a new one when the engine has been
+// restarted. Everything that reaches for `rfb` after start-up does so by name,
+// so it follows the binding rather than holding the old object.
+let rfb;
 
 //
 // How the picture is compressed, and why there is a switch for it.
@@ -494,7 +495,7 @@ let videoDecodeWorst = 0;
 let videoBlockedWorst = 0;
 let videoDecoded = 0;         // pictures that went through the image decoder
 
-(function watchDecoding() {
+function watchDecoding() {
   const d = rfb._display;
   if (!d || typeof d.imageRect !== 'function') return;
 
@@ -576,34 +577,122 @@ let videoDecoded = 0;         // pictures that went through the image decoder
     }
     return onflush.call(this);
   };
-})();
+}
 
-// The engine has one fixed resolution; never rescale it to the window.
-window.__rfb = rfb;   // for automated checks; harmless otherwise
-rfb.scaleViewport = false;
-rfb.clipViewport  = false;
-rfb.focusOnClick  = true;
+// True while a reconnect of our own is in flight, so the disconnect handler
+// does not tell anyone the connection was lost when we are the ones who closed
+// it.
+let reconnecting = false;
 
-rfb.addEventListener('connect', () => {
-  status('');
-  overlayEl.hidden = false;
-  fitCanvas();
-  rfb.focus();
-});
+function openRFB() {
+  rfb = new RFB(screenEl, `${scheme}://${location.host}`, {
+    wsProtocols: ['binary'],
+  });
 
-rfb.addEventListener('disconnect', (e) => {
-  overlayEl.hidden = true;
-  status(e.detail.clean ? 'Disconnected.' : 'Connection lost. Reload to try again.');
-});
+  // The engine has one fixed resolution; never rescale it to the window.
+  window.__rfb = rfb;   // for automated checks; harmless otherwise
+  rfb.scaleViewport = false;
+  rfb.clipViewport  = false;
+  rfb.focusOnClick  = true;
 
-rfb.addEventListener('securityfailure', (e) => {
-  status(`Authentication failed: ${e.detail.reason || 'unknown reason'}`);
-});
+  watchDecoding();
 
-rfb.addEventListener('credentialsrequired', () => {
-  const password = prompt('VNC password:');
-  if (password !== null) rfb.sendCredentials({ password });
-});
+  rfb.addEventListener('connect', () => {
+    // Counted for the same reason __rfb is exposed: so a test can tell a
+    // reconnect happened without reading pixels, which say more about JPEG
+    // and repaint timing than about whether a new session was opened.
+    window.__connects = (window.__connects || 0) + 1;
+    status('');
+    overlayEl.hidden = false;
+    // A new session brings a new canvas, so the thing being watched for size
+    // changes and the thing being scaled are both new too.
+    watchCanvas();
+    fitCanvas();
+    rfb.focus();
+  });
+
+  rfb.addEventListener('disconnect', (e) => {
+    if (reconnecting) return;
+    overlayEl.hidden = true;
+    status(e.detail.clean ? 'Disconnected.' : 'Connection lost. Reload to try again.');
+  });
+
+  rfb.addEventListener('securityfailure', (e) => {
+    status(`Authentication failed: ${e.detail.reason || 'unknown reason'}`);
+  });
+
+  rfb.addEventListener('credentialsrequired', () => {
+    const password = prompt('VNC password:');
+    if (password !== null) rfb.sendCredentials({ password });
+  });
+}
+
+openRFB();
+
+//
+// Opening a new session when the engine has been restarted.
+//
+// x11vnc shows this 8-bit screen to the browser by converting it through the
+// colormap of the engine's window. When the engine exits and the container
+// starts it again, the window is destroyed and a new one is created with a
+// colormap of its own -- and x11vnc goes on converting through the old one.
+// The picture comes back in the wrong 256 colours and stays wrong: about 70%
+// of pixels land outside Quake's palette. Its own manual owns the limitation,
+// "if there are multiple 8bpp windows using different colormaps, one may have
+// to iconify all but one for the colors to be correct."
+//
+// Asking x11vnc to repair the screen does not help -- neither `-R refresh` nor
+// `-fixscreen 8=t` -- and neither does anything the engine can do to its own
+// palette. A VNC session that connects afresh is correct every time, so that
+// is what this does.
+//
+// Nothing in the VNC protocol reports that the window was replaced, so the
+// container counts engine starts instead and the page watches the count.
+//
+const RUN_POLL_MS = 4000;
+let runId = null;
+
+function reconnect() {
+  if (reconnecting) return;
+  reconnecting = true;
+  status('Reconnecting...');
+  try { rfb.disconnect(); } catch (e) { /* already going */ }
+
+  // On a later turn, so noVNC has finished taking the old canvas down before
+  // the new one goes in.
+  setTimeout(() => {
+    openRFB();
+    reconnecting = false;
+  }, 250);
+}
+
+async function pollRun() {
+  let id;
+  try {
+    const answer = await fetch('/quake-run', { cache: 'no-store' });
+    if (!answer.ok) return;
+    id = (await answer.text()).trim();
+  } catch (e) {
+    return;   // the proxy will be there next time
+  }
+
+  // An empty answer is an older container, or one that has not started the
+  // engine yet. Either way there is nothing to act on.
+  if (!id) return;
+
+  if (runId === null) {
+    runId = id;
+    return;
+  }
+
+  if (id !== runId) {
+    runId = id;
+    reconnect();
+  }
+}
+
+setInterval(pollRun, RUN_POLL_MS);
+pollRun();
 
 //
 // Integer scaling.

@@ -751,6 +751,11 @@ log "starting noVNC on port $WEB_PORT"
 # container and nobody notices; run the same script on a host and the next start
 # fails with "Address already in use" and no explanation.
 #
+# The page reads this to notice that the engine has been restarted; see the
+# note on RUN_PATH in quake-wsproxy.py and the one below where it is written.
+QUAKE_RUN_ID_FILE="$STATE/run-id"
+export QUAKE_RUN_ID_FILE
+
 WSLOG="$STATE/websockify.fifo"
 rm -f "$WSLOG"
 mkfifo -m 600 "$WSLOG"
@@ -905,6 +910,16 @@ while :; do
     # at it is what keeps the window from being resized straight after it is
     # created. See the note on config_size above for what that costs.
     [ "$MANAGE_SIZE" = 1 ] && config_size
+
+    # Count the starts, so the page can tell that the engine it is looking at
+    # is not the one it connected to. x11vnc keeps converting this 8-bit screen
+    # through the colormap of the window that has gone, so the picture comes
+    # back in the wrong 256 colours and stays that way; a new VNC session is
+    # the only thing that rebuilds it. Nothing in the VNC protocol says the
+    # window was replaced, which is why this is counted here rather than
+    # noticed there.
+    RUN_ID=$(( ${RUN_ID:-0} + 1 ))
+    printf '%s\n' "$RUN_ID" >"$STATE/run-id" 2>/dev/null || true
 
     started=$(date +%s 2>/dev/null || echo 0)
 
