@@ -74,6 +74,12 @@ edict_t *ED_Alloc (void);
 void ED_Free (edict_t *ed);
 
 char	*ED_NewString (char *string);
+
+// A string_t for text the engine owns, rather than text the QuakeC compiler
+// put in progs.dat. See the comment above PR_SetEngineString.
+string_t PR_SetEngineString (char *s);
+char	*PR_AllocEngineString (int size);
+extern char	*pr_string_temp;
 // returns a copy of the string allocated from the server's string heap
 
 void ED_Print (edict_t *ed);

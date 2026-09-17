@@ -10,8 +10,11 @@ long time.
 What it does not say is that the code no longer compiles, and did not run once
 it did. Getting from there to a playable game took:
 
-- **Repairs to the sources themselves.** A texture-coordinate loop that walks
-  off the end of its array — which gcc diagnoses as undefined behaviour and is
+- **Repairs to the sources themselves.** A QuakeC string offset made by
+  subtracting two pointers that are in different parts of the address space
+  here, so it truncates — which is what stopped a map ever loading, and which
+  crashed or did not depending on the resolution. A texture-coordinate loop
+  that walks off the end of its array — which gcc diagnoses as undefined behaviour and is
   entitled to delete, taking the second texture axis of every surface in the
   map with it. The same shape of bug in the particle code. A framebuffer
   pointer set to the header of the structure describing the framebuffer, so

@@ -16,6 +16,16 @@ The 1999 GPL source release, repaired until it builds and runs on a current
 
 Repaired, all of them bugs the release always had:
 
+- `sv_main.c` made a QuakeC string offset by subtracting `pr_strings` from a
+  pointer in bss. On a 32-bit machine that always fitted in the `int` the field
+  is; here the two are terabytes apart, so it truncated, and `world.model`,
+  `mapname` and the buffer `ftos`/`vtos`/`etos` return all became wild
+  pointers. Nothing faulted at the assignment — the first QuakeC `==` on a
+  string did, in `worldspawn`, so no map would load. Whether it crashed at all
+  depended on the resolution, and demo playback never touched it, so the engine
+  played three demos faultlessly and died the moment anybody started a game.
+- `pr_edict.c` sized an `ev_pointer` progs field with `sizeof(void *)/4`, which
+  is 2 here where a progs slot is one.
 - `model.c` walked `mtexinfo_t::vecs` off the end of its first row, which gcc
   diagnoses as undefined behaviour and may delete — taking the second texture
   axis of every surface in the map with it.
@@ -73,4 +83,6 @@ Modernised where what the code talked to no longer exists:
   pak files.
 - **A smoke test** that builds its own game data, starts the engine on a
   throwaway Xvfb, and checks that it draws a frame and produces a 440 Hz tone —
-  there is no game data in this repository to test against.
+  there is no game data in this repository to test against. With
+  `QUAKE_SMOKE_DATA` pointed at a real install it also loads E1M1, which is
+  what found the `pr_strings` bug above; the shareware pak is enough for it.

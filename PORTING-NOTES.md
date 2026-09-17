@@ -69,6 +69,66 @@ ceiling in the map. Fixed by walking four and doing both rows.
 This one is worth dwelling on because it fails silently and catastrophically,
 and the compiler tells you about it in a warning that most builds do not print.
 
+### `sv_main.c` — a string offset that is not an offset
+
+```c
+ent->v.model = sv.worldmodel->name - pr_strings;
+```
+
+This is the one that stopped the game starting, and it is the most instructive
+thing in the port.
+
+A QuakeC `string_t` is an `int` offset into `pr_strings`, and this makes one by
+subtracting two pointers. That is only a valid offset while the two are close
+enough for the difference to fit in an `int` — and in 1996 they always were,
+because a 32-bit address space cannot hold two objects further apart than an
+`int` can express. The round trip through `pr_strings + n` could not fail.
+
+Here it can. `pr_strings` is inside the progs block, which comes from the hunk
+— one `malloc`, so somewhere in the mmap region — while `sv.name` and
+`mod_known`, which `sv.worldmodel->name` points into, are in bss. Those are
+terabytes apart. The difference truncates to 32 bits, and `pr_strings` plus the
+truncation is an address with the right low half and nothing else right.
+
+Three fields were set this way: `world.model`, `mapname`, and (under `QUAKE2`)
+`startspot`. `pr_cmds.c` had the same bug for the buffer `ftos`, `vtos` and
+`etos` all return, which is every number QuakeC ever prints.
+
+What made it interesting to find:
+
+* **Nothing faults at the assignment.** The first thing to touch the value is
+  QuakeC comparing two strings, which compiles to a `strcmp`, in `worldspawn`'s
+  `if (world.model == "maps/e1m8.bsp")`. So the backtrace names `pr_exec.c` and
+  the cause is in `sv_main.c`, several thousand instructions earlier.
+* **Whether it faults at all depends on the resolution.** The wrong address is
+  only a crash if it happens to be unmapped, and how much the hunk holds
+  changes what is mapped. At 1280x800 it read rubbish and carried on — a
+  string compare quietly returning the wrong answer. At 640x480, which is the
+  container's default, it segfaulted every time. The first run against real
+  game data was at 1280x800 and looked perfect.
+* **Demo playback never touches it.** `SV_SpawnServer` is what sets these, and
+  a demo is a recording of a server, not one being run. So the engine played
+  three demos through E1M3 faultlessly and then died the moment anybody started
+  a game.
+
+Fixed by copying engine-owned strings into a small block of the hunk beside
+`pr_strings`, where the offset means what it says — `PR_SetEngineString` in
+`pr_edict.c`, which also checks the offset round-trips rather than assuming it.
+The four remaining subtractions in the tree are all hunk-to-hunk or exact round
+trips, and now say so in a comment, because "safe for a reason nobody wrote
+down" is how this one survived.
+
+### `pr_edict.c` — a progs slot is four bytes everywhere
+
+```c
+int type_size[8] = {1,sizeof(string_t)/4,1,3,1,1,sizeof(func_t)/4,sizeof(void *)/4};
+```
+
+These are counts of 32-bit progs slots, which is a property of `progs.dat` and
+not of the host. `sizeof(void *)/4` is 2 here, so `ED_Write` and
+`ED_ParseEdict` would read one slot past an `ev_pointer` field. No field in
+id's `progs.dat` has that type, which is why it never showed.
+
 ### `r_part.c` — the same bug, in the particle field
 
 ```c
@@ -400,6 +460,33 @@ comment at the top of it for why it pads its pak directory to 339 entries and
 steers its CRC.
 
 ---
+
+## How this was tested
+
+`tools/smoke-test.sh` builds its own game data and runs the engine as far as
+the console, which is as far as anything without `progs.dat` can go. That is
+what CI runs, and it is not enough on its own: it passed for hours while
+`SV_SpawnServer` was still broken, because it never starts a server.
+
+So the script has a second phase, `QUAKE_SMOKE_DATA=/path/to/quake`, which
+loads E1M1. The shareware `pak0.pak` is enough for it — that pak has
+`progs.dat`, the models and E1M1 to E1M8 — and it is what the bug above was
+found with. Its two assertions are chosen against the failures actually seen:
+
+* **The server version line.** `VERSION 1.09 SERVER (24778 CRC)` means
+  `progs.dat` loaded and its CRC matched `progdefs.h`. Its absence is how a
+  QuakeC problem shows up.
+* **How many colours a frame holds.** A map whose texture basis is garbage
+  still draws — walls, floors, a status bar — so "did not crash" says nothing.
+  A frame of correctly mapped, correctly lit Quake uses most of a 256-colour
+  palette; flat-shaded wreckage does not. This is the assertion that would have
+  caught the `Mod_LoadTexinfo` bug.
+
+Beyond the script, by hand: the three demos in the shareware pak, played
+through; E1M1 and E1M2 walked, shot and saved, with `save`, `load`, `kill`,
+`map` and `changelevel`; 640x480 and 1280x800; and the whole container stack,
+with a frame pulled through the browser's own WebSocket and the sound read with
+the header the page reads.
 
 ## What was deliberately left alone
 

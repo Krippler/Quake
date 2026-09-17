@@ -30,6 +30,11 @@ So `/path/to/quake` above is your own install directory — the one holding
 * the Steam or GOG install (`.../Quake/id1/`);
 * the shareware release unpacked, from id's own `quake106.zip`.
 
+The shareware `pak0.pak` is a complete game as far as this is concerned: it
+holds `progs.dat`, every model and sound, and E1M1 to E1M8, so episode 1 plays
+start to finish. It is also what the port was tested against — see
+[PORTING-NOTES.md](PORTING-NOTES.md#how-this-was-tested).
+
 The mission packs and mods go beside `id1` in the same directory, and the
 container finds them:
 
@@ -106,6 +111,15 @@ at — which in practice means an Xvfb:
 make -C WinQuake            # -> WinQuake/linux/xquake
 make -C audiostream         # -> audiostream/linux/audiostream
 tools/smoke-test.sh         # starts it on a throwaway Xvfb and checks it draws
+```
+
+The smoke test builds its own game data, because there is none here to test
+against, and so stops at the console. Point it at real data and it loads E1M1
+as well, which is where the renderer, the server and the QuakeC interpreter
+actually get exercised:
+
+```
+QUAKE_SMOKE_DATA=/path/to/quake tools/smoke-test.sh
 ```
 
 ## Documentation
