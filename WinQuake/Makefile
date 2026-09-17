@@ -43,7 +43,10 @@ endif
 ALL_CFLAGS = $(BASE_CFLAGS) $(QUIET_WARNINGS) $(CFLAGS) $(MUSIC_CFLAGS) $(EXTRA_CFLAGS)
 
 XLDFLAGS = -lX11 -lXext
-LDFLAGS_ALL = $(XLDFLAGS) -lm $(MUSIC_LDFLAGS) $(EXTRA_LDFLAGS)
+# -rdynamic puts the engine's own symbols in the dynamic symbol table, which is
+# where backtrace_symbols_fd looks. Without it a crash backtrace is a column of
+# addresses; with it, function names. See Sys_CrashHandler in sys_linux.c.
+LDFLAGS_ALL = $(XLDFLAGS) -rdynamic -lm $(MUSIC_LDFLAGS) $(EXTRA_LDFLAGS)
 
 # Which sound backend to link. "stream" writes the mixed PCM to a pipe for
 # audiostream to pick up, which is how sound reaches the browser; "oss" is the

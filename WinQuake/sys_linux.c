@@ -17,6 +17,8 @@
 #include <sys/wait.h>
 #include <sys/mman.h>
 #include <errno.h>
+#include <execinfo.h>
+#include <stdint.h>
 
 #include "quakedef.h"
 
@@ -371,6 +373,110 @@ void Sys_LowFPPrecision (void)
 }
 #endif
 
+/*
+================
+Crash reporting.
+
+Two reasons a crash in the container told nobody anything.
+
+The engine's stdout is a pipe -- docker's -- so the C library block-buffers
+it, and the whole startup log sits in a 4 KB buffer that a SIGSEGV never
+flushes. A container that died during Host_Init printed literally nothing
+between the entrypoint's "running: xquake" and the shell's "Segmentation
+fault", so the one question worth asking -- how far did it get -- had no
+answer. That is what the setvbuf below is for.
+
+And there was no handler, so there was no backtrace either. This one is
+written with write() and no formatting library, because a signal handler may
+not call printf: backtrace_symbols_fd is the variant that does not allocate,
+which is exactly why it exists. Frame names need -rdynamic and an unstripped
+binary; the Makefile passes the first and the Dockerfile no longer strips.
+
+It re-raises rather than exiting, so the exit status is still 139 and the
+entrypoint's restart logic reads the signal as it always did.
+================
+*/
+static void Sys_WriteStr (const char *s)
+{
+	size_t	n = 0;
+
+	while (s[n])
+		n++;
+	if (write (2, s, n) < 0)
+		return;					// nothing useful to do about it in here
+}
+
+static void Sys_WriteHex (unsigned long v)
+{
+	char	buf[2 + sizeof(v) * 2];
+	int		i;
+
+	buf[0] = '0';
+	buf[1] = 'x';
+	for (i = 0; i < (int)sizeof(v) * 2; i++)
+		buf[2 + i] = "0123456789abcdef"[(v >> ((sizeof(v) * 2 - 1 - i) * 4)) & 15];
+
+	if (write (2, buf, sizeof(buf)) < 0)
+		return;
+}
+
+static void Sys_CrashHandler (int sig, siginfo_t *info, void *ucontext)
+{
+	void	*frames[32];
+	int		n;
+
+	Sys_WriteStr ("\n=== Quake died on signal ");
+	switch (sig)
+	{
+	case SIGSEGV:	Sys_WriteStr ("SIGSEGV (bad address)");		break;
+	case SIGBUS:	Sys_WriteStr ("SIGBUS (bad alignment)");	break;
+	case SIGFPE:	Sys_WriteStr ("SIGFPE (arithmetic)");		break;
+	case SIGILL:	Sys_WriteStr ("SIGILL (illegal instruction)"); break;
+	case SIGABRT:	Sys_WriteStr ("SIGABRT (aborted)");			break;
+	default:		Sys_WriteStr ("an unexpected signal");		break;
+	}
+
+	if (info && (sig == SIGSEGV || sig == SIGBUS))
+	{
+		Sys_WriteStr (" at ");
+		Sys_WriteHex ((unsigned long)(uintptr_t)info->si_addr);
+	}
+	Sys_WriteStr (" ===\n");
+
+// Everything the engine printed on its way here, which line buffering has
+// already sent -- but a partial line may still be held, and it is often the
+// most informative one.
+	fflush (stdout);
+
+	n = backtrace (frames, (int)(sizeof(frames) / sizeof(frames[0])));
+	backtrace_symbols_fd (frames, n, 2);
+
+	Sys_WriteStr ("=== please include the lines above in a bug report ===\n");
+
+// Back to the default disposition, then let it happen again, so the exit
+// status is the signal rather than whatever this handler returned.
+	signal (sig, SIG_DFL);
+	raise (sig);
+}
+
+static void Sys_InitCrashHandler (void)
+{
+	struct sigaction	sa;
+	int					i;
+	static const int	sigs[] = { SIGSEGV, SIGBUS, SIGFPE, SIGILL, SIGABRT };
+
+	memset (&sa, 0, sizeof(sa));
+	sa.sa_sigaction = Sys_CrashHandler;
+	sigemptyset (&sa.sa_mask);
+// SA_ONSTACK so a stack overflow -- which is one way to get here -- still has
+// somewhere to run the handler.
+	sa.sa_flags = SA_SIGINFO | SA_ONSTACK | SA_RESETHAND;
+
+	for (i = 0; i < (int)(sizeof(sigs) / sizeof(sigs[0])); i++)
+		sigaction (sigs[i], &sa, 0);
+}
+
+
 int main (int c, char **v)
 {
 
@@ -383,6 +489,18 @@ int main (int c, char **v)
 //	static char cwd[1024];
 
 //	signal(SIGFPE, floating_point_exception_handler);
+//
+// Line buffering, before anything is printed.
+//
+// stdout is a pipe under docker, so the library would block-buffer it and a
+// crash would take the entire log with it -- see Sys_CrashHandler above. A
+// line at a time costs one write per Con_Printf, which against the cost of
+// drawing a frame is nothing.
+//
+	setvbuf (stdout, NULL, _IOLBF, 0);
+
+	Sys_InitCrashHandler ();
+
 	signal(SIGFPE, SIG_IGN);
 
 	memset(&parms, 0, sizeof(parms));

@@ -5,6 +5,28 @@ top section's heading is what the release workflow reads: `## [X.Y.Z] — DATE`
 on the default branch publishes that version, `## [Unreleased]` publishes only
 `edge`.
 
+## [1.0.1] — 2026-09-17
+
+### Fixed
+
+- A crash in the container said nothing at all. The engine's stdout is a pipe
+  under docker, so the C library block-buffered it, and a SIGSEGV during
+  startup took the entire log with it — the container printed nothing between
+  the entrypoint's "running: xquake" and the shell's "Segmentation fault", so
+  the one question worth asking, how far did it get, had no answer. stdout is
+  line-buffered now.
+- The engine prints a backtrace when it dies on SIGSEGV, SIGBUS, SIGFPE,
+  SIGILL or SIGABRT, with the signal, the faulting address and named frames,
+  then re-raises so the exit status is unchanged. `-rdynamic` is what makes the
+  names available; `strip` keeps the dynamic symbol table, so the shipped
+  binary reports them too.
+- The startup log now lists anything other than pak files that a mount
+  contributed to a game directory. Once the registered game is running the
+  engine searches the directory as well as the paks, and a loose file shadows
+  the pak copy of the same name, so a mount holding both an extracted tree and
+  the paks can feed the engine a mixture — which nothing in the log used to
+  show.
+
 ## [1.0.0] — 2026-09-17
 
 First release.

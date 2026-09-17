@@ -258,6 +258,36 @@ fi
 
 log "game data: $FOUND_GAMES"
 
+#
+# What actually ended up in each game directory.
+#
+# The engine searches the directory as well as the paks once it is running the
+# registered game -- COM_FindFile only restricts that for shareware -- and a
+# loose file shadows the pak copy of the same name. So a mount holding both
+# paks and an extracted tree, which is what "pak files directly in the mount"
+# usually means, can feed the engine a mixture, and nothing above would say so.
+#
+# Quiet for the ordinary case. A directory of nothing but pak links is what
+# almost everybody has and needs no comment; anything else is worth seeing in
+# the log of a container that then crashed.
+#
+for g in $FOUND_GAMES; do
+    paks=$(find "$BASEDIR/$g" -maxdepth 1 -name '*.pak' 2>/dev/null | wc -l)
+    other=$(find "$BASEDIR/$g" -maxdepth 1 -mindepth 1 ! -name '*.pak' \
+                 ! -name 'config.cfg' ! -name '*.sav' ! -name '*.pcx' \
+                 2>/dev/null | wc -l)
+
+    if [ "$other" -gt 0 ]; then
+        log "  $g: $paks pak(s) and $other loose entr(ies), which the engine"
+        log "      will search before the paks:"
+        find "$BASEDIR/$g" -maxdepth 1 -mindepth 1 ! -name '*.pak' \
+             ! -name 'config.cfg' ! -name '*.sav' ! -name '*.pcx' \
+             2>/dev/null | head -20 | while IFS= read -r entry; do
+            log "        $(basename "$entry")"
+        done
+    fi
+done
+
 # The engine looks for gfx/pop.lmp to decide whether this is the registered
 # game. Saying which it found up front saves the "why does it only have one
 # episode" question.
