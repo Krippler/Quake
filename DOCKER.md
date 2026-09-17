@@ -75,14 +75,31 @@ directory was found and what is playing; `cd play 4`, `cd loop 4`, `cd stop`,
 
 | | | |
 | --- | --- | --- |
-| `QUAKE_WIDTH` | `640` | Render width. 320 to 1920, rounded down to a multiple of 8 |
-| `QUAKE_HEIGHT` | `480` | Render height. 200 to 1200 |
+| `QUAKE_WIDTH` | `640` | Starting render width. 320 to 1920, rounded down to a multiple of 8 |
+| `QUAKE_HEIGHT` | `480` | Starting render height. 200 to 1200 |
+| `QUAKE_MAX_WIDTH` | `1920` | The largest width the in-game menu can reach |
+| `QUAKE_MAX_HEIGHT` | `1200` | The largest height the in-game menu can reach |
 | `QUAKE_DISPLAY` | `:99` | Which X display the container runs internally |
 
 The renderer is in software, so every pixel costs. 640x480 is comfortable
 anywhere; 1280x800 is fine on a modern core; 1920x1200 is a choice. The browser
 scales whatever it is given to fit the window, so a lower number is a softer
 picture rather than a smaller one.
+
+`QUAKE_WIDTH` and `QUAKE_HEIGHT` are only where it starts. **Options → Video
+Options** in the game lists every mode from 320x240 up to the maximum and
+switches to the one you pick, and the choice is written to `config.cfg` — so
+after the first run it is the config that decides, not these variables. Setting
+`vid_width` and `vid_height` at the console does the same thing.
+
+Changing resolution resizes the X screen, and the browser sees that as the
+framebuffer changing size: the picture blinks once as noVNC rebuilds its canvas.
+
+`QUAKE_MAX_WIDTH` and `QUAKE_MAX_HEIGHT` are the size Xvfb is started at, and
+an X server's maximum screen size is fixed when it starts — so they are the
+ceiling the menu can reach, not a limit on anything else. Setting them to the
+starting size pins the resolution there and turns the menu's list into a list
+of things that will not happen; leaving them alone costs about 2 MB.
 
 ### Ports
 
@@ -159,8 +176,39 @@ decide. A game holds the fire button down.
 
 ### Keyboard and mouse
 
-Stock Quake bindings. The mouse is captured by the page, so turning never runs
-out of screen and the cursor cannot wander off into the rest of your desktop.
+| | |
+| --- | --- |
+| W A S D | move and sidestep |
+| Mouse | look |
+| Mouse 1, Ctrl | attack |
+| Space | jump, and swim up |
+| Shift | run |
+| Wheel | next / previous weapon |
+| 1–8 | select a weapon |
+| E / Q | swim up / down |
+| Tab | scores |
+| `` ` `` | console |
+
+Not Quake's 1996 defaults, which are the arrow keys to move, `,` and `.` to
+sidestep, `a` to look up, `d` to swim up, and the mouse walking you forward
+unless you hold `\` to look with it. That was normal then.
+
+`freelook` is a cvar this port adds, set to 1: the mouse steers the view
+without a key held. `+mlook` is untouched and still wins while it is held, and
+`freelook 0` gives you 1996 back exactly.
+
+The wheel works because the X11 driver now reports it — the 1996 code knew
+about three mouse buttons and dropped the rest, while `keys.c` had
+`K_MWHEELUP` and `K_MWHEELDOWN` in it the whole time waiting for something to
+send them.
+
+These are written into `config.cfg` once, on a state volume that has none, and
+the engine owns the file after that: anything you change in **Options** or at
+the console is saved over them on exit. Delete `config.cfg` to get them back,
+or set `QUAKE_MODERN_CONTROLS=0` to start from id's defaults instead.
+
+The mouse is captured by the page, so turning never runs out of screen and the
+cursor cannot wander off into the rest of your desktop.
 
 `Esc` lets it go and brings the start screen back — which is why the start
 screen has a **Game menu** button. Pointer Lock reserves `Esc` for the browser
@@ -175,16 +223,24 @@ load a map, change the skill or start the music, and it is worth more than a
 second way to reach a menu.
 
 **Options → Customize controls** rebinds everything, and what you set there is
-also what the page's controller panel reads.
+also what the page's controller panel reads. "Everything" is thirty-one
+actions now, including the weapon keys, the console, the scoreboard, pause and
+the screenshot key: the 1996 menu stopped at eighteen because eighteen rows is
+all that fits on a 320x200 screen, so the rest could only be bound by typing
+`bind` at the console. The list scrolls, with `^ more above` and `v more below`
+to say which way there is more.
 
-Mouse look is off in stock Quake, as it was in 1996. Turn it on in the console:
+**Options → Video Options** changes the resolution while the game is running:
+twenty modes from 320x240 up to `QUAKE_MAX_WIDTH`/`QUAKE_MAX_HEIGHT`, applied
+as soon as you pick one and remembered in `config.cfg`. The X11 build never had
+this menu — `menu.c` hides the line unless the video driver claims it, and the
+driver never did — so the resolution used to be whatever the command line said
+for the life of the process. The picture blinks once on a change: the X screen
+really does resize, and the browser rebuilds its canvas to match.
 
-```
-+mlook
-```
-
-or bind it, or set `m_pitch`, `m_yaw` and `sensitivity` to taste — all of it is
-in **Options** or in `config.cfg`, and it is saved in the state volume.
+`m_pitch`, `m_yaw` and `sensitivity` are in **Options** too, or in
+`config.cfg`, and are saved in the state volume. `+mlook` still works if you
+would rather hold a key than use `freelook`.
 
 ### Game controllers
 

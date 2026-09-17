@@ -640,7 +640,14 @@ document.addEventListener('fullscreenchange', fitCanvas);
 // canvas dimensions once the server has said how big it is, and resizes it
 // again if that ever changes. Refit whenever it does, or the picture keeps
 // whatever size it happened to have when we first looked.
-const fbObserver = new MutationObserver(fitCanvas);
+const fbObserver = new MutationObserver(() => {
+  fitCanvas();
+// The in-game Video Options menu changes resolution, which resizes the X
+// screen, which reaches here as a new framebuffer size. The emulated pointer
+// position is in framebuffer coordinates, so put it back in the middle of the
+// new one rather than leaving it wherever it was in the old.
+  resetPointer();
+});
 
 function watchCanvas() {
   const c = canvas();

@@ -389,6 +389,143 @@ A depth-8 visual that is not PseudoColor is now a clear error rather than a
 picture in whatever 256 colours the server chose, and any other depth says
 which one it got and that it is translating every frame.
 
+A size arriving from `ConfigureNotify` was not clamped at all, only rounded,
+and the resize path never recomputed `vid.aspect`. Both fixed.
+
+### `vid_x.c` — only the first shifted character of a session arrived
+
+Typing `vid_width` at the console produced `vidwidth`. So did every later
+capital letter, colon and quote: each shifted character worked exactly once per
+run and was then silently gone.
+
+`XLateKey` called `XLookupString` on the event as it stood, so the keysym came
+back with the modifier state applied — shift+minus as `XK_underscore`, key 95.
+On the release, shift is already up, so the same physical key came back as
+`XK_minus`, key 45. `Key_Event` counts autorepeats:
+
+```c
+	if (!down)
+		key_repeats[key] = 0;
+	...
+	key_repeats[key]++;
+	if (key != K_BACKSPACE && key != K_PAUSE && key_repeats[key] > 1)
+		return;			// ignore most autorepeats
+```
+
+The press incremented `key_repeats[95]`; the release cleared
+`key_repeats[45]`. Nothing ever cleared 95 again, so from the second `_`
+onwards every one looked like a held key and was dropped.
+
+The keysym is now looked up with `ShiftMask` and `LockMask` taken out of a copy
+of the event. That is what the engine expects — `keys.h` says "normal keys
+should be passed as lowercased ascii", `keys.c` carries a `keyshift[]` table to
+apply shift itself, and a binding belongs to a physical key rather than to the
+character it happens to produce. The disabled block of hand-written
+`case 0x05f: key = '-'` lines a little further down `XLateKey` is the 1996
+attempt at the same problem; it is left where it is, as a comment on the fix.
+
+### `vid_x.c` — a resize crashed the engine when the new mode was larger
+
+The backtrace, from the handler added in 1.0.1:
+
+```
+Draw_ConsoleBackground <- Con_DrawConsole <- SCR_DrawConsole
+  <- SCR_UpdateScreen <- Con_Printf <- D_InitCaches
+  <- ResetSharedFrameBuffers <- VID_Update <- SCR_UpdateScreen
+```
+
+`SCR_UpdateScreen` twice in one stack. `D_InitCaches` announces the new surface
+cache size with `Con_Printf`, and `Con_Printf` draws the screen when the
+console is up — re-entering the renderer from the middle of `VID_Update`'s
+reallocation, at the one moment when `vid.width` is already the new size and
+`vid.buffer` is still the old, smaller framebuffer. `Draw_ConsoleBackground`
+wrote a 640-pixel row into a 512-pixel one. Growing crashed; shrinking did not,
+which is why it took a resize in the right direction to find.
+
+`Con_Printf` does guard against this, with an `inupdate` flag — but only
+against itself. Here the outer `SCR_UpdateScreen` was not entered through
+`Con_Printf`, so the flag was clear.
+
+The fix is the engine's own: `block_drawing` is checked by the first line of
+`SCR_UpdateScreen` and set by `vid_win.c` around a mode change for exactly this
+reason. Nothing in this build had ever set it.
+
+### `vid_x.c` — no video menu, and no way to change resolution
+
+`menu.c` has had the whole video menu in it since 1996: an `m_video` state,
+`M_Menu_Video_f`, and an Options line that is drawn only
+`if (vid_menudrawfn)`. The X11 driver never assigned it, so the X build's
+Options menu simply had no Video Options line, and the resolution was whatever
+the command line said, for the life of the process.
+
+Both function pointers were also *defined* in `vid_x.c` as well as in `menu.c`,
+and only `-fcommon` merged the duplicate definitions into one symbol. `menu.c`
+owns them; `vid_x.c` declares them `extern`.
+
+The mode list is twenty sizes from 320x240 to 1920x1200, every width a multiple
+of eight, filtered against what the X server says it will accept. Choosing one
+writes the archived `vid_width` and `vid_height` cvars and nothing else;
+`VID_Update` notices on the next frame and applies them. That is one code path
+for the menu, for the console, and for `config.cfg` — which is also what makes
+the choice persist, since the engine rewrites `config.cfg` in full on exit.
+Because the cvars are archived and `VID_Init` runs long before `quake.rc` is
+executed, the command line is the default and the config wins.
+
+### `vid_x.c` — resizing the X screen, not just the window
+
+The browser is shown the whole root window, so a window smaller than the screen
+would sit in the corner of a framebuffer it cannot fill, with the rest black.
+Changing resolution has to move the screen too.
+
+RANDR does that, with two catches worth writing down.
+
+**A server's maximum screen size is fixed when it starts.** Xvfb reports
+`maximum 640 x 480` when started at 640x480, and `XRRAddOutputMode` answers a
+larger mode with `BadMatch`. So the container starts Xvfb at 1920x1200 and the
+engine shrinks the screen to the resolution in use; every mode below the
+ceiling is then reachable.
+
+**Xvfb starts knowing exactly one mode**, the size it was given, so every other
+resolution has to be created with `XRRCreateMode` and `XRRAddOutputMode` before
+a CRTC will take it. The timings are invented — nothing here drives a pixel
+clock — but the server rejects a mode whose totals do not bound its visible
+area.
+
+Then, in order: when growing, `XRRSetScreenSize` first, because a CRTC will not
+take a mode the screen cannot hold; `XRRSetCrtcConfig`; `XRRSetScreenSize`
+again at the exact size, which is what does the work when shrinking. Every one
+of these calls goes through a temporary `XSetErrorHandler`, because Xlib's
+default handler answers `BadValue` or `BadMatch` by calling `exit()` — a menu
+selection must not be able to end the process — and the result is judged by
+asking the server what size the root window actually is rather than by
+believing the request.
+
+Two things that cost time here:
+
+* **`XRRSizes` and `XRRSetScreenConfig`, the RANDR 1.1 interface, are a dead
+  end on Xvfb.** They see the modes, return `RRSetConfigSuccess`, and leave the
+  screen exactly where it was. Only the 1.2 CRTC interface actually moves it.
+
+* **`DisplayWidth` and `DisplayHeight` do not follow a resize.** They read a
+  value Xlib cached when the connection opened, and it is only updated by
+  feeding each `RRScreenChangeNotify` to `XRRUpdateConfiguration`. A resize that
+  had worked perfectly well read back as no change at all, which is what made
+  the 1.1 interface look like it might be worth persisting with. The engine
+  asks with `XGetGeometry` on the root, and handles the event as well so that
+  nothing else is misled.
+
+Only done when `-resizescreen` says the engine owns the display, which the
+container's entrypoint passes and a desktop does not: picking a resolution in
+Quake's menu has no business rearranging somebody's other windows.
+
+### `vid_x.c` — `MappingNotify` was ignored
+
+Xlib caches the keyboard mapping when the connection opens and rereads it only
+when asked. x11vnc types a character the keymap does not have by binding it to
+a spare keycode, sending it and putting the keymap back, so without
+`XRefreshKeyboardMapping` those characters arrive as whatever the stale cache
+says that keycode used to mean.
+
 ---
 
 ## New files
@@ -482,9 +619,22 @@ found with. Its two assertions are chosen against the failures actually seen:
   palette; flat-shaded wreckage does not. This is the assertion that would have
   caught the `Mod_LoadTexinfo` bug.
 
+The first phase also starts Xvfb deliberately larger than the window it asks
+for, so that the screen resize is something the test can watch happen, and then
+changes resolution at the console and checks the screen followed — down to
+512x384 and back up to 640x480. That second transition is what found the
+`block_drawing` crash, on the first run after the check was added.
+
 Beyond the script, by hand: the three demos in the shareware pak, played
 through; E1M1 and E1M2 walked, shot and saved, with `save`, `load`, `kill`,
 `map` and `changelevel`; 640x480 and 1280x800.
+
+The video menu, driven with `xdotool` and read back three ways: the root
+window's real size from a fresh X connection, a screenshot of the window taken
+with its own colormap, and — because what matters is what the browser is told —
+a small RFB client that connects to x11vnc and prints every `NewFBSize` it
+receives. Eight mode changes in a row with E1M1 loaded, up and down across the
+whole range, each one arriving at the client with the right dimensions.
 
 And the image itself, built and run: `docker run -p 6080:6080 -v
 <data>:/quakedata:ro -v quake-state:/quake/state`, with a frame pulled through

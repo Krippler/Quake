@@ -38,6 +38,7 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 #include <X11/Xatom.h>
 #include <X11/keysym.h>
 #include <X11/extensions/XShm.h>
+#include <X11/extensions/Xrandr.h>
 
 #include "quakedef.h"
 #include "d_local.h"
@@ -104,9 +105,43 @@ static long X11_buffersize;
 int vid_surfcachesize;
 void *vid_surfcache;
 
-void (*vid_menudrawfn)(void);
-void (*vid_menukeyfn)(int key);
+// menu.c defines these. vid_x.c defined them a second time and only
+// -fcommon merged the two; say which file owns them.
+extern void (*vid_menudrawfn)(void);
+extern void (*vid_menukeyfn)(int key);
+
+void VID_MenuDraw (void);
 void VID_MenuKey (int key);
+
+// vid.h declares a VID_SetMode with the DOS/Windows signature that nothing in
+// this build implements, so the mode setter here has its own name.
+static void VID_ApplyMode (int width, int height);
+static void VID_ClampMode (int *width, int *height);
+
+// As vid_win.c and vid_dos.c do: menu.h declares none of these.
+extern void M_Menu_Options_f (void);
+extern void M_Print (int cx, int cy, char *str);
+extern void M_PrintWhite (int cx, int cy, char *str);
+extern void M_DrawCharacter (int cx, int line, int num);
+extern void M_DrawPic (int x, int y, qpic_t *pic);
+
+// The resolution survives a restart, and the video menu sets these rather
+// than switching the mode itself, so that a mode picked in the menu and a
+// mode set from the console take exactly the same path.
+cvar_t		vid_width = {"vid_width", "640", true};
+cvar_t		vid_height = {"vid_height", "480", true};
+
+static qboolean		x_randr;		// the extension is there and usable
+static int			x_randr_event;	// its first event code
+static qboolean		x_own_screen;	// -resizescreen: this process owns the
+									// X server, so the screen may be resized
+									// along with the window
+static qboolean		x_resize_warned;
+static int			x_error_seen;
+
+static void		VID_InitRandr (void);
+static void		VID_RootSize (int *width, int *height);
+static qboolean	VID_SetScreenSize (int width, int height);
 
 typedef unsigned short PIXEL16;
 typedef unsigned int PIXEL24;	// 32 bits, matching the X server's stride
@@ -583,6 +618,43 @@ void	VID_Init (unsigned char *palette)
 	}
 	vid.width &= ~7;
 
+// Registered here so -winsize/-width/-height act as the default and a
+// vid_width in config.cfg overrides it on the first frame -- which is what
+// makes a resolution picked in the video menu survive a restart.
+	Cvar_RegisterVariable (&vid_width);
+	Cvar_RegisterVariable (&vid_height);
+
+	VID_InitRandr ();
+	VID_ClampMode (&vid.width, &vid.height);
+
+// Before the window is created, so it is created at the right size. The
+// entrypoint starts Xvfb at the largest mode this build can draw, because a
+// server's maximum screen size is fixed when it starts.
+	if (x_own_screen && !VID_SetScreenSize (vid.width, vid.height))
+	{
+		int	root_width, root_height;
+
+		VID_RootSize (&root_width, &root_height);
+		if (root_width != vid.width || root_height != vid.height)
+		{
+		// -resizescreen says nothing else is using this display, so a window
+		// that does not fill the screen leaves the rest of the picture black.
+		// Take the screen as it is instead, and say why the video menu will
+		// not be able to change it.
+			Con_Printf ("VID: this X server will not resize its screen;"
+						" using %dx%d\n"
+						"     as it stands. Video Options cannot change it.\n",
+						root_width, root_height);
+			vid.width = root_width;
+			vid.height = root_height;
+			VID_ClampMode (&vid.width, &vid.height);
+			x_resize_warned = true;
+		}
+	}
+
+	Cvar_SetValue ("vid_width", vid.width);
+	Cvar_SetValue ("vid_height", vid.height);
+
 	template_mask = 0;
 
 // specify a visual id
@@ -785,6 +857,11 @@ void	VID_Init (unsigned char *palette)
 	vid.conheight = vid.height;
 	vid.aspect = ((float)vid.height / (float)vid.width) * (320.0 / 240.0);
 
+// menu.c hides the Video Options line when these are null, which is why the
+// X build never had one. It has the whole mode list now.
+	vid_menudrawfn = VID_MenuDraw;
+	vid_menukeyfn = VID_MenuKey;
+
 //	XSynchronize(x_disp, False);
 
 }
@@ -839,10 +916,30 @@ int XLateKey(XKeyEvent *ev)
 	int key;
 	char buf[64];
 	KeySym keysym;
+	XKeyEvent unshifted;
 
 	key = 0;
 
-	XLookupString(ev, buf, sizeof buf, &keysym, 0);
+// Look the keysym up with shift taken out of the event's modifier state.
+//
+// Quake wants the unshifted key. keys.h says so -- "normal keys should be
+// passed as lowercased ascii" -- keys.c owns the shift table that turns '-'
+// into '_' for the console, and a binding belongs to a physical key rather
+// than to the character it happens to produce.
+//
+// Taking the keysym with shift applied also made the press and the release
+// disagree: shift+minus arrived as '_' going down and, because shift is
+// already up by then, as '-' coming up. Key_Event counts autorepeats in
+// key_repeats[key] and only clears the entry on the release, so key_repeats
+// ['_'] went to 1 and stayed there. The first shifted character of a session
+// went through and every one after it was dropped as an autorepeat -- every
+// capital letter, colon, quote and underscore, for the whole run. The
+// disabled block of hand-written cases further down was the 1996 attempt at
+// the same problem.
+	unshifted = *ev;
+	unshifted.state &= ~(ShiftMask | LockMask);
+
+	XLookupString(&unshifted, buf, sizeof buf, &keysym, 0);
 
 	switch(keysym)
 	{
@@ -972,6 +1069,27 @@ struct
 int keyq_head=0;
 int keyq_tail=0;
 
+/*
+================
+Keyq_Add
+
+Everything that turns into a key goes through here, and Sys_SendKeyEvents
+dispatches at most one ring's worth per frame. That bound matters: Key_Event
+writes the key's binding into the command buffer, and the command buffer is
+only drained once per frame by Cbuf_Execute. Calling Key_Event straight from
+the event loop -- which the wheel handling below used to do -- lets one frame
+feed it an unbounded amount of text, and a stall long enough to queue a few
+hundred notches then fills the 8 KB buffer and turns the console into a column
+of "Cbuf_AddText: overflow".
+================
+*/
+static void Keyq_Add (int key, qboolean down)
+{
+	keyq[keyq_head].key = key;
+	keyq[keyq_head].down = down;
+	keyq_head = (keyq_head + 1) & 63;
+}
+
 int config_notify=0;
 int config_notify_width;
 int config_notify_height;
@@ -984,14 +1102,10 @@ void GetEvent(void)
 	XNextEvent(x_disp, &x_event);
 	switch(x_event.type) {
 	case KeyPress:
-		keyq[keyq_head].key = XLateKey(&x_event.xkey);
-		keyq[keyq_head].down = true;
-		keyq_head = (keyq_head + 1) & 63;
+		Keyq_Add (XLateKey(&x_event.xkey), true);
 		break;
 	case KeyRelease:
-		keyq[keyq_head].key = XLateKey(&x_event.xkey);
-		keyq[keyq_head].down = false;
-		keyq_head = (keyq_head + 1) & 63;
+		Keyq_Add (XLateKey(&x_event.xkey), false);
 		break;
 
 	case MotionNotify:
@@ -1035,7 +1149,27 @@ void GetEvent(void)
 		}
 		break;
 
+//
+// X delivers the wheel as buttons 4 and 5, one press and one release per
+// notch. The 1996 code knew about three buttons and dropped the rest, so the
+// wheel did nothing -- and the engine has had K_MWHEELUP and K_MWHEELDOWN in
+// keys.c the whole time, waiting for something to send them.
+//
+// Straight to Key_Event rather than through mouse_buttonstate: a notch is
+// momentary, and IN_Commands only reports a change between frames, so a press
+// and release inside one frame would cancel out and never be seen.
+//
 	case ButtonPress:
+		if (x_event.xbutton.button == 4)
+		{
+			Keyq_Add (K_MWHEELUP, true);
+			break;
+		}
+		if (x_event.xbutton.button == 5)
+		{
+			Keyq_Add (K_MWHEELDOWN, true);
+			break;
+		}
 		b=-1;
 		if (x_event.xbutton.button == 1)
 			b = 0;
@@ -1048,6 +1182,16 @@ void GetEvent(void)
 		break;
 
 	case ButtonRelease:
+		if (x_event.xbutton.button == 4)
+		{
+			Keyq_Add (K_MWHEELUP, false);
+			break;
+		}
+		if (x_event.xbutton.button == 5)
+		{
+			Keyq_Add (K_MWHEELDOWN, false);
+			break;
+		}
 		b=-1;
 		if (x_event.xbutton.button == 1)
 			b = 0;
@@ -1066,6 +1210,15 @@ void GetEvent(void)
 		config_notify = 1;
 		break;
 
+	case MappingNotify:
+	// Xlib caches the keyboard mapping when the connection opens and only
+	// rereads it when asked. x11vnc types a character the keymap does not
+	// have by binding it to a spare keycode, sending it and putting the
+	// keymap back, so without this those characters arrive as whatever the
+	// stale cache says that keycode used to mean.
+		XRefreshKeyboardMapping (&x_event.xmapping);
+		break;
+
 	case ClientMessage:
 	// Closing the window used to end the process from inside Xlib's default
 	// I/O error handler, with the connection already gone -- so no config
@@ -1076,6 +1229,14 @@ void GetEvent(void)
 		break;
 
 	default:
+	// Keeps Xlib's cached screen dimensions in step with the resizes
+	// VID_SetScreenSize makes; nothing else reads them, but a stale value is
+	// the kind of thing that costs an afternoon later.
+		if (x_randr && x_event.type == x_randr_event + RRScreenChangeNotify)
+		{
+			XRRUpdateConfiguration (&x_event);
+			break;
+		}
 		if (doShm && x_event.type == x_shmeventtype)
 			oktodraw = true;
 	}
@@ -1094,20 +1255,576 @@ void GetEvent(void)
 	}
 }
 
+/*
+================================================================================
+
+VIDEO MODES
+
+The X server in the container is a private Xvfb with one window on it, and the
+picture the browser sees is the whole root window. So changing resolution means
+changing the size of the screen itself, not just the window -- otherwise the
+window sits in the corner of a framebuffer it cannot fill and the rest stays
+black.
+
+RANDR can do that, with two catches. A server's maximum screen size is fixed
+when it starts, so the entrypoint starts Xvfb at the largest mode this build
+can draw and every mode below it is reached by shrinking. And Xvfb starts
+knowing exactly one mode -- the size it was given -- so every other resolution
+has to be created here before a CRTC will take it.
+
+Only done when -resizescreen says this process owns the server. On someone's
+desktop, picking a resolution in Quake's menu has no business rearranging the
+screen their other windows are on; there the window alone changes size.
+
+================================================================================
+*/
+
+typedef struct
+{
+	int		width;
+	int		height;
+} vmode_t;
+
+// Bounded above by MAXWIDTH/MAXHEIGHT from r_shared.h, which size the
+// renderer's static tables; every width is a multiple of eight because the
+// span drawers step the framebuffer eight pixels at a time.
+static vmode_t	vid_modes[] =
+{
+	{  320,  240 },
+	{  400,  300 },
+	{  512,  384 },
+	{  640,  400 },
+	{  640,  480 },
+	{  800,  600 },
+	{  960,  720 },
+	{ 1024,  768 },
+	{ 1152,  864 },
+	{ 1280,  720 },
+	{ 1280,  800 },
+	{ 1280,  960 },
+	{ 1280, 1024 },
+	{ 1360,  768 },
+	{ 1440,  900 },
+	{ 1600,  900 },
+	{ 1600, 1200 },
+	{ 1680, 1050 },
+	{ 1920, 1080 },
+	{ 1920, 1200 },
+};
+
+#define	NUM_VID_MODES	(sizeof(vid_modes) / sizeof(vid_modes[0]))
+
+// How large a mode the server will accept. Offering one it will refuse only
+// produces a mode change that silently does not happen.
+static int		vid_maxscreenwidth = MAXWIDTH;
+static int		vid_maxscreenheight = MAXHEIGHT;
+
+/*
+================
+VID_XErrorTrap
+
+RRAddOutputMode answers a mode larger than the screen maximum with BadMatch,
+and RRSetCrtcConfig answers one that will not fit with BadValue. Xlib's default
+handler prints those and calls exit(), which would end the game over a menu
+selection. Count them and carry on; the caller checks whether the screen
+actually changed size rather than trusting the request.
+================
+*/
+static int VID_XErrorTrap (Display *disp, XErrorEvent *err)
+{
+	x_error_seen++;
+	return 0;
+}
+
+/*
+================
+VID_RootSize
+
+Asks the server. DisplayWidth/DisplayHeight read a value Xlib cached when the
+connection opened, and it does not follow a screen resize unless every
+RRScreenChangeNotify is fed to XRRUpdateConfiguration -- so a resize that
+worked perfectly well reads back as no change at all.
+================
+*/
+static void VID_RootSize (int *width, int *height)
+{
+	Window			root, dummy;
+	int				x, y;
+	unsigned int	w, h, border, depth;
+
+	root = XDefaultRootWindow (x_disp);
+	if (XGetGeometry (x_disp, root, &dummy, &x, &y, &w, &h, &border, &depth))
+	{
+		*width = w;
+		*height = h;
+	}
+	else
+	{
+		*width = vid.width;
+		*height = vid.height;
+	}
+}
+
+/*
+================
+VID_InitRandr
+================
+*/
+static void VID_InitRandr (void)
+{
+	int		error_base, major, minor;
+	int		minw, minh, maxw, maxh;
+
+	x_own_screen = COM_CheckParm ("-resizescreen") != 0;
+
+	if (!XRRQueryExtension (x_disp, &x_randr_event, &error_base)
+		|| !XRRQueryVersion (x_disp, &major, &minor))
+		return;
+
+// XRRSetCrtcConfig and the mode-creation calls are 1.2. The 1.1 interface
+// (XRRSizes/XRRSetScreenConfig) reports success on Xvfb and leaves the screen
+// where it was, so there is no point falling back to it.
+	if (major < 1 || (major == 1 && minor < 2))
+		return;
+
+	x_randr = true;
+
+	if (XRRGetScreenSizeRange (x_disp, XDefaultRootWindow (x_disp),
+							   &minw, &minh, &maxw, &maxh))
+	{
+		if (maxw > 0 && maxw < vid_maxscreenwidth)
+			vid_maxscreenwidth = maxw;
+		if (maxh > 0 && maxh < vid_maxscreenheight)
+			vid_maxscreenheight = maxh;
+	}
+
+	if (verbose)
+		Con_Printf ("VID: RANDR %d.%d, screen up to %dx%d\n",
+					major, minor, vid_maxscreenwidth, vid_maxscreenheight);
+
+// So Xlib's cached screen dimensions follow the resizes below.
+	XRRSelectInput (x_disp, XDefaultRootWindow (x_disp),
+					RRScreenChangeNotifyMask);
+}
+
+/*
+================
+VID_SetPhysSize
+
+Quake never asks the server for a physical size, but RRSetScreenSize wants one
+and a zero makes every client that computes a DPI divide by it. 96 dpi.
+================
+*/
+static void VID_SetPhysSize (Window root, int width, int height)
+{
+	XRRSetScreenSize (x_disp, root, width, height,
+					  (width * 254) / 960, (height * 254) / 960);
+}
+
+/*
+================
+VID_SetScreenSize
+
+Returns whether the screen is now the size asked for.
+================
+*/
+static qboolean VID_SetScreenSize (int width, int height)
+{
+	XRRScreenResources	*res;
+	XRROutputInfo		*output = NULL;
+	XRRModeInfo			mode_info;
+	char				mode_name[32];
+	RRMode				mode = None;
+	RROutput			out = None;
+	RRCrtc				crtc = None;
+	Window				root;
+	int					(*old_handler)(Display *, XErrorEvent *);
+	int					i, cur_width, cur_height;
+
+	if (!x_randr || !x_own_screen)
+		return false;
+
+	VID_RootSize (&cur_width, &cur_height);
+	if (cur_width == width && cur_height == height)
+		return true;
+
+	root = XDefaultRootWindow (x_disp);
+
+	res = XRRGetScreenResources (x_disp, root);
+	if (!res)
+		return false;
+
+// The first connected output and whichever CRTC drives it. Xvfb has exactly
+// one of each; a desktop may have more, but -resizescreen says this is not
+// one of those.
+	for (i = 0 ; i < res->noutput ; i++)
+	{
+		output = XRRGetOutputInfo (x_disp, res, res->outputs[i]);
+		if (output && output->connection == RR_Connected)
+		{
+			out = res->outputs[i];
+			crtc = output->crtc ? output->crtc
+								: (output->ncrtc ? output->crtcs[0] : None);
+			break;
+		}
+		if (output)
+		{
+			XRRFreeOutputInfo (output);
+			output = NULL;
+		}
+	}
+
+	if (out == None || crtc == None)
+	{
+		if (output)
+			XRRFreeOutputInfo (output);
+		XRRFreeScreenResources (res);
+		return false;
+	}
+
+	for (i = 0 ; i < res->nmode ; i++)
+		if (res->modes[i].width == width && res->modes[i].height == height)
+		{
+			mode = res->modes[i].id;
+			break;
+		}
+
+	x_error_seen = 0;
+	old_handler = XSetErrorHandler (VID_XErrorTrap);
+
+	if (mode == None)
+	{
+	// The timings are never used -- nothing here drives a pixel clock -- but
+	// the server rejects a mode whose totals do not bound its visible area.
+		sprintf (mode_name, "%dx%d", width, height);
+		memset (&mode_info, 0, sizeof(mode_info));
+		mode_info.name = mode_name;
+		mode_info.nameLength = strlen (mode_name);
+		mode_info.width = width;
+		mode_info.height = height;
+		mode_info.hSyncStart = width + 8;
+		mode_info.hSyncEnd = width + 40;
+		mode_info.hTotal = width + 80;
+		mode_info.vSyncStart = height + 3;
+		mode_info.vSyncEnd = height + 9;
+		mode_info.vTotal = height + 20;
+		mode_info.dotClock = (unsigned long)mode_info.hTotal
+							 * mode_info.vTotal * 60;
+
+		mode = XRRCreateMode (x_disp, root, &mode_info);
+		if (mode != None)
+			XRRAddOutputMode (x_disp, out, mode);
+		XSync (x_disp, False);
+	}
+	else
+	{
+	// Known to the screen, but perhaps not yet offered on this output.
+		for (i = 0 ; i < output->nmode ; i++)
+			if (output->modes[i] == mode)
+				break;
+		if (i == output->nmode)
+		{
+			XRRAddOutputMode (x_disp, out, mode);
+			XSync (x_disp, False);
+		}
+	}
+
+	if (mode != None && !x_error_seen)
+	{
+	// Growing: the screen has to be large enough before the CRTC will take
+	// the mode. Shrinking: the CRTC has to come down first or the screen
+	// would no longer cover it. Doing both, in that order, covers either.
+		if (width > cur_width || height > cur_height)
+		{
+			VID_SetPhysSize (root,
+							 width > cur_width ? width : cur_width,
+							 height > cur_height ? height : cur_height);
+			XSync (x_disp, False);
+		}
+
+		XRRSetCrtcConfig (x_disp, res, crtc, CurrentTime, 0, 0,
+						  mode, RR_Rotate_0, &out, 1);
+		VID_SetPhysSize (root, width, height);
+		XSync (x_disp, False);
+	}
+
+	XSetErrorHandler (old_handler);
+
+	XRRFreeOutputInfo (output);
+	XRRFreeScreenResources (res);
+
+	VID_RootSize (&cur_width, &cur_height);
+	return cur_width == width && cur_height == height;
+}
+
+/*
+================
+VID_ClampMode
+================
+*/
+static void VID_ClampMode (int *width, int *height)
+{
+	int		maxw = MAXWIDTH, maxh = MAXHEIGHT;
+
+	if (vid_maxscreenwidth < maxw)
+		maxw = vid_maxscreenwidth;
+	if (vid_maxscreenheight < maxh)
+		maxh = vid_maxscreenheight;
+
+	if (*width > maxw)
+		*width = maxw;
+	if (*height > maxh)
+		*height = maxh;
+	if (*width < 320)
+		*width = 320;
+	if (*height < 200)
+		*height = 200;
+
+	*width &= ~7;
+}
+
+/*
+================
+VID_ApplyMode
+
+Resizes the screen and the window. The reallocation of the framebuffer, the
+z-buffer and the surface cache is left to the config_notify path in
+VID_Update, which already does exactly that for a resize from outside.
+================
+*/
+static void VID_ApplyMode (int width, int height)
+{
+	VID_ClampMode (&width, &height);
+
+// Write the clamped values back, or a mode this build cannot draw leaves the
+// cvars disagreeing with the screen and VID_Update retrying every frame.
+	if ((int)vid_width.value != width)
+		Cvar_SetValue ("vid_width", width);
+	if ((int)vid_height.value != height)
+		Cvar_SetValue ("vid_height", height);
+
+	if (width == vid.width && height == vid.height)
+		return;
+
+	if (!VID_SetScreenSize (width, height) && x_own_screen && !x_resize_warned)
+	{
+		x_resize_warned = true;
+		Con_Printf ("VID: this X server will not resize its screen, so only\n"
+					"     the window changes size and the rest of the\n"
+					"     picture stays black.\n");
+	}
+
+	XMoveResizeWindow (x_disp, x_win, 0, 0, width, height);
+	XSync (x_disp, False);
+
+// Do not wait for the ConfigureNotify to come back round; the size is known.
+	config_notify_width = width;
+	config_notify_height = height;
+	config_notify = 1;
+}
+
+/*
+================
+VID_CheckModeChange
+
+vid_width and vid_height are archived, so config.cfg sets them long after
+VID_Init has run -- and the video menu only writes them. Both arrive here.
+================
+*/
+static void VID_CheckModeChange (void)
+{
+	int		width = (int)vid_width.value;
+	int		height = (int)vid_height.value;
+
+	if (width == vid.width && height == vid.height)
+		return;
+
+	VID_ApplyMode (width, height);
+}
+
+/*
+================================================================================
+
+VIDEO MENU
+
+================================================================================
+*/
+
+#define	VID_MENU_TOP	48
+#define	VID_MENU_ROWS	13
+
+static int		vid_menu_cursor;
+static int		vid_menu_top;
+
+/*
+================
+VID_MenuDraw
+================
+*/
+void VID_MenuDraw (void)
+{
+	qpic_t	*p;
+	char	line[64];
+	int		i, row, count, last;
+
+// Modes this server cannot give are not offered.
+	count = 0;
+	for (i = 0 ; i < NUM_VID_MODES ; i++)
+		if (vid_modes[i].width <= vid_maxscreenwidth
+			&& vid_modes[i].height <= vid_maxscreenheight)
+			count++;
+
+// In pak0 since the shareware release; Draw_CachePic calls Sys_Error rather
+// than returning when a lump is missing, so there is nothing to check.
+	p = Draw_CachePic ("gfx/vidmodes.lmp");
+	M_DrawPic ((320 - p->width) / 2, 4, p);
+
+	sprintf (line, "current: %dx%d", vid.width, vid.height);
+	M_Print (16, 32, line);
+
+	if (vid_menu_cursor >= count)
+		vid_menu_cursor = count - 1;
+	if (vid_menu_cursor < 0)
+		vid_menu_cursor = 0;
+
+// Keep the cursor inside the window of rows there is room to print.
+	if (vid_menu_cursor < vid_menu_top)
+		vid_menu_top = vid_menu_cursor;
+	if (vid_menu_cursor >= vid_menu_top + VID_MENU_ROWS)
+		vid_menu_top = vid_menu_cursor - VID_MENU_ROWS + 1;
+	last = vid_menu_top + VID_MENU_ROWS;
+	if (last > count)
+		last = count;
+
+	row = 0;
+	for (i = 0 ; i < NUM_VID_MODES ; i++)
+	{
+		if (vid_modes[i].width > vid_maxscreenwidth
+			|| vid_modes[i].height > vid_maxscreenheight)
+			continue;
+
+		if (row >= vid_menu_top && row < last)
+		{
+			int	y = VID_MENU_TOP + (row - vid_menu_top) * 8;
+
+			sprintf (line, "%4d x %-4d", vid_modes[i].width,
+					 vid_modes[i].height);
+			if (vid_modes[i].width == vid.width
+				&& vid_modes[i].height == vid.height)
+				M_PrintWhite (56, y, line);
+			else
+				M_Print (56, y, line);
+
+			if (row == vid_menu_cursor)
+				M_DrawCharacter (40, y, 12 + ((int)(realtime*4) & 1));
+		}
+		row++;
+	}
+
+	if (vid_menu_top > 0)
+		M_Print (56, VID_MENU_TOP - 8, "^ more above");
+	if (last < count)
+		M_Print (56, VID_MENU_TOP + VID_MENU_ROWS * 8, "v more below");
+
+	M_Print (16, VID_MENU_TOP + VID_MENU_ROWS * 8 + 16,
+			 "Enter to apply, Esc to go back");
+}
+
+/*
+================
+VID_MenuKey
+================
+*/
+void VID_MenuKey (int key)
+{
+	int		i, row, count;
+
+	count = 0;
+	for (i = 0 ; i < NUM_VID_MODES ; i++)
+		if (vid_modes[i].width <= vid_maxscreenwidth
+			&& vid_modes[i].height <= vid_maxscreenheight)
+			count++;
+
+	switch (key)
+	{
+	case K_ESCAPE:
+		S_LocalSound ("misc/menu1.wav");
+		M_Menu_Options_f ();
+		break;
+
+	case K_UPARROW:
+		S_LocalSound ("misc/menu1.wav");
+		vid_menu_cursor--;
+		if (vid_menu_cursor < 0)
+			vid_menu_cursor = count - 1;
+		break;
+
+	case K_DOWNARROW:
+		S_LocalSound ("misc/menu1.wav");
+		vid_menu_cursor++;
+		if (vid_menu_cursor >= count)
+			vid_menu_cursor = 0;
+		break;
+
+	case K_ENTER:
+		S_LocalSound ("misc/menu1.wav");
+		row = 0;
+		for (i = 0 ; i < NUM_VID_MODES ; i++)
+		{
+			if (vid_modes[i].width > vid_maxscreenwidth
+				|| vid_modes[i].height > vid_maxscreenheight)
+				continue;
+			if (row == vid_menu_cursor)
+			{
+			// Written, not applied: VID_CheckModeChange picks it up on the
+			// next frame, the same way it picks up config.cfg. It is also
+			// what makes the choice stick across a restart.
+				Cvar_SetValue ("vid_width", vid_modes[i].width);
+				Cvar_SetValue ("vid_height", vid_modes[i].height);
+				break;
+			}
+			row++;
+		}
+		break;
+
+	default:
+		break;
+	}
+}
+
 // flushes the given rectangles from the view buffer to the screen
 
 void	VID_Update (vrect_t *rects)
 {
 	vrect_t full;
 
+	VID_CheckModeChange ();
+
 // if the window changes dimension, skip this frame
 
 	if (config_notify)
 	{
-		fprintf(stderr, "config notify\n");
 		config_notify = 0;
-		vid.width = config_notify_width & ~7;
+		vid.width = config_notify_width;
 		vid.height = config_notify_height;
+	// A size from outside is not bounded by anything, and the renderer's
+	// static tables are. The original took it as given and wrote off the end
+	// of d_scantable.
+		VID_ClampMode (&vid.width, &vid.height);
+
+	// D_InitCaches, at the end of the reset below, announces the new surface
+	// cache size with Con_Printf -- and Con_Printf draws the screen when the
+	// console is up. That re-entered SCR_UpdateScreen from inside this
+	// function, with vid.width already the new size and vid.buffer still the
+	// old, smaller framebuffer, so Draw_ConsoleBackground wrote a 640-pixel
+	// row into a 512-pixel one and off the end of the allocation. It only
+	// crashed when the new mode was the larger of the two.
+	//
+	// block_drawing is the engine's own answer to this: vid_win.c sets it
+	// around a mode change for the same reason, and SCR_UpdateScreen checks
+	// it first thing. Nothing in this build had ever set it.
+		block_drawing = true;
+
 		if (doShm)
 			ResetSharedFrameBuffers();
 		else
@@ -1118,7 +1835,16 @@ void	VID_Update (vrect_t *rects)
 		vid.conwidth = vid.width;
 		vid.conheight = vid.height;
 		vid.conrowbytes = vid.rowbytes;
+
+		block_drawing = false;
+
+		if (verbose)
+			Con_Printf ("VID: now %dx%d\n", vid.width, vid.height);
+		vid.aspect = ((float)vid.height / (float)vid.width)
+					 * (320.0 / 240.0);
 		vid.recalc_refdef = 1;				// force a surface cache flush
+		Cvar_SetValue ("vid_width", vid.width);
+		Cvar_SetValue ("vid_height", vid.height);
 		Con_CheckResize();
 		Con_Clear_f();
 		return;
@@ -1318,14 +2044,14 @@ void IN_Move (usercmd_t *cmd)
 	mouse_x *= sensitivity.value;
 	mouse_y *= sensitivity.value;
    
-	if ( (in_strafe.state & 1) || (lookstrafe.value && (in_mlook.state & 1) ))
+	if ( (in_strafe.state & 1) || (lookstrafe.value && IN_LOOKING()) )
 		cmd->sidemove += m_side.value * mouse_x;
 	else
 		cl.viewangles[YAW] -= m_yaw.value * mouse_x;
-	if (in_mlook.state & 1)
+	if (IN_LOOKING())
 		V_StopPitchDrift ();
    
-	if ( (in_mlook.state & 1) && !(in_strafe.state & 1)) {
+	if ( IN_LOOKING() && !(in_strafe.state & 1)) {
 		cl.viewangles[PITCH] += m_pitch.value * mouse_y;
 		if (cl.viewangles[PITCH] > 80)
 			cl.viewangles[PITCH] = 80;

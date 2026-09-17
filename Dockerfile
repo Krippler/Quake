@@ -29,6 +29,7 @@ RUN apt-get update \
         pkg-config \
         libx11-dev \
         libxext-dev \
+        libxrandr-dev \
         libsndfile1-dev \
  && rm -rf /var/lib/apt/lists/*
 
@@ -62,6 +63,7 @@ RUN apt-get update \
  && apt-get install -y --no-install-recommends \
         libx11-6 \
         libxext6 \
+        libxrandr2 \
         libsndfile1 \
         xvfb \
         x11vnc \

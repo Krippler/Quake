@@ -95,6 +95,18 @@ own limits — `MAX_EDICTS`, the 64-unit lightmap grid, the eight-bit palette.
 If you want to play a 2024 megawad-equivalent with a modern renderer, use
 QuakeSpasm or Ironwail; they are excellent and this is not trying to be them.
 
+**There is no switch between the software renderer and OpenGL, and there cannot
+be one in a menu.** id's release builds two different programs from one tree:
+`GLQUAKE` is a compile-time `#ifdef` that swaps out the renderer, the drawing
+code, the model code and the video driver — `gl_rmain.c` for `r_main.c`,
+`gl_screen.c` for `screen.c`, and so on. Nothing in either build can reach the
+other's code, because the other's code is not in it. Offering the choice would
+mean shipping two binaries and restarting the engine into the other one, which
+is a different thing from a menu toggle and would trade a renderer that is
+known to work for one that needs the whole 64-bit audit doing again — this
+time through a GL driver that in the container would be software Mesa, so the
+"hardware" renderer would run on the CPU anyway. It was left out deliberately.
+
 What it is: the code id published, changed only where it was wrong or where the
 thing it talked to no longer exists, with every change written down.
 
@@ -109,10 +121,11 @@ much of the plumbing is shared, but three things came out differently:
   in its original archive; it does not permit shipping a pak file out of it. So
   this container refuses to start with nothing mounted, and says why.
 
-- **The resolution is yours to pick.** DOOM renders 320x200 and the container
-  scales it. Quake's renderer takes a resolution, so there is nothing to scale:
-  `QUAKE_WIDTH` and `QUAKE_HEIGHT` go straight to the engine and to the Xvfb
-  screen.
+- **The resolution is yours to pick, at runtime.** DOOM renders 320x200 and the
+  container scales it. Quake's renderer takes a resolution, so there is nothing
+  to scale: `QUAKE_WIDTH` and `QUAKE_HEIGHT` set where it starts, and Options →
+  Video Options changes it while the game is running. That means the engine
+  resizes the X screen the browser is watching, which DOOM's never had to do.
 
 - **The engine mixes its own sound.** DOOM's release mixed effects in a separate
   process and never implemented music at all, so `audiostream` had to mix two

@@ -54,11 +54,11 @@
           Type="Path" Display="always" Required="true" Mask="false">/mnt/user/appdata/quake</Config>
 
   <Config Name="Width" Target="QUAKE_WIDTH" Default="640"
-          Description="Render width, 320 to 1920. The renderer is in software, so every pixel costs; the browser scales whatever it is given to fit the window."
+          Description="Starting render width, 320 to 1920. The renderer is in software, so every pixel costs; the browser scales whatever it is given to fit the window. Options - Video Options in the game changes the resolution while it runs and remembers the choice, so after the first run this is only the starting point."
           Type="Variable" Display="always" Required="false" Mask="false">640</Config>
 
   <Config Name="Height" Target="QUAKE_HEIGHT" Default="480"
-          Description="Render height, 200 to 1200."
+          Description="Starting render height, 200 to 1200."
           Type="Variable" Display="always" Required="false" Mask="false">480</Config>
 
   <Config Name="Game" Target="QUAKE_GAME" Default=""

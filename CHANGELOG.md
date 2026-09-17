@@ -5,6 +5,116 @@ top section's heading is what the release workflow reads: `## [X.Y.Z] — DATE`
 on the default branch publishes that version, `## [Unreleased]` publishes only
 `edge`.
 
+## [1.1.0] — 2026-09-17
+
+### Added
+
+- **WASD and mouse look by default.** The container seeds `config.cfg` once,
+  on a state volume that has none, with W A S D to move, the mouse to look, the
+  wheel to change weapon and E/Q to swim. id's 1996 defaults — arrow keys to
+  move, `,` and `.` to sidestep, `a` to look up, and the mouse walking you
+  forward unless you hold `\` — are still one `QUAKE_MODERN_CONTROLS=0` away,
+  and the engine owns the file afterwards, so anything changed in the game
+  persists over them.
+- **A `freelook` cvar**, archived and set to 1, so the mouse steers the view
+  with no key held. `+mlook` is untouched and still wins while it is held;
+  `freelook 0` is the 1996 behaviour exactly. Every place that asked
+  `in_mlook.state & 1` for this question now asks one macro, so the two cannot
+  drift apart.
+- **Mouse wheel support in the X11 driver.** X delivers the wheel as buttons 4
+  and 5; the 1996 code handled three buttons and dropped the rest, while
+  `keys.c` had `K_MWHEELUP` and `K_MWHEELDOWN` in it the whole time. Sent
+  straight to `Key_Event`, because a notch is momentary and `IN_Commands` only
+  reports changes between frames.
+- **Customize controls covers everything**, thirty-one actions rather than
+  eighteen, including the weapon keys, the console, the scoreboard, pause and
+  screenshot. The old limit was the screen: eighteen rows is all that fits, so
+  the menu scrolls now, with indicators for which way there is more.
+- **A Video Options menu**, with twenty resolutions from 320x240 to 1920x1200.
+  The X11 driver never set `vid_menudrawfn`, and `menu.c` hides the line when
+  it is null, so the X build had no video menu at all — the resolution was
+  whatever the command line said and nothing could change it afterwards.
+  Picking a mode writes the archived `vid_width` and `vid_height` cvars, which
+  is also what makes the choice survive a restart; setting them at the console
+  does the same thing. Modes the X server will not accept are not offered.
+- **The engine resizes the X screen, not just its window.** The browser sees
+  the whole root window, so a smaller window would sit in the corner of a
+  framebuffer it cannot fill. The engine creates the RANDR mode and moves the
+  screen to it, and x11vnc's `-xrandr resize` passes the new size to the
+  browser as NewFBSize — which noVNC handles by resizing its canvas, visible
+  as a brief blink. A server's maximum screen size is fixed when it starts, so
+  the container now starts Xvfb at 1920x1200 and the engine brings it down;
+  `QUAKE_MAX_WIDTH` and `QUAKE_MAX_HEIGHT` change that ceiling. Only done when
+  `-resizescreen` says the engine owns the display, because on a desktop
+  picking a resolution in Quake has no business rearranging anything else.
+
+### Fixed
+
+- **Only the first shifted character of a session reached the console.**
+  `XLateKey` took the keysym with the event's shift state applied, so
+  shift+minus arrived as `_` going down and — shift being up by then — as `-`
+  coming up. `Key_Event` counts autorepeats in `key_repeats[key]` and only
+  clears the entry on the release, so `key_repeats['_']` went to 1 and stayed
+  there, and every `_` after the first was discarded as an autorepeat. The
+  same for every capital letter, colon and quote: `vid_width` reached the
+  console as `vidwidth`, and a name or a server address could be typed once.
+  The keysym is now taken with shift masked out, which is what `keys.h` asks
+  for ("normal keys should be passed as lowercased ascii") and leaves the
+  shift table in `keys.c` to do its job.
+- **A resize crashed the engine when the new mode was larger.**
+  `D_InitCaches` announces the new surface cache size with `Con_Printf`, and
+  `Con_Printf` draws the screen — which re-entered `SCR_UpdateScreen` from
+  inside `VID_Update`, with `vid.width` already the new size and `vid.buffer`
+  still the old, smaller framebuffer. `Draw_ConsoleBackground` then wrote a
+  640-pixel row into a 512-pixel one. `block_drawing`, which `SCR_UpdateScreen`
+  has always checked first thing and which `vid_win.c` sets around a mode
+  change for this exact reason, is now set here too; nothing in this build had
+  ever set it. Reachable before this release by resizing the window from
+  outside.
+- `vid_menudrawfn` and `vid_menukeyfn` were defined in both `menu.c` and
+  `vid_x.c`, and only `-fcommon` merged the two into one symbol. `menu.c` owns
+  them now.
+- **A command line longer than 1023 bytes killed the engine.** `Cbuf_Execute`
+  copies each line out of the 8 KB command buffer into a 1024-byte array on the
+  stack with `memcpy`, using the length it measured in the buffer and not the
+  size of the array, then writes a nul one past that. One command with no
+  newline or semicolon in it — a config file whose last line has no terminator,
+  or a long enough `bind` — overran it; glibc's `_FORTIFY_SOURCE` check turns
+  that into `SIGABRT`, which is why it aborts rather than doing something
+  worse. Such a line is now reported and dropped, because half a command is not
+  the command that was asked for.
+- **`Cbuf_AddText: overflow` now says what overflowed.** The 1996 message was
+  that one word: not how large the buffer is, not how much was in use, and not
+  what was being added. Whatever fills the buffer is usually still going, so it
+  arrived scores of times and pushed anything that might have explained it off
+  the top of the console. It reports once, with the size, the amount in use and
+  the start of the text that was dropped, counts the rest, and says how many
+  were lost when there is room again.
+- **The mouse wheel could flood the command buffer.** The wheel handling added
+  in this release called `Key_Event` straight from the X event loop rather than
+  through the key queue that everything else goes through. `Sys_SendKeyEvents`
+  dispatches at most one queue's worth per frame, and that bound is what keeps
+  a frame's key events from outgrowing the command buffer — which `Cbuf_Execute`
+  drains only once per frame. Bypassing it meant one frame could take an
+  unbounded number of notches, each writing its binding into the buffer. All
+  four wheel events go through the queue now, as do the two key paths, so there
+  is one way in.
+- The X11 driver ignored `MappingNotify`. Xlib caches the keyboard mapping when
+  the connection opens, and x11vnc types a character the keymap does not have
+  by binding it to a spare keycode and putting the keymap back afterwards, so
+  those characters arrived as whatever the stale cache said that keycode used
+  to mean.
+- A size arriving from outside was taken as given, and the renderer's static
+  tables are bounded by `MAXWIDTH` and `MAXHEIGHT`. It is clamped now, and the
+  aspect ratio is recomputed, which the resize path never did.
+
+- A comment in the entrypoint had the pak search order backwards. It claimed a
+  loose file shadows the pak copy of the same name;
+  `COM_AddGameDirectory` pushes the directory onto `com_searchpaths` first and
+  each pak on top, so the paks win and a loose file is only reached for a name
+  no pak holds. The log line now says that, and this was offered as a
+  hypothesis for a crash report, so it is worth correcting in public.
+
 ## [1.0.1] — 2026-09-17
 
 ### Fixed

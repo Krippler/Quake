@@ -121,6 +121,31 @@ if [ $(( WIDTH % 8 )) -ne 0 ]; then
     log "width rounded down to $WIDTH: the span drawers work eight pixels at a time"
 fi
 
+#
+# An X server's maximum screen size is fixed when it starts and RANDR can only
+# move around inside it, so Xvfb is started at the largest mode the renderer
+# can draw and the engine shrinks the screen to whatever resolution is in play.
+# That is what makes the in-game Video Options menu work: without it, only
+# sizes below QUAKE_WIDTH/QUAKE_HEIGHT would be reachable.
+#
+# Setting these to the starting size pins the screen there and turns the menu's
+# mode list into a list of things that will not happen. It costs about 2 MB of
+# the server's memory to leave them alone.
+#
+MAX_WIDTH="${QUAKE_MAX_WIDTH:-1920}"
+MAX_HEIGHT="${QUAKE_MAX_HEIGHT:-1200}"
+
+case "$MAX_WIDTH$MAX_HEIGHT" in
+    *[!0-9]*) die "QUAKE_MAX_WIDTH and QUAKE_MAX_HEIGHT must be numbers (got '$MAX_WIDTH' and '$MAX_HEIGHT')" ;;
+esac
+
+[ "$MAX_WIDTH"  -le 1920 ] || die "QUAKE_MAX_WIDTH is limited to 1920 by the renderer (got $MAX_WIDTH)"
+[ "$MAX_HEIGHT" -le 1200 ] || die "QUAKE_MAX_HEIGHT is limited to 1200 by the renderer (got $MAX_HEIGHT)"
+
+# The starting size has to fit inside it, or the engine could not reach it.
+[ "$MAX_WIDTH"  -ge "$WIDTH" ]  || MAX_WIDTH="$WIDTH"
+[ "$MAX_HEIGHT" -ge "$HEIGHT" ] || MAX_HEIGHT="$HEIGHT"
+
 ##############################################################################
 # The state directory holds config.cfg, savegames, logs and the links to the
 # game data, so it has to be writable. A bind-mounted host directory arrives
@@ -262,10 +287,16 @@ log "game data: $FOUND_GAMES"
 # What actually ended up in each game directory.
 #
 # The engine searches the directory as well as the paks once it is running the
-# registered game -- COM_FindFile only restricts that for shareware -- and a
-# loose file shadows the pak copy of the same name. So a mount holding both
-# paks and an extracted tree, which is what "pak files directly in the mount"
-# usually means, can feed the engine a mixture, and nothing above would say so.
+# registered game; for shareware, COM_FindFile skips any name with a '/' in it
+# when it gets to a directory, so loose subdirectories are unreachable.
+#
+# The paks win. COM_AddGameDirectory pushes the directory onto com_searchpaths
+# first and then each pak on top of it, so the list runs pak1, pak0, directory
+# and a loose file is only reached when no pak holds that name. (An earlier
+# version of this comment had that backwards.) It is still worth logging: a
+# mount holding an extracted tree as well as the paks is a mount where
+# something unexpected can be picked up, and "pak files directly in the mount"
+# is the layout where that is most likely.
 #
 # Quiet for the ordinary case. A directory of nothing but pak links is what
 # almost everybody has and needs no comment; anything else is worth seeing in
@@ -279,7 +310,7 @@ for g in $FOUND_GAMES; do
 
     if [ "$other" -gt 0 ]; then
         log "  $g: $paks pak(s) and $other loose entr(ies), which the engine"
-        log "      will search before the paks:"
+        log "      falls back to for anything the paks do not hold:"
         find "$BASEDIR/$g" -maxdepth 1 -mindepth 1 ! -name '*.pak' \
              ! -name 'config.cfg' ! -name '*.sav' ! -name '*.pcx' \
              2>/dev/null | head -20 | while IFS= read -r entry; do
@@ -371,8 +402,9 @@ trap cleanup EXIT INT TERM
 # X server offers one. Xvfb still does, which is the whole reason the picture
 # goes through it rather than through something newer.
 ##############################################################################
-log "starting Xvfb on $DISP at ${WIDTH}x${HEIGHT}x8"
-Xvfb "$DISP" -screen 0 "${WIDTH}x${HEIGHT}x8" -nolisten tcp -noreset \
+log "starting Xvfb on $DISP at ${MAX_WIDTH}x${MAX_HEIGHT}x8, the largest mode the"
+log "  renderer can draw; the engine brings the screen down to ${WIDTH}x${HEIGHT}"
+Xvfb "$DISP" -screen 0 "${MAX_WIDTH}x${MAX_HEIGHT}x8" -nolisten tcp -noreset \
      >"$STATE/xvfb.log" 2>&1 &
 XVFB_PID=$!
 
@@ -441,11 +473,20 @@ for opt in ${QUAKE_VNC_ARGS:-}; do
     esac
 done
 
+#
+# -xrandr resize: the engine resizes the X screen when the resolution changes
+# in the Video Options menu. Without this x11vnc keeps serving a framebuffer of
+# the size it first saw, so a change to a larger mode arrives cropped and a
+# change to a smaller one leaves most of the picture stale. "resize" makes
+# x11vnc rebuild its framebuffer and tell the client through NewFBSize, which
+# noVNC handles by resizing its canvas -- visible as a brief reconnect.
+#
 log "starting x11vnc on port $VNC_PORT"
 # shellcheck disable=SC2086
 x11vnc -display "$DISP" -rfbport "$VNC_PORT" -forever -shared -quiet \
        $vnc_8to24 \
        -nowireframe -noscrollcopyrect \
+       -xrandr resize \
        -nonap -wait "${QUAKE_VNC_WAIT:-5}" -defer "${QUAKE_VNC_DEFER:-5}" \
        ${QUAKE_VNC_ARGS:-} \
        $vnc_auth >"$STATE/x11vnc.log" 2>&1 &
@@ -499,6 +540,66 @@ fi
     printf 'vnc: localhost:%s\n' "$VNC_PORT"
     [ "$AUDIO_TO_BROWSER" = "1" ] && printf 'audio: localhost:%s\n' "$AUDIO_PORT"
 } > "$STATE/ws-targets"
+
+##############################################################################
+# Modern controls, on a fresh state volume only.
+#
+# Quake's own default.cfg is inside pak0.pak, so it cannot be changed and
+# should not be: it is id's file. quake.rc execs it and then execs config.cfg,
+# so config.cfg is where an override belongs -- and the engine rewrites
+# config.cfg in full when it exits, so seeding it once is a default rather
+# than a policy. Change anything in the game and your change is what persists.
+#
+# What the 1996 defaults actually are: the arrow keys move, `,` and `.`
+# sidestep, `a` looks up, `d` swims up, and the mouse walks you forward unless
+# you hold `\` to look with it. That was normal then. It reads as broken now.
+##############################################################################
+seed_config() {
+    cfg="$BASEDIR/id1/config.cfg"
+
+    [ -e "$cfg" ] && return 0
+    [ "${QUAKE_MODERN_CONTROLS:-1}" = "1" ] || return 0
+
+    cat > "$cfg" <<'CFGEOF'
+// Written once, on a state volume with no config.cfg in it, and then owned by
+// the engine: it rewrites this file whenever it exits, so anything changed in
+// Options or at the console replaces what is here. Delete the file to get
+// these back, or run the container with QUAKE_MODERN_CONTROLS=0 to start from
+// id's 1996 defaults instead.
+//
+// quake.rc has already run id's default.cfg out of pak0.pak by this point, so
+// these lines only need to cover what differs.
+
+// WASD, and the mouse steering rather than walking. freelook is a cvar this
+// port adds; +mlook still works and still wins while it is held.
+freelook "1"
+lookspring "0"
+bind "w" "+forward"
+bind "s" "+back"
+bind "a" "+moveleft"
+bind "d" "+moveright"
+
+// The two keys WASD displaces. `a` was look up and `d` was swim up in 1996;
+// jump already swims up, so these are the ones worth keeping somewhere.
+bind "e" "+moveup"
+bind "q" "+movedown"
+
+// The wheel changes weapon, which needs the X11 driver to report it -- see
+// the wheel handling in vid_x.c. impulse 12 has no default key at all in id's
+// config.
+bind "MWHEELUP" "impulse 10"
+bind "MWHEELDOWN" "impulse 12"
+
+// MOUSE2 is +forward in id's config, which is no use once the mouse looks.
+bind "MOUSE2" "+attack"
+CFGEOF
+
+    log "seeded config.cfg with WASD and mouse look (QUAKE_MODERN_CONTROLS=0"
+    log "  starts from id's 1996 defaults instead; whatever you change in the"
+    log "  game is saved over this on exit)"
+}
+
+seed_config
 
 #
 # Hand the browser the engine's own key bindings.
@@ -634,6 +735,15 @@ log ""
 case " $* " in
     *" -width "*|*" -winsize "*) ;;
     *) set -- -width "$WIDTH" -height "$HEIGHT" "$@" ;;
+esac
+
+# Nothing else is on this display, so the engine may resize the screen itself
+# rather than leaving a window in the corner of a framebuffer it cannot fill.
+# Without this switch it only ever resizes its window, which is the right thing
+# to do on somebody's desktop and the wrong thing here.
+case " $* " in
+    *" -resizescreen "*) ;;
+    *) set -- -resizescreen "$@" ;;
 esac
 
 case " $* " in
