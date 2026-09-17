@@ -98,6 +98,20 @@ docker run --rm -p 6080:6080 -e QUAKE_WIDTH=1280 -e QUAKE_HEIGHT=800 \
 The browser scales whatever it is given to fit the window, so a lower number is
 not a smaller picture — it is a softer one, and a faster one.
 
+## Images
+
+Published to `ghcr.io/krippler/quake`, 297 MB unpacked, `linux/amd64` only.
+`latest` is the newest release, `edge` tracks `master`. Signed with cosign on
+every push.
+
+No game data is in there, which is why it is less than half the size of the
+[DOOM container](https://github.com/Krippler/DOOM) it is modelled on — that one
+carries the shareware IWAD and a General MIDI soundfont, and neither has an
+equivalent here.
+
+Unraid users: the Community Applications template is
+[`templates/unraid.xml`](templates/unraid.xml).
+
 ## Building it yourself
 
 ```

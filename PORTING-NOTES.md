@@ -484,9 +484,17 @@ found with. Its two assertions are chosen against the failures actually seen:
 
 Beyond the script, by hand: the three demos in the shareware pak, played
 through; E1M1 and E1M2 walked, shot and saved, with `save`, `load`, `kill`,
-`map` and `changelevel`; 640x480 and 1280x800; and the whole container stack,
-with a frame pulled through the browser's own WebSocket and the sound read with
-the header the page reads.
+`map` and `changelevel`; 640x480 and 1280x800.
+
+And the image itself, built and run: `docker run -p 6080:6080 -v
+<data>:/quakedata:ro -v quake-state:/quake/state`, with a frame pulled through
+the published port over the browser's own WebSocket and the sound read with the
+header the page reads. What that covers and the native runs do not is the
+Dockerfile — the package names, unpacking noVNC out of its `.deb` rather than
+installing it, the forced removal of Mesa and numpy, the version stamp — and
+the container's own edges: `docker stop` reaching the engine through tini and
+`config.cfg` landing in the volume, the state surviving as uid 1001, and a
+container with nothing mounted stopping with an explanation and status 1.
 
 ## What was deliberately left alone
 
