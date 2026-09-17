@@ -285,6 +285,28 @@ actually sent — so `docker logs` answers the question on its own.
 
 ## Troubleshooting
 
+### The colours go wrong after quitting to the title screen
+
+Known, and not yet fixed. **Reload the browser tab** and they come back.
+
+Quitting makes the engine exit; the container starts it again, which creates a
+new window. x11vnc is showing this 8-bit screen to the browser by converting it
+through the window's colormap, and after the old window has gone it carries on
+converting through the colormap that went with it. Its own manual admits the
+limitation: "if there are multiple 8bpp windows using different colormaps, one
+may have to iconify all but one for the colors to be correct."
+
+It needs the screen to have been resized at some point in the session — so it
+follows a visit to Video Options, and not a plain quit. Measured at about 70%
+of pixels landing outside Quake's palette, which on screen is the whole picture
+in the wrong colours.
+
+A fresh VNC connection always rebuilds the mapping correctly, which is why
+reloading the tab fixes it. What does not fix it: `x11vnc -R refresh`,
+`-fixscreen 8=t`, re-uploading the palette from the engine, or starting the
+engine at the resolution the config asks for.
+
+
 **"nothing to play", and the container stops.** No pak files were found in
 `/quakedata`. The mount has to contain `id1/pak0.pak`, or pak files directly.
 The log says which directories it looked at.
