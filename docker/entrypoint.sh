@@ -262,10 +262,16 @@ log "game data: $FOUND_GAMES"
 # What actually ended up in each game directory.
 #
 # The engine searches the directory as well as the paks once it is running the
-# registered game -- COM_FindFile only restricts that for shareware -- and a
-# loose file shadows the pak copy of the same name. So a mount holding both
-# paks and an extracted tree, which is what "pak files directly in the mount"
-# usually means, can feed the engine a mixture, and nothing above would say so.
+# registered game; for shareware, COM_FindFile skips any name with a '/' in it
+# when it gets to a directory, so loose subdirectories are unreachable.
+#
+# The paks win. COM_AddGameDirectory pushes the directory onto com_searchpaths
+# first and then each pak on top of it, so the list runs pak1, pak0, directory
+# and a loose file is only reached when no pak holds that name. (An earlier
+# version of this comment had that backwards.) It is still worth logging: a
+# mount holding an extracted tree as well as the paks is a mount where
+# something unexpected can be picked up, and "pak files directly in the mount"
+# is the layout where that is most likely.
 #
 # Quiet for the ordinary case. A directory of nothing but pak links is what
 # almost everybody has and needs no comment; anything else is worth seeing in
@@ -279,7 +285,7 @@ for g in $FOUND_GAMES; do
 
     if [ "$other" -gt 0 ]; then
         log "  $g: $paks pak(s) and $other loose entr(ies), which the engine"
-        log "      will search before the paks:"
+        log "      falls back to for anything the paks do not hold:"
         find "$BASEDIR/$g" -maxdepth 1 -mindepth 1 ! -name '*.pak' \
              ! -name 'config.cfg' ! -name '*.sav' ! -name '*.pcx' \
              2>/dev/null | head -20 | while IFS= read -r entry; do
@@ -499,6 +505,66 @@ fi
     printf 'vnc: localhost:%s\n' "$VNC_PORT"
     [ "$AUDIO_TO_BROWSER" = "1" ] && printf 'audio: localhost:%s\n' "$AUDIO_PORT"
 } > "$STATE/ws-targets"
+
+##############################################################################
+# Modern controls, on a fresh state volume only.
+#
+# Quake's own default.cfg is inside pak0.pak, so it cannot be changed and
+# should not be: it is id's file. quake.rc execs it and then execs config.cfg,
+# so config.cfg is where an override belongs -- and the engine rewrites
+# config.cfg in full when it exits, so seeding it once is a default rather
+# than a policy. Change anything in the game and your change is what persists.
+#
+# What the 1996 defaults actually are: the arrow keys move, `,` and `.`
+# sidestep, `a` looks up, `d` swims up, and the mouse walks you forward unless
+# you hold `\` to look with it. That was normal then. It reads as broken now.
+##############################################################################
+seed_config() {
+    cfg="$BASEDIR/id1/config.cfg"
+
+    [ -e "$cfg" ] && return 0
+    [ "${QUAKE_MODERN_CONTROLS:-1}" = "1" ] || return 0
+
+    cat > "$cfg" <<'CFGEOF'
+// Written once, on a state volume with no config.cfg in it, and then owned by
+// the engine: it rewrites this file whenever it exits, so anything changed in
+// Options or at the console replaces what is here. Delete the file to get
+// these back, or run the container with QUAKE_MODERN_CONTROLS=0 to start from
+// id's 1996 defaults instead.
+//
+// quake.rc has already run id's default.cfg out of pak0.pak by this point, so
+// these lines only need to cover what differs.
+
+// WASD, and the mouse steering rather than walking. freelook is a cvar this
+// port adds; +mlook still works and still wins while it is held.
+freelook "1"
+lookspring "0"
+bind "w" "+forward"
+bind "s" "+back"
+bind "a" "+moveleft"
+bind "d" "+moveright"
+
+// The two keys WASD displaces. `a` was look up and `d` was swim up in 1996;
+// jump already swims up, so these are the ones worth keeping somewhere.
+bind "e" "+moveup"
+bind "q" "+movedown"
+
+// The wheel changes weapon, which needs the X11 driver to report it -- see
+// the wheel handling in vid_x.c. impulse 12 has no default key at all in id's
+// config.
+bind "MWHEELUP" "impulse 10"
+bind "MWHEELDOWN" "impulse 12"
+
+// MOUSE2 is +forward in id's config, which is no use once the mouse looks.
+bind "MOUSE2" "+attack"
+CFGEOF
+
+    log "seeded config.cfg with WASD and mouse look (QUAKE_MODERN_CONTROLS=0"
+    log "  starts from id's 1996 defaults instead; whatever you change in the"
+    log "  game is saved over this on exit)"
+}
+
+seed_config
 
 #
 # Hand the browser the engine's own key bindings.

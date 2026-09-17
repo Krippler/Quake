@@ -159,8 +159,39 @@ decide. A game holds the fire button down.
 
 ### Keyboard and mouse
 
-Stock Quake bindings. The mouse is captured by the page, so turning never runs
-out of screen and the cursor cannot wander off into the rest of your desktop.
+| | |
+| --- | --- |
+| W A S D | move and sidestep |
+| Mouse | look |
+| Mouse 1, Ctrl | attack |
+| Space | jump, and swim up |
+| Shift | run |
+| Wheel | next / previous weapon |
+| 1–8 | select a weapon |
+| E / Q | swim up / down |
+| Tab | scores |
+| `` ` `` | console |
+
+Not Quake's 1996 defaults, which are the arrow keys to move, `,` and `.` to
+sidestep, `a` to look up, `d` to swim up, and the mouse walking you forward
+unless you hold `\` to look with it. That was normal then.
+
+`freelook` is a cvar this port adds, set to 1: the mouse steers the view
+without a key held. `+mlook` is untouched and still wins while it is held, and
+`freelook 0` gives you 1996 back exactly.
+
+The wheel works because the X11 driver now reports it — the 1996 code knew
+about three mouse buttons and dropped the rest, while `keys.c` had
+`K_MWHEELUP` and `K_MWHEELDOWN` in it the whole time waiting for something to
+send them.
+
+These are written into `config.cfg` once, on a state volume that has none, and
+the engine owns the file after that: anything you change in **Options** or at
+the console is saved over them on exit. Delete `config.cfg` to get them back,
+or set `QUAKE_MODERN_CONTROLS=0` to start from id's defaults instead.
+
+The mouse is captured by the page, so turning never runs out of screen and the
+cursor cannot wander off into the rest of your desktop.
 
 `Esc` lets it go and brings the start screen back — which is why the start
 screen has a **Game menu** button. Pointer Lock reserves `Esc` for the browser
@@ -175,7 +206,12 @@ load a map, change the skill or start the music, and it is worth more than a
 second way to reach a menu.
 
 **Options → Customize controls** rebinds everything, and what you set there is
-also what the page's controller panel reads.
+also what the page's controller panel reads. "Everything" is thirty-one
+actions now, including the weapon keys, the console, the scoreboard, pause and
+the screenshot key: the 1996 menu stopped at eighteen because eighteen rows is
+all that fits on a 320x200 screen, so the rest could only be bound by typing
+`bind` at the console. The list scrolls, with `^ more above` and `v more below`
+to say which way there is more.
 
 Mouse look is off in stock Quake, as it was in 1996. Turn it on in the console:
 

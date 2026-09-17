@@ -5,6 +5,41 @@ top section's heading is what the release workflow reads: `## [X.Y.Z] — DATE`
 on the default branch publishes that version, `## [Unreleased]` publishes only
 `edge`.
 
+## [1.1.0] — 2026-09-17
+
+### Added
+
+- **WASD and mouse look by default.** The container seeds `config.cfg` once,
+  on a state volume that has none, with W A S D to move, the mouse to look, the
+  wheel to change weapon and E/Q to swim. id's 1996 defaults — arrow keys to
+  move, `,` and `.` to sidestep, `a` to look up, and the mouse walking you
+  forward unless you hold `\` — are still one `QUAKE_MODERN_CONTROLS=0` away,
+  and the engine owns the file afterwards, so anything changed in the game
+  persists over them.
+- **A `freelook` cvar**, archived and set to 1, so the mouse steers the view
+  with no key held. `+mlook` is untouched and still wins while it is held;
+  `freelook 0` is the 1996 behaviour exactly. Every place that asked
+  `in_mlook.state & 1` for this question now asks one macro, so the two cannot
+  drift apart.
+- **Mouse wheel support in the X11 driver.** X delivers the wheel as buttons 4
+  and 5; the 1996 code handled three buttons and dropped the rest, while
+  `keys.c` had `K_MWHEELUP` and `K_MWHEELDOWN` in it the whole time. Sent
+  straight to `Key_Event`, because a notch is momentary and `IN_Commands` only
+  reports changes between frames.
+- **Customize controls covers everything**, thirty-one actions rather than
+  eighteen, including the weapon keys, the console, the scoreboard, pause and
+  screenshot. The old limit was the screen: eighteen rows is all that fits, so
+  the menu scrolls now, with indicators for which way there is more.
+
+### Fixed
+
+- A comment in the entrypoint had the pak search order backwards. It claimed a
+  loose file shadows the pak copy of the same name;
+  `COM_AddGameDirectory` pushes the directory onto `com_searchpaths` first and
+  each pak on top, so the paks win and a loose file is only reached for a name
+  no pak holds. The log line now says that, and this was offered as a
+  hypothesis for a crash report, so it is worth correcting in public.
+
 ## [1.0.1] — 2026-09-17
 
 ### Fixed

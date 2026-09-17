@@ -317,6 +317,18 @@ typedef struct
 } kbutton_t;
 
 extern	kbutton_t	in_mlook, in_klook;
+
+//
+// Is the mouse steering the view rather than walking?
+//
+// True while +mlook is held, as it always was, and also whenever freelook is
+// set -- which it is by default. Every place that used to test
+// `in_mlook.state & 1` for this question asks this instead, so the two cannot
+// drift apart.
+//
+extern	cvar_t	freelook;
+
+#define	IN_LOOKING()	((in_mlook.state & 1) || freelook.value)
 extern 	kbutton_t 	in_strafe;
 extern 	kbutton_t 	in_speed;
 

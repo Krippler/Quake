@@ -1312,29 +1312,64 @@ void M_Options_Key (int k)
 //=============================================================================
 /* KEYS MENU */
 
+//
+// Everything the menu can rebind.
+//
+// The 1996 list stopped at eighteen because eighteen rows is all that fits
+// between the title and the bottom of a 320x200 screen, so the weapon keys,
+// the console and the scoreboard could only be bound by typing `bind` at the
+// console. The menu scrolls now -- see M_Keys_Draw -- so the limit is gone and
+// the list is everything a player actually reaches for.
+//
+// Order is by how often it is wanted, not by category: the movement and
+// shooting keys are what somebody opening this menu came for, and they should
+// not have to scroll to reach them.
+//
 char *bindnames[][2] =
 {
 {"+attack", 		"attack"},
-{"impulse 10", 		"change weapon"},
+{"+forward", 		"move forward"},
+{"+back", 			"move back"},
+{"+moveleft", 		"move left"},
+{"+moveright", 		"move right"},
 {"+jump", 			"jump / swim up"},
-{"+forward", 		"walk forward"},
-{"+back", 			"backpedal"},
+{"+speed", 			"run"},
+{"impulse 10", 		"next weapon"},
+{"impulse 12", 		"previous weapon"},
+{"+mlook", 			"mouse look"},
+{"+strafe", 		"sidestep modifier"},
+{"+moveup",			"swim up"},
+{"+movedown",		"swim down"},
+{"impulse 1", 		"axe"},
+{"impulse 2", 		"shotgun"},
+{"impulse 3", 		"super shotgun"},
+{"impulse 4", 		"nailgun"},
+{"impulse 5", 		"super nailgun"},
+{"impulse 6", 		"grenade launcher"},
+{"impulse 7", 		"rocket launcher"},
+{"impulse 8", 		"thunderbolt"},
+{"+showscores", 	"show scores"},
+{"toggleconsole", 	"console"},
+{"screenshot", 		"screenshot"},
+{"pause", 			"pause"},
 {"+left", 			"turn left"},
 {"+right", 			"turn right"},
-{"+speed", 			"run"},
-{"+moveleft", 		"step left"},
-{"+moveright", 		"step right"},
-{"+strafe", 		"sidestep"},
 {"+lookup", 		"look up"},
 {"+lookdown", 		"look down"},
 {"centerview", 		"center view"},
-{"+mlook", 			"mouse look"},
-{"+klook", 			"keyboard look"},
-{"+moveup",			"swim up"},
-{"+movedown",		"swim down"}
+{"+klook", 			"keyboard look"}
 };
 
 #define	NUMCOMMANDS	(sizeof(bindnames)/sizeof(bindnames[0]))
+
+// The window of rows the menu shows at once, and where it starts. The menu is
+// drawn in a 320x200 space whatever the actual resolution, so this is fixed:
+// 48 through 168 leaves the title above and a line for the "more below" hint.
+#define	KEYS_TOP_Y		48
+#define	KEYS_VISIBLE	15
+
+// The first row on screen. Scrolled by M_Keys_Draw to keep the cursor visible.
+int		keys_top;
 
 int		keys_cursor;
 int		bind_grab;
@@ -1394,7 +1429,7 @@ void M_UnbindCommand (char *command)
 
 void M_Keys_Draw (void)
 {
-	int		i, l;
+	int		i, l, row;
 	int		keys[2];
 	char	*name;
 	int		x, y;
@@ -1408,10 +1443,26 @@ void M_Keys_Draw (void)
 	else
 		M_Print (18, 32, "Enter to change, backspace to clear");
 
+// Keep the cursor inside the window. Done here rather than in M_Keys_Key so
+// that it is also right the first time the menu is opened, and after the list
+// itself changes.
+	if (keys_cursor < keys_top)
+		keys_top = keys_cursor;
+	if (keys_cursor >= keys_top + KEYS_VISIBLE)
+		keys_top = keys_cursor - KEYS_VISIBLE + 1;
+	if (keys_top > (int)NUMCOMMANDS - KEYS_VISIBLE)
+		keys_top = (int)NUMCOMMANDS - KEYS_VISIBLE;
+	if (keys_top < 0)
+		keys_top = 0;
+
 // search for known bindings
-	for (i=0 ; i<NUMCOMMANDS ; i++)
+	for (row = 0 ; row < KEYS_VISIBLE ; row++)
 	{
-		y = 48 + 8*i;
+		i = keys_top + row;
+		if (i >= (int)NUMCOMMANDS)
+			break;
+
+		y = KEYS_TOP_Y + 8*row;
 
 		M_Print (16, y, bindnames[i][1]);
 
@@ -1436,10 +1487,19 @@ void M_Keys_Draw (void)
 		}
 	}
 
+// Which way there is more, so a list longer than the screen does not look
+// like the whole of it.
+	y = KEYS_TOP_Y + 8*KEYS_VISIBLE;
+	if (keys_top > 0)
+		M_Print (16, KEYS_TOP_Y - 8, "^ more above");
+	if (keys_top + KEYS_VISIBLE < (int)NUMCOMMANDS)
+		M_Print (16, y, "v more below");
+
+	y = KEYS_TOP_Y + (keys_cursor - keys_top)*8;
 	if (bind_grab)
-		M_DrawCharacter (130, 48 + keys_cursor*8, '=');
+		M_DrawCharacter (130, y, '=');
 	else
-		M_DrawCharacter (130, 48 + keys_cursor*8, 12+((int)(realtime*4)&1));
+		M_DrawCharacter (130, y, 12+((int)(realtime*4)&1));
 }
 
 

@@ -1035,7 +1035,27 @@ void GetEvent(void)
 		}
 		break;
 
+//
+// X delivers the wheel as buttons 4 and 5, one press and one release per
+// notch. The 1996 code knew about three buttons and dropped the rest, so the
+// wheel did nothing -- and the engine has had K_MWHEELUP and K_MWHEELDOWN in
+// keys.c the whole time, waiting for something to send them.
+//
+// Straight to Key_Event rather than through mouse_buttonstate: a notch is
+// momentary, and IN_Commands only reports a change between frames, so a press
+// and release inside one frame would cancel out and never be seen.
+//
 	case ButtonPress:
+		if (x_event.xbutton.button == 4)
+		{
+			Key_Event (K_MWHEELUP, true);
+			break;
+		}
+		if (x_event.xbutton.button == 5)
+		{
+			Key_Event (K_MWHEELDOWN, true);
+			break;
+		}
 		b=-1;
 		if (x_event.xbutton.button == 1)
 			b = 0;
@@ -1048,6 +1068,16 @@ void GetEvent(void)
 		break;
 
 	case ButtonRelease:
+		if (x_event.xbutton.button == 4)
+		{
+			Key_Event (K_MWHEELUP, false);
+			break;
+		}
+		if (x_event.xbutton.button == 5)
+		{
+			Key_Event (K_MWHEELDOWN, false);
+			break;
+		}
 		b=-1;
 		if (x_event.xbutton.button == 1)
 			b = 0;
@@ -1318,14 +1348,14 @@ void IN_Move (usercmd_t *cmd)
 	mouse_x *= sensitivity.value;
 	mouse_y *= sensitivity.value;
    
-	if ( (in_strafe.state & 1) || (lookstrafe.value && (in_mlook.state & 1) ))
+	if ( (in_strafe.state & 1) || (lookstrafe.value && IN_LOOKING()) )
 		cmd->sidemove += m_side.value * mouse_x;
 	else
 		cl.viewangles[YAW] -= m_yaw.value * mouse_x;
-	if (in_mlook.state & 1)
+	if (IN_LOOKING())
 		V_StopPitchDrift ();
    
-	if ( (in_mlook.state & 1) && !(in_strafe.state & 1)) {
+	if ( IN_LOOKING() && !(in_strafe.state & 1)) {
 		cl.viewangles[PITCH] += m_pitch.value * mouse_y;
 		if (cl.viewangles[PITCH] > 80)
 			cl.viewangles[PITCH] = 80;
