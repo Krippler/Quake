@@ -1,0 +1,25 @@
+# Keep the build context small, and make sure no game data is ever baked in.
+.git
+.gitignore
+*.pak
+*.PAK
+quakedata/
+id1/
+music/
+
+WinQuake/linux/
+audiostream/linux/
+*.o
+*.d
+*.pcx
+s*.sav
+QW/
+qw-qc/
+DOCKER.md
+PORTING-NOTES.md
+PUBLISHING.md
+CHANGELOG.md
+docker-compose.yml
+templates/
+tools/
+.github/

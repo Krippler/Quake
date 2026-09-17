@@ -47,6 +47,13 @@ void Chase_Reset (void)
 //	start position 12 units behind head
 }
 
+// In world.c, and declared in world.h -- which chase.c does not include, so
+// this was an implicit declaration returning int. It returns qboolean, which
+// is the same width, so it worked; a compiler that treats an implicit
+// declaration as the error C99 made it will not build this file at all.
+qboolean SV_RecursiveHullCheck (hull_t *hull, int num, float p1f, float p2f,
+								vec3_t p1, vec3_t p2, trace_t *trace);
+
 void TraceLine (vec3_t start, vec3_t end, vec3_t impact)
 {
 	trace_t	trace;

@@ -250,6 +250,8 @@ void PF_setmodel (void)
 		PR_RunError ("no precache: %s\n", m);
 		
 
+// m came out of G_STRING, so it is pr_strings plus an offset already and
+// this is an exact round trip rather than a pointer difference.
 	e->v.model = m - pr_strings;
 	e->v.modelindex = i; //SV_ModelIndex (m);
 
@@ -920,7 +922,9 @@ void PF_dprint (void)
 	Con_DPrintf ("%s",PF_VarString(0));
 }
 
-char	pr_string_temp[128];
+// Defined in pr_edict.c, in the hunk beside pr_strings: a static array here
+// would be in bss, and an offset from pr_strings to bss does not fit in the
+// string_t these three return.
 
 void PF_ftos (void)
 {
@@ -928,9 +932,9 @@ void PF_ftos (void)
 	v = G_FLOAT(OFS_PARM0);
 	
 	if (v == (int)v)
-		sprintf (pr_string_temp, "%d",(int)v);
+		snprintf (pr_string_temp, 128, "%d",(int)v);
 	else
-		sprintf (pr_string_temp, "%5.1f",v);
+		snprintf (pr_string_temp, 128, "%5.1f",v);
 	G_INT(OFS_RETURN) = pr_string_temp - pr_strings;
 }
 
@@ -943,14 +947,14 @@ void PF_fabs (void)
 
 void PF_vtos (void)
 {
-	sprintf (pr_string_temp, "'%5.1f %5.1f %5.1f'", G_VECTOR(OFS_PARM0)[0], G_VECTOR(OFS_PARM0)[1], G_VECTOR(OFS_PARM0)[2]);
+	snprintf (pr_string_temp, 128, "'%5.1f %5.1f %5.1f'", G_VECTOR(OFS_PARM0)[0], G_VECTOR(OFS_PARM0)[1], G_VECTOR(OFS_PARM0)[2]);
 	G_INT(OFS_RETURN) = pr_string_temp - pr_strings;
 }
 
 #ifdef QUAKE2
 void PF_etos (void)
 {
-	sprintf (pr_string_temp, "entity %i", G_EDICTNUM(OFS_PARM0));
+	snprintf (pr_string_temp, 128, "entity %i", G_EDICTNUM(OFS_PARM0));
 	G_INT(OFS_RETURN) = pr_string_temp - pr_strings;
 }
 #endif

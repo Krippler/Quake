@@ -33,7 +33,12 @@ int				pr_edict_size;	// in bytes
 
 unsigned short		pr_crc;
 
-int		type_size[8] = {1,sizeof(string_t)/4,1,3,1,1,sizeof(func_t)/4,sizeof(void *)/4};
+// How many 32-bit slots each progs type occupies, which is a property of
+// progs.dat and not of the host: a progs slot is four bytes wherever this
+// runs. The original wrote sizeof(void *)/4 for ev_pointer, which is 2 here,
+// so ED_Write and ED_ParseEdict would read one slot past such a field. No
+// field in id's progs.dat has that type, which is why it never showed.
+int		type_size[8] = {1, 1, 1, 3, 1, 1, 1, 1};
 
 ddef_t *ED_FieldAtOfs (int ofs);
 qboolean	ED_ParseEpair (void *base, ddef_t *key, char *s);
@@ -739,6 +744,8 @@ qboolean	ED_ParseEpair (void *base, ddef_t *key, char *s)
 	switch (key->type & ~DEF_SAVEGLOBAL)
 	{
 	case ev_string:
+		// ED_NewString allocates from the hunk, which is where pr_strings is,
+		// so this difference fits. See PR_SetEngineString.
 		*(string_t *)d = ED_NewString (s) - pr_strings;
 		break;
 		
@@ -979,6 +986,110 @@ void ED_LoadFromFile (char *data)
 
 /*
 ===============
+Engine-owned strings.
+
+A string_t is an offset into pr_strings, and the 1996 code makes one by
+subtracting:
+
+	ent->v.model = sv.worldmodel->name - pr_strings;
+
+which is only a valid offset while the two pointers are close enough for the
+difference to fit in the int the field is. In 1996 they always were: a 32-bit
+address space cannot hold two objects further apart than an int can express,
+so the truncation could not happen and the round trip through pr_strings + n
+always came back to the same address.
+
+Here it can happen and does. pr_strings is inside the progs block, which is in
+the hunk -- one malloc, so somewhere in the mmap region -- while sv.name and
+mod_known (which sv.worldmodel->name points into) are in bss. Those are
+terabytes apart, the difference truncates to 32 bits, and pr_strings + the
+truncation is an address with the right low half and nothing else right.
+
+What faults is not the assignment. It is the first QuakeC `==` between two
+strings, which compiles to a strcmp, in worldspawn's
+
+	if (world.model == "maps/e1m8.bsp")
+
+several thousand instructions later -- so the backtrace says pr_exec.c and the
+cause is in sv_main.c. Worse, whether it faults at all depends on whether the
+wrong address happens to be mapped, which depends on the resolution, because
+that changes how much the hunk holds. At 1280x800 it read rubbish and carried
+on; at 640x480 it segfaulted every time.
+
+So the engine's own strings are copied into a block of the hunk, beside
+pr_strings, where the offset means what it says.
+===============
+*/
+#define PR_ENGINE_STRINGS	4096
+#define PR_STRING_TEMP_SIZE	128
+
+static char	*pr_engine_strings;
+static int	pr_engine_used;
+
+// ftos, vtos and etos all return this, and each call overwrites the last --
+// which is the 1996 behaviour and what the QuakeC expects. It is a pointer
+// into the block above rather than a static array for the reason given there.
+char		*pr_string_temp;
+
+
+/*
+=============
+PR_AllocEngineString
+
+Uninitialised space in the block, for a caller that will fill it in itself.
+=============
+*/
+char *PR_AllocEngineString (int size)
+{
+	char	*out;
+
+	if (size <= 0 || pr_engine_used + size > PR_ENGINE_STRINGS)
+		Sys_Error ("PR_AllocEngineString: out of string space (%d + %d > %d)",
+				   pr_engine_used, size, PR_ENGINE_STRINGS);
+
+	out = pr_engine_strings + pr_engine_used;
+	pr_engine_used += size;
+	*out = 0;
+
+	return out;
+}
+
+
+/*
+=============
+PR_SetEngineString
+
+A string_t for a string the engine owns. Copies it, because the caller's own
+storage is very often in bss and an offset to that is not expressible.
+=============
+*/
+string_t PR_SetEngineString (char *s)
+{
+	char		*copy;
+	int			len;
+	ptrdiff_t	offset;
+
+	if (!s)
+		s = "";
+
+	len = strlen(s) + 1;
+	copy = PR_AllocEngineString (len);
+	memcpy (copy, s, len);
+
+// Both are in the same hunk, so this cannot overflow at any heap size the
+// engine will run with -- but the whole bug above was an offset that did not
+// fit being stored anyway, so say so rather than repeat it one hunk larger.
+	offset = copy - pr_strings;
+	if (offset != (ptrdiff_t)(string_t)offset)
+		Sys_Error ("PR_SetEngineString: %s is %ld bytes from pr_strings, "
+				   "which does not fit a string_t", s, (long)offset);
+
+	return (string_t)offset;
+}
+
+
+/*
+===============
 PR_LoadProgs
 ===============
 */
@@ -1011,6 +1122,12 @@ void PR_LoadProgs (void)
 
 	pr_functions = (dfunction_t *)((byte *)progs + progs->ofs_functions);
 	pr_strings = (char *)progs + progs->ofs_strings;
+
+// Room for the strings the engine hands to QuakeC, which have to live within
+// an int's reach of pr_strings. See PR_SetEngineString.
+	pr_engine_strings = Hunk_AllocName (PR_ENGINE_STRINGS, "prstrings");
+	pr_engine_used = 0;
+	pr_string_temp = PR_AllocEngineString (PR_STRING_TEMP_SIZE);
 	pr_globaldefs = (ddef_t *)((byte *)progs + progs->ofs_globaldefs);
 	pr_fielddefs = (ddef_t *)((byte *)progs + progs->ofs_fielddefs);
 	pr_statements = (dstatement_t *)((byte *)progs + progs->ofs_statements);

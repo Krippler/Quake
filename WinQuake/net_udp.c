@@ -28,6 +28,8 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 #include <sys/param.h>
 #include <sys/ioctl.h>
 #include <errno.h>
+#include <unistd.h>
+#include <arpa/inet.h>
 
 #ifdef __sun__
 #include <sys/filio.h>
@@ -37,8 +39,9 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 #include <libc.h>
 #endif
 
-extern int gethostname (char *, int);
-extern int close (int);
+// gethostname() and close() come from <unistd.h> above. The 1996 declarations
+// here predate it being a standard header and disagree with it on 64-bit:
+// glibc's second argument is a size_t, not an int, which is a hard error now.
 
 extern cvar_t hostname;
 

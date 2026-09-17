@@ -1,0 +1,24 @@
+services:
+  quake:
+    build: .
+    image: quake
+    container_name: quake
+    ports:
+      - "6080:6080"           # noVNC, play at http://localhost:6080/
+      # - "5900:5900"         # raw VNC, if you would rather use a native client
+    volumes:
+      # The directory holding id1/pak0.pak -- your Quake install, from the CD,
+      # from Steam, from GOG, or the shareware release unpacked. Read-only: the
+      # container copies nothing and writes nothing here.
+      - ./quakedata:/quakedata:ro
+      - quake-state:/quake/state
+    environment:
+      QUAKE_WIDTH: "640"      # the software renderer's resolution, up to 1920
+      QUAKE_HEIGHT: "480"     # ... by 1200
+      # QUAKE_GAME: "hipnotic"       # or rogue, or a mod directory name
+      # QUAKE_VNC_PASSWORD: "changeme"
+    # Arguments are passed to the engine, e.g. start straight in E1M1:
+    # command: ["+map", "e1m1", "+skill", "2"]
+
+volumes:
+  quake-state:

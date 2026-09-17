@@ -32,6 +32,7 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 #include <string.h>
 #include <sys/ipc.h>
 #include <sys/shm.h>
+#include <errno.h>
 #include <X11/Xlib.h>
 #include <X11/Xutil.h>
 #include <X11/Xatom.h>
@@ -84,6 +85,7 @@ static int				x_shmeventtype;
 //static XShmSegmentInfo	x_shminfo;
 
 static qboolean			oktodraw = false;
+static Atom				x_wm_delete_window;
 
 int XShmQueryExtension(Display *);
 int XShmGetEventBase(Display *);
@@ -107,7 +109,9 @@ void (*vid_menukeyfn)(int key);
 void VID_MenuKey (int key);
 
 typedef unsigned short PIXEL16;
-typedef unsigned long PIXEL24;
+typedef unsigned int PIXEL24;	// 32 bits, matching the X server's stride
+								// at depth 24 -- an unsigned long is eight bytes
+								// here and overran every scanline
 static PIXEL16 st2d_8to16table[256];
 static PIXEL24 st2d_8to24table[256];
 static int shiftmask_fl=0;
@@ -257,11 +261,23 @@ void st3_fixup( XImage *framebuf, int x, int y, int width, int height)
 // Tragic death handler
 // ========================================================================
 
+// The original closed the X display and called Sys_Error from inside the
+// signal handler. Sys_Error runs Host_Shutdown, which writes config.cfg,
+// shuts the sound down and calls back into Xlib -- on a connection this
+// handler has just closed, from a context where none of malloc, stdio or
+// Xlib may be called at all. It got away with it when the signal arrived at
+// an idle moment and segfaulted when it did not, which under `docker stop`
+// is most of the time: SIGTERM at a random instruction, and the config the
+// player just changed is lost.
+//
+// Raise a flag and let the frame loop see it. That is the only thing a
+// handler may safely do, and it means the shutdown happens on the main stack
+// with everything still valid.
+volatile sig_atomic_t	sys_signalquit = 0;
+
 void TragicDeath(int signal_num)
 {
-	XAutoRepeatOn(x_disp);
-	XCloseDisplay(x_disp);
-	Sys_Error("This death brought to you by the number %d\n", signal_num);
+	sys_signalquit = signal_num;
 }
 
 // ========================================================================
@@ -329,20 +345,33 @@ void ResetFrameBuffer(void)
 	if (pwidth == 3) pwidth = 4;
 	mem = ((vid.width*pwidth+7)&~7) * vid.height;
 
-	x_framebuffer[0] = XCreateImage(	x_disp,
-		x_vis,
-		x_visinfo->depth,
-		ZPixmap,
-		0,
-		malloc(mem),
-		vid.width, vid.height,
-		32,
-		0);
+	{
+		char	*fbmem = malloc (mem);
 
-	if (!x_framebuffer[0])
-		Sys_Error("VID: XCreateImage failed\n");
+		if (!fbmem)
+			Sys_Error ("VID: out of memory for a %d byte framebuffer\n", mem);
 
-	vid.buffer = (byte*) (x_framebuffer[0]);
+		x_framebuffer[0] = XCreateImage(	x_disp,
+			x_vis,
+			x_visinfo->depth,
+			ZPixmap,
+			0,
+			fbmem,
+			vid.width, vid.height,
+			32,
+			0);
+
+		if (!x_framebuffer[0])
+			Sys_Error("VID: XCreateImage failed\n");
+	}
+
+// This said (byte *)x_framebuffer[0], which is the XImage header, not the
+// pixels behind it. Every frame the renderer drew overwrote the structure
+// describing where to draw, and the first XPutImage read width, height and
+// stride back out of whatever the title screen happened to put there. The
+// shared-memory path below is the one the original ever ran, which is why it
+// survived to the source release.
+	vid.buffer = (pixel_t *) x_framebuffer[0]->data;
 	vid.conbuffer = vid.buffer;
 
 }
@@ -410,17 +439,26 @@ void ResetSharedFrameBuffers(void)
 		if (size < minsize)
 			Sys_Error("VID: Window must use at least %d bytes\n", minsize);
 
-		key = random();
-		x_shminfo[frm].shmid = shmget((key_t)key, size, IPC_CREAT|0777);
+// IPC_PRIVATE, not a random key: random() collides, and a collision here
+// hands you somebody else's segment rather than failing. 0600 rather than
+// 0777 for the same reason -- these are this process's pixels.
+		key = IPC_PRIVATE;
+		x_shminfo[frm].shmid = shmget((key_t)key, size, IPC_CREAT|0600);
 		if (x_shminfo[frm].shmid==-1)
-			Sys_Error("VID: Could not get any shared memory\n");
+			Sys_Error("VID: Could not get any shared memory (%s)\n",
+					  strerror(errno));
 
 		// attach to the shared memory segment
 		x_shminfo[frm].shmaddr =
 			(void *) shmat(x_shminfo[frm].shmid, 0, 0);
 
-		printf("VID: shared memory id=%d, addr=0x%lx\n", x_shminfo[frm].shmid,
-			(long) x_shminfo[frm].shmaddr);
+		if (x_shminfo[frm].shmaddr == (void *)-1)
+			Sys_Error("VID: Could not attach shared memory (%s)\n",
+					  strerror(errno));
+
+		if (verbose)
+			printf("VID: shared memory id=%d, addr=%p\n",
+				   x_shminfo[frm].shmid, x_shminfo[frm].shmaddr);
 
 		x_framebuffer[frm]->data = x_shminfo[frm].shmaddr;
 
@@ -477,16 +515,28 @@ void	VID_Init (unsigned char *palette)
 
 	{
 		struct sigaction sa;
-		sigaction(SIGINT, 0, &sa);
+
+	// sigaction(SIGINT, 0, &sa) reads the current disposition and the rest of
+	// sa is then whatever came back, flags included. Start from a known state.
+		memset (&sa, 0, sizeof(sa));
 		sa.sa_handler = TragicDeath;
+		sigemptyset (&sa.sa_mask);
+		sa.sa_flags = SA_RESTART;
 		sigaction(SIGINT, &sa, 0);
 		sigaction(SIGTERM, &sa, 0);
+		sigaction(SIGHUP, &sa, 0);
 	}
 
 	XAutoRepeatOff(x_disp);
 
-// for debugging only
-	XSynchronize(x_disp, True);
+// The 1996 sources left this on with "for debugging only" written above it,
+// which makes every Xlib call a round trip to the server and waits for the
+// reply. Over a socket to a VNC-backed Xvfb that is the difference between a
+// playable picture and a slideshow. -verbose puts it back, because a protocol
+// error is otherwise reported against whatever call happens to be in flight
+// rather than the one that caused it.
+	if (verbose)
+		XSynchronize(x_disp, True);
 
 // check for command-line window size
 	if ((pnum=COM_CheckParm("-winsize")))
@@ -512,6 +562,26 @@ void	VID_Init (unsigned char *palette)
 		if (!vid.height)
 			Sys_Error("VID: Bad window height\n");
 	}
+
+// The span drawers step the framebuffer eight pixels at a time and the
+// renderer's static tables are sized by MAXWIDTH and MAXHEIGHT. The original
+// checked neither, so a width the caller picked freely either drew a sheared
+// picture or wrote off the end of d_scantable. Say what happened rather than
+// crashing three frames later.
+	if (vid.width < 320)
+		vid.width = 320;
+	if (vid.height < 200)
+		vid.height = 200;
+	if (vid.width > MAXWIDTH || vid.height > MAXHEIGHT)
+	{
+		Con_Printf ("VID: %dx%d is larger than this build's %dx%d limit\n",
+					vid.width, vid.height, MAXWIDTH, MAXHEIGHT);
+		if (vid.width > MAXWIDTH)
+			vid.width = MAXWIDTH;
+		if (vid.height > MAXHEIGHT)
+			vid.height = MAXHEIGHT;
+	}
+	vid.width &= ~7;
 
 	template_mask = 0;
 
@@ -604,8 +674,40 @@ void	VID_Init (unsigned char *palette)
 			x_cmap = XCreateColormap(x_disp, x_win, x_vis, AllocAll);
 			VID_SetPalette(palette);
 			XSetWindowColormap(x_disp, x_win, x_cmap);
+		// Setting the window's colormap only states a preference; something
+		// has to install it in the hardware, and on a desktop that is the
+		// window manager's job. There is no window manager here -- the
+		// container runs one Xvfb and one window -- so nothing installed it
+		// and everything reading the display got the root's default map
+		// instead: the right palette indices through the wrong 256 colours.
+			XInstallColormap(x_disp, x_cmap);
+		}
+		else
+		{
+		// Depth 8 without a writable colormap means the palette cannot be
+		// uploaded, and the renderer's output is palette indices. The picture
+		// would come out as whatever 256 colours the server chose.
+			Sys_Error ("VID: the 8-bit visual is %s, not PseudoColor; the\n"
+					   "palette cannot be set. Start the X server with a\n"
+					   "PseudoColor visual at depth 8.\n",
+					   x_visinfo->class == StaticColor ? "StaticColor"
+													   : "GrayScale/other");
 		}
 	}
+	else
+	{
+	// It still runs: st2_fixup and st3_fixup expand each frame through a
+	// lookup table built from the same palette. It costs a pass over every
+	// pixel, and the container does not need it, so say which one you got.
+		Con_Printf ("VID: depth %d visual; translating each frame from 8-bit.\n"
+					"     A depth 8 PseudoColor visual skips that.\n",
+					x_visinfo->depth);
+	}
+
+// Closing the window should reach the engine rather than killing the X
+// connection underneath it.
+	x_wm_delete_window = XInternAtom (x_disp, "WM_DELETE_WINDOW", False);
+	XSetWMProtocols (x_disp, x_win, &x_wm_delete_window, 1);
 
 // inviso cursor
 	XDefineCursor(x_disp, x_win, CreateNullCursor(x_disp, x_win));
@@ -636,18 +738,34 @@ void	VID_Init (unsigned char *palette)
 // even if MITSHM is available, make sure it's a local connection
 	if (XShmQueryExtension(x_disp))
 	{
-		char *displayname;
+		const char *displayname;
+
 		doShm = true;
-		displayname = (char *) getenv("DISPLAY");
+		displayname = getenv("DISPLAY");
 		if (displayname)
 		{
-			char *d = displayname;
-			while (*d && (*d != ':')) d++;
-			if (*d) *d = 0;
-			if (!(!strcasecmp(displayname, "unix") || !*displayname))
+		// The host part is everything before the colon. The original wrote a
+		// nul over that colon -- in the string getenv handed back, which is
+		// the environment itself, so DISPLAY became empty for this process
+		// and everything it went on to exec. Read it without writing to it.
+			char	host[64];
+			size_t	n = 0;
+
+			while (displayname[n] && displayname[n] != ':'
+				   && n < sizeof(host) - 1)
+			{
+				host[n] = displayname[n];
+				n++;
+			}
+			host[n] = 0;
+
+			if (!(!strcasecmp(host, "unix") || !host[0]))
 				doShm = false;
 		}
 	}
+
+	if (COM_CheckParm("-noshm"))
+		doShm = false;
 
 	if (doShm)
 	{
@@ -877,6 +995,21 @@ void GetEvent(void)
 		break;
 
 	case MotionNotify:
+	// A report landing exactly on the centre of the window is a re-base, not
+	// a movement. The browser client walks the remote pointer around the
+	// screen by sending absolute positions -- that is all the VNC protocol
+	// carries -- and puts it back in the middle before it would hit an edge.
+	// Measuring the delta from the previous position would read that jump
+	// back to the middle as a hard flick in the opposite direction.
+		if (!_windowed_mouse.value
+			&& x_event.xmotion.x == (int)(vid.width/2)
+			&& x_event.xmotion.y == (int)(vid.height/2))
+		{
+			p_mouse_x = x_event.xmotion.x;
+			p_mouse_y = x_event.xmotion.y;
+			break;
+		}
+
 		if (_windowed_mouse.value) {
 			mouse_x = (float) ((int)x_event.xmotion.x - (int)(vid.width/2));
 			mouse_y = (float) ((int)x_event.xmotion.y - (int)(vid.height/2));
@@ -931,6 +1064,15 @@ void GetEvent(void)
 		config_notify_width = x_event.xconfigure.width;
 		config_notify_height = x_event.xconfigure.height;
 		config_notify = 1;
+		break;
+
+	case ClientMessage:
+	// Closing the window used to end the process from inside Xlib's default
+	// I/O error handler, with the connection already gone -- so no config
+	// was written and no savegame flushed. Ask for WM_DELETE_WINDOW instead
+	// and quit through the engine.
+		if ((Atom)x_event.xclient.data.l[0] == x_wm_delete_window)
+			Sys_Quit ();
 		break;
 
 	default:

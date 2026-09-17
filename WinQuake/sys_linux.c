@@ -3,6 +3,7 @@
 #include <stdlib.h>
 #include <limits.h>
 #include <sys/time.h>
+#include <time.h>
 #include <sys/types.h>
 #include <unistd.h>
 #include <fcntl.h>
@@ -21,12 +22,19 @@
 
 qboolean			isDedicated;
 
+// Raised by the signal handler in vid_x.c, acted on by the frame loop below.
+extern volatile sig_atomic_t	sys_signalquit;
+
 int nostdout = 0;
 
 char *basedir = ".";
 char *cachedir = "/tmp";
 
 cvar_t  sys_linerefresh = {"sys_linerefresh","0"};// set for entity display
+
+// Set to 1 to go back to the original behaviour of spinning between frames.
+// Worth a try if a frame arrives late on a machine whose timer slices coarsely.
+cvar_t  sys_nosleep = {"sys_nosleep","0"};
 
 // =======================================================================
 // General routines
@@ -89,12 +97,12 @@ void Sys_Printf (char *fmt, ...)
 	char		text[1024];
 	unsigned char		*p;
 
+// The original wrote with vsprintf and then checked whether it had
+// overflowed, which it could only do from inside the wreckage. Bound the
+// write instead; nothing here needs more than a kilobyte of message.
 	va_start (argptr,fmt);
-	vsprintf (text,fmt,argptr);
+	vsnprintf (text,sizeof(text),fmt,argptr);
 	va_end (argptr);
-
-	if (strlen(text) > sizeof(text))
-		Sys_Error("memory overwrite in Sys_Printf");
 
     if (nostdout)
         return;
@@ -131,6 +139,7 @@ void Sys_Quit (void)
 
 void Sys_Init(void)
 {
+	Cvar_RegisterVariable (&sys_nosleep);
 #if id386
 	Sys_SetFPCW();
 #endif
@@ -145,9 +154,10 @@ void Sys_Error (char *error, ...)
     fcntl (0, F_SETFL, fcntl (0, F_GETFL, 0) & ~FNDELAY);
     
     va_start (argptr,error);
-    vsprintf (string,error,argptr);
+    vsnprintf (string,sizeof(string),error,argptr);
     va_end (argptr);
 	fprintf(stderr, "Error: %s\n", string);
+	fflush (stderr);
 
 	Host_Shutdown ();
 	exit (1);
@@ -160,7 +170,7 @@ void Sys_Warn (char *warning, ...)
     char        string[1024];
     
     va_start (argptr,warning);
-    vsprintf (string,warning,argptr);
+    vsnprintf (string,sizeof(string),warning,argptr);
     va_end (argptr);
 	fprintf(stderr, "Warning: %s", string);
 } 
@@ -247,7 +257,7 @@ void Sys_DebugLog(char *file, char *fmt, ...)
     int fd;
     
     va_start(argptr, fmt);
-    vsprintf(data, fmt, argptr);
+    vsnprintf(data, sizeof(data), fmt, argptr);
     va_end(argptr);
 //    fd = open(file, O_WRONLY | O_BINARY | O_CREAT | O_APPEND, 0666);
     fd = open(file, O_WRONLY | O_CREAT | O_APPEND, 0666);
@@ -280,19 +290,29 @@ void Sys_EditFile(char *filename)
 
 double Sys_FloatTime (void)
 {
-    struct timeval tp;
-    struct timezone tzp; 
-    static int      secbase; 
-    
-    gettimeofday(&tp, &tzp);  
+	struct timespec tp;
+	static time_t	secbase;
 
-    if (!secbase)
-    {
-        secbase = tp.tv_sec;
-        return tp.tv_usec/1000000.0;
-    }
+// CLOCK_MONOTONIC, not gettimeofday: the wall clock steps when NTP corrects
+// it or the host suspends, and the engine reads a step as elapsed frame time.
+// Backwards it stops dead; forwards it runs a single frame of physics for
+// however long the jump was.
+	if (clock_gettime (CLOCK_MONOTONIC, &tp) != 0)
+	{
+		struct timeval tv;
 
-    return (tp.tv_sec - secbase) + tp.tv_usec/1000000.0;
+		gettimeofday (&tv, NULL);
+		tp.tv_sec = tv.tv_sec;
+		tp.tv_nsec = tv.tv_usec * 1000;
+	}
+
+	if (!secbase)
+	{
+		secbase = tp.tv_sec;
+		return tp.tv_nsec / 1000000000.0;
+	}
+
+	return (tp.tv_sec - secbase) + tp.tv_nsec / 1000000000.0;
 }
 
 // =======================================================================
@@ -371,16 +391,22 @@ int main (int c, char **v)
 	parms.argc = com_argc;
 	parms.argv = com_argv;
 
-#ifdef GLQUAKE
-	parms.memsize = 16*1024*1024;
-#else
-	parms.memsize = 8*1024*1024;
-#endif
+// 8 MB was the 1996 default and it is not enough here. Every pointer in the
+// model, edict and surface caches is twice the width it was, and the hunk is
+// where all of them live. The high end of the same hunk holds the z-buffer
+// and the surface cache, which at 1920x1200 are 12 MB between them where at
+// 320x200 they were under a megabyte. 64 MB is still small enough to be
+// uninteresting; -mem <megabytes> overrides it either way.
+	parms.memsize = 64*1024*1024;
 
 	j = COM_CheckParm("-mem");
-	if (j)
+	if (j && j < com_argc-1)
 		parms.memsize = (int) (Q_atof(com_argv[j+1]) * 1024 * 1024);
+	if (parms.memsize < MINIMUM_MEMORY)
+		parms.memsize = MINIMUM_MEMORY;
 	parms.membase = malloc (parms.memsize);
+	if (!parms.membase)
+		Sys_Error ("Could not allocate %d bytes for the heap", parms.memsize);
 
 	parms.basedir = basedir;
 // caching is disabled by default, use -cachedir to enable
@@ -422,6 +448,29 @@ int main (int c, char **v)
             oldtime += time;
 
         Host_Frame (time);
+
+// A signal asked us to stop. The handler only raised the flag; the actual
+// shutdown -- writing config.cfg, flushing the sound, closing the display --
+// happens here, where calling into Xlib and stdio is allowed.
+        if (sys_signalquit)
+        {
+            printf ("\nReceived signal %d, shutting down\n",
+                    (int)sys_signalquit);
+            Sys_Quit ();
+        }
+
+// Host_Frame returns without doing anything until a frame's worth of time has
+// passed, so without this the loop simply spins, and the original had nothing
+// here. On a desktop in 1996 that was the whole machine anyway. In a
+// container it is a core pinned at 100% whether or not anything is happening,
+// which on a shared host is somebody else's problem as well as yours.
+        if (!sys_nosleep.value)
+        {
+            double  spare = (1.0 / 72.0) - (Sys_FloatTime () - newtime);
+
+            if (spare > 0.0005)
+                usleep ((useconds_t)((spare - 0.0005) * 1000000.0));
+        }
 
 // graphic debugging aids
         if (sys_linerefresh.value)

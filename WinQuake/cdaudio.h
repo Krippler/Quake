@@ -25,3 +25,9 @@ void CDAudio_Pause(void);
 void CDAudio_Resume(void);
 void CDAudio_Shutdown(void);
 void CDAudio_Update(void);
+
+// Adds the music to a stretch of the mixer's paint buffer. cd_linux.c and
+// cd_null.c have nothing to add and define it empty; cd_stream.c decodes a
+// file into it. Declared here rather than in sound.h because which of the
+// three is linked is what decides whether there is music at all.
+void CDAudio_MixPaintBuffer(portable_samplepair_t *buffer, int count);
