@@ -19,6 +19,8 @@
 #include <errno.h>
 #include <execinfo.h>
 #include <stdint.h>
+#include <dirent.h>
+#include <strings.h>
 
 #include "quakedef.h"
 
@@ -474,6 +476,203 @@ static void Sys_InitCrashHandler (void)
 
 	for (i = 0; i < (int)(sizeof(sigs) / sizeof(sigs[0])); i++)
 		sigaction (sigs[i], &sa, 0);
+}
+
+
+/*
+===============================================================================
+
+GAME DIRECTORIES
+
+The search path is built once, in COM_InitFilesystem, and nothing rebuilds it:
+switching mission pack or mod means starting the engine over. So the menu does
+not switch anything -- it writes the choice to a file beside the game
+directories and quits, and the next run picks it up. In the container that is
+nearly invisible, because the engine runs in a restart loop and the browser
+reconnects by itself.
+
+===============================================================================
+*/
+
+#define	GAMECHOICE_FILE	"nextgame"
+
+/*
+================
+Sys_IsGameDir
+
+A directory somebody could actually run: it holds a pak, or the loose files a
+mod ships instead of one. Without this, every stray directory under the base
+would be offered as a game.
+================
+*/
+static qboolean Sys_IsGameDir (char *path)
+{
+	DIR				*d;
+	struct dirent	*e;
+	qboolean		found = false;
+
+	d = opendir (path);
+	if (!d)
+		return false;
+
+	while ((e = readdir (d)) != NULL)
+	{
+		char	*ext = strrchr (e->d_name, '.');
+
+		if ((ext && !strcasecmp (ext, ".pak"))
+			|| !strcasecmp (e->d_name, "progs.dat")
+			|| !strcasecmp (e->d_name, "maps"))
+		{
+			found = true;
+			break;
+		}
+	}
+
+	closedir (d);
+	return found;
+}
+
+
+/*
+================
+Sys_ListGameDirs
+
+The game directories under basepath, id1 first and the rest alphabetically.
+Returns how many names were written.
+================
+*/
+int Sys_ListGameDirs (char *basepath, char out[][MAX_QPATH], int max)
+{
+	DIR				*d;
+	struct dirent	*e;
+	struct stat		st;
+	char			path[MAX_OSPATH];
+	char			tmp[MAX_QPATH];
+	int				n = 0, i, j;
+
+	d = opendir (basepath);
+	if (!d)
+		return 0;
+
+	while (n < max && (e = readdir (d)) != NULL)
+	{
+		if (e->d_name[0] == '.')
+			continue;
+		if ((int)strlen (e->d_name) >= MAX_QPATH)
+			continue;
+
+		snprintf (path, sizeof(path), "%s/%s", basepath, e->d_name);
+		if (stat (path, &st) == -1 || !S_ISDIR (st.st_mode))
+			continue;
+		if (!Sys_IsGameDir (path))
+			continue;
+
+		strcpy (out[n++], e->d_name);
+	}
+
+	closedir (d);
+
+// readdir hands them back in whatever order the filesystem keeps them in,
+// which for a menu means the list moves around between runs.
+	for (i = 1 ; i < n ; i++)
+	{
+		strcpy (tmp, out[i]);
+		for (j = i ; j > 0 && strcmp (out[j-1], tmp) > 0 ; j--)
+			strcpy (out[j], out[j-1]);
+		strcpy (out[j], tmp);
+	}
+
+// id1 is the game. It belongs at the top of the list rather than wherever the
+// alphabet happens to put it among the mods.
+	for (i = 1 ; i < n ; i++)
+		if (!strcmp (out[i], GAMENAME))
+		{
+			strcpy (tmp, out[i]);
+			for (j = i ; j > 0 ; j--)
+				strcpy (out[j], out[j-1]);
+			strcpy (out[0], tmp);
+			break;
+		}
+
+	return n;
+}
+
+
+/*
+================
+Sys_SetGameChoice
+
+Remembered for the next run. id1 is stored like any other, rather than being
+stored as "nothing": the container has a QUAKE_GAME of its own, and a player
+who picks the base game in the menu means it instead of that.
+================
+*/
+void Sys_SetGameChoice (char *basepath, char *dir)
+{
+	char	path[MAX_OSPATH];
+	FILE	*f;
+
+	snprintf (path, sizeof(path), "%s/%s", basepath, GAMECHOICE_FILE);
+
+	f = fopen (path, "w");
+	if (!f)
+	{
+		Con_Printf ("Couldn't write %s\n", path);
+		return;
+	}
+
+	fprintf (f, "%s\n", dir);
+	fclose (f);
+}
+
+
+/*
+================
+Sys_GetGameChoice
+
+The directory the menu stored last time, if there is one and it is still
+there. Anything else -- a path, a switch, a mod whose mount has gone away --
+is no answer at all, and the base game is played instead.
+================
+*/
+qboolean Sys_GetGameChoice (char *basepath, char *out, int outlen)
+{
+	char	path[MAX_OSPATH];
+	char	line[MAX_QPATH];
+	FILE	*f;
+	int		i;
+
+	snprintf (path, sizeof(path), "%s/%s", basepath, GAMECHOICE_FILE);
+
+	f = fopen (path, "r");
+	if (!f)
+		return false;
+
+	if (!fgets (line, sizeof(line), f))
+	{
+		fclose (f);
+		return false;
+	}
+	fclose (f);
+
+	for (i = 0 ; line[i] ; i++)
+		if (line[i] == '\n' || line[i] == '\r')
+		{
+			line[i] = 0;
+			break;
+		}
+
+	if (!line[0] || (int)strlen (line) >= outlen
+		|| strchr (line, '/') || strchr (line, '\\')
+		|| line[0] == '-' || line[0] == '+' || line[0] == '.')
+		return false;
+
+	snprintf (path, sizeof(path), "%s/%s", basepath, line);
+	if (!Sys_IsGameDir (path))
+		return false;
+
+	strcpy (out, line);
+	return true;
 }
 
 

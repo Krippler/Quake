@@ -358,4 +358,51 @@ print("[smoke] %.2f s of audio, peak %d, %d sampled points off centre"
       % (frames / 22050.0, peak, apart))
 ENDPY
 
-say "PASSED (console, and a real map)"
+# ------------------------------------------------------------- game directories
+#
+# The menu's game switching, without the menu.
+#
+# Picking a mission pack or a mod writes its directory name beside the game
+# directories and quits; COM_InitFilesystem reads it on the way back up, and
+# the container's restart loop is what closes the circle. What is checked here
+# is that half: a stored choice puts the directory on the search path, a stored
+# choice for something that is not installed is ignored rather than followed
+# into a search path with nothing behind it, and a path is not a directory
+# name and is refused.
+#
+say "phase three: the stored game directory"
+
+mkdir -p "$work/testmod"
+cp "$work/id1/pak0.pak" "$work/testmod/pak0.pak"
+
+game_run() {
+    printf '%s\n' "$1" > "$work/nextgame"
+    DISPLAY="$disp" "$engine" -basedir "$work" -width 320 -height 200 \
+        >"$work/game-$2.log" 2>&1 &
+    game_pid=$!
+    sleep 5
+    kill -TERM "$game_pid" 2>/dev/null || true
+    wait "$game_pid" 2>/dev/null || true
+    game_pid=""
+}
+
+game_run testmod chosen
+grep -q "Added packfile $work/testmod/pak0.pak" "$work/game-chosen.log" \
+    || die "a stored game directory did not reach the search path"
+say "a stored 'testmod' put testmod/pak0.pak on the search path"
+
+game_run nosuchmod missing
+if grep -q "nosuchmod" "$work/game-missing.log"; then
+    die "a stored game directory that is not installed was used anyway"
+fi
+say "a stored directory that is not installed was ignored"
+
+game_run ../etc escape
+if grep -q "etc" "$work/game-escape.log"; then
+    die "a stored game directory reaching outside the base was used"
+fi
+say "a stored path rather than a directory name was refused"
+
+rm -f "$work/nextgame"
+
+say "PASSED (console, a real map, and game directories)"

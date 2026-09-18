@@ -635,8 +635,9 @@ void R_DrawViewModel (void)
 	vec3_t		dist;
 	float		add;
 	dlight_t	*dl;
-	
-	if (!r_drawviewmodel.value || r_fov_greater_than_90)
+	float		saved[4];
+
+	if (!r_drawviewmodel.value)
 		return;
 
 	if (cl.items & IT_INVISIBILITY)
@@ -691,7 +692,55 @@ void R_DrawViewModel (void)
 	cl.light_level = r_viewlighting.ambientlight;
 #endif
 
+//
+// The view model at 90 degrees, whatever the world is drawn at.
+//
+// id stopped drawing it above 90 instead -- r_fov_greater_than_90 is set in
+// R_ViewChanged and this function returned on it -- because the gun is a foot
+// from the camera, where a wide projection stretches it across the screen and
+// out through the wall behind it. So "Field of view" above 90 made the weapon
+// vanish, which is not what a field of view is for.
+//
+// Every later port answers this the same way: give the gun its own field of
+// view and leave the world with the player's. The alias renderer reads the
+// projection out of these four globals -- the first pair for the bounding-box
+// check, the second for the vertices -- and nothing but the view model is
+// drawn between saving them and putting them back.
+//
+	if (r_fov_greater_than_90)
+	{
+		float	hfov = 2.0 * tan (90.0 / 360.0 * M_PI);
+		float	screen = (float)vid.width / (float)vid.height;
+		float	xs, ys;
+
+	// Widened exactly as R_ViewChanged widens the world's, so that the gun
+	// keeps the size it has at 90 rather than growing with the screen.
+		if (screen > 4.0 / 3.0)
+			hfov *= screen / (4.0 / 3.0);
+
+		xs = r_refdef.vrect.width / hfov;
+		ys = xs * pixelAspect;
+
+		saved[0] = xscale;
+		saved[1] = yscale;
+		saved[2] = aliasxscale;
+		saved[3] = aliasyscale;
+
+		xscale = xs;
+		yscale = ys;
+		aliasxscale = xs * r_aliasuvscale;
+		aliasyscale = ys * r_aliasuvscale;
+	}
+
 	R_AliasDrawModel (&r_viewlighting);
+
+	if (r_fov_greater_than_90)
+	{
+		xscale = saved[0];
+		yscale = saved[1];
+		aliasxscale = saved[2];
+		aliasyscale = saved[3];
+	}
 }
 
 

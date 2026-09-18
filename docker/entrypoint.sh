@@ -329,6 +329,60 @@ else
     log "  no pak1.pak: shareware, episode 1 only"
 fi
 
+# Which game to play.
+#
+# The engine reads $BASEDIR/nextgame for itself -- it is what the Game /
+# mission pack row in the options menu writes, and how a player switches
+# without touching the container. So no switch is passed for it here; what this
+# does is decide who gets to say.
+#
+# QUAKE_GAME is the operator's answer and the menu's is the player's, and the
+# rule between them is that the operator wins when they have just spoken.
+# Setting QUAKE_GAME, or changing it, overwrites the stored choice; leaving it
+# where it was leaves the player's choice alone, so a container started with
+# QUAKE_GAME=hipnotic does not drag the game back to hipnotic every restart.
+# The last value applied is kept beside the state for exactly that comparison.
+#
+# An explicit -game, -hipnotic or -rogue in QUAKE_ARGS still beats both: the
+# engine looks at its command line before it looks at the file.
+GAME_ENV_FILE="$STATE/quake-game-env"
+
+if [ -n "${QUAKE_GAME:-}" ]; then
+    if [ "$(cat "$GAME_ENV_FILE" 2>/dev/null || true)" != "$QUAKE_GAME" ]; then
+        log "QUAKE_GAME=$QUAKE_GAME; starting there"
+        printf '%s\n' "$QUAKE_GAME" > "$BASEDIR/nextgame"
+        printf '%s\n' "$QUAKE_GAME" > "$GAME_ENV_FILE"
+    fi
+else
+    rm -f "$GAME_ENV_FILE"
+fi
+
+# A stored choice whose directory is no longer mounted would leave the engine
+# adding a search path with nothing behind it -- or, for a mission pack, a
+# status bar for data that is not there. Drop it and play the base game.
+if [ -f "$BASEDIR/nextgame" ]; then
+    want=$(head -n 1 "$BASEDIR/nextgame" | tr -d '\r\n')
+    found=no
+    for g in $FOUND_GAMES; do
+        if [ "$g" = "$want" ]; then
+            found=yes
+        fi
+    done
+    if [ "$found" = no ]; then
+        log "game '$want' is not installed; playing id1 instead"
+        rm -f "$BASEDIR/nextgame"
+    elif [ "$want" != "id1" ]; then
+        log "playing $want"
+        # Quake refuses a modified game without the registered pak files, and
+        # would exit on it every time the loop below brought it back. Said here
+        # rather than left to be worked out from three identical Sys_Errors.
+        if [ ! -f "$BASEDIR/id1/pak1.pak" ]; then
+            log "  warning: this is the shareware data, which cannot run"
+            log "  mission packs or mods. The engine will refuse to start."
+        fi
+    fi
+fi
+
 ##############################################################################
 # Music.
 #
@@ -415,8 +469,38 @@ trap cleanup EXIT INT TERM
 # cannot arise. QUAKE_WIDTH and QUAKE_HEIGHT stay the default for a state
 # volume that has no config yet, which is what the documentation says.
 ##############################################################################
+#
+# Which game directory the engine will use, and so where its config.cfg is.
+#
+# Worked out each time rather than once: the menu writes its choice on the way
+# out, so the next time round the run loop the config may be somewhere else
+# entirely. An explicit switch in QUAKE_ARGS wins, the same way it wins in the
+# engine.
+#
+current_game() {
+    g=""
+    prev=""
+    for a in "$@"; do
+        case "$a" in
+            -hipnotic) g=hipnotic ;;
+            -rogue)    g=rogue ;;
+        esac
+        if [ "$prev" = "-game" ]; then
+            g="$a"
+        fi
+        prev="$a"
+    done
+
+    if [ -z "$g" ] && [ -f "$BASEDIR/nextgame" ]; then
+        g=$(head -n 1 "$BASEDIR/nextgame" | tr -d '\r\n')
+    fi
+
+    [ -n "$g" ] || g=id1
+    printf '%s\n' "$g"
+}
+
 config_size() {
-    cfg="$BASEDIR/id1/config.cfg"
+    cfg="$BASEDIR/$(current_game "$@")/config.cfg"
     [ -f "$cfg" ] || return 0
 
     cw=$(sed -n 's/^vid_width "\([0-9][0-9]*\)\.[0-9]*"$/\1/p' "$cfg" | tail -1)
@@ -441,7 +525,7 @@ config_size() {
     fi
 }
 
-config_size
+config_size "$@"
 
 ##############################################################################
 # The display.
@@ -837,23 +921,6 @@ case " $* " in
     *) set -- -basedir "$BASEDIR" "$@" ;;
 esac
 
-# The mission packs want their own switch rather than -game: they set
-# hipnotic/rogue inside the engine, which changes the status bar and the menu
-# as well as the search path.
-if [ -n "${QUAKE_GAME:-}" ]; then
-    case " $* " in
-        *" -game "*|*" -hipnotic "*|*" -rogue "*) ;;
-        *)
-            case "$QUAKE_GAME" in
-                hipnotic) set -- -hipnotic "$@" ;;
-                rogue)    set -- -rogue "$@" ;;
-                id1|"")   ;;
-                *)        set -- -game "$QUAKE_GAME" "$@" ;;
-            esac
-            ;;
-    esac
-fi
-
 cd "$BASEDIR"
 
 #
@@ -938,7 +1005,7 @@ while :; do
     # so a resolution picked in the video menu is in there by now, and starting
     # at it is what keeps the window from being resized straight after it is
     # created. See the note on config_size above for what that costs.
-    [ "$MANAGE_SIZE" = 1 ] && config_size
+    [ "$MANAGE_SIZE" = 1 ] && config_size "$@"
 
     # Count the starts, so the page can tell that the engine it is looking at
     # is not the one it connected to. x11vnc keeps converting this 8-bit screen

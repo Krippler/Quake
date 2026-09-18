@@ -625,6 +625,45 @@ a spare keycode, sending it and putting the keymap back, so without
 `XRefreshKeyboardMapping` those characters arrive as whatever the stale cache
 says that keycode used to mean.
 
+### `r_main.c` — the weapon was not drawn above a 90 degree field of view
+
+`R_DrawViewModel` returned on `r_fov_greater_than_90`, which `R_ViewChanged`
+sets straight from `scr_fov`. id's reasoning holds: the view model sits a foot
+from the camera, where a wide projection stretches it across the screen and out
+through the wall behind it. What changed is that the field of view is a slider
+now rather than a console command nobody found, so the failure mode is a player
+moving it and watching their weapon disappear.
+
+Answered the way later ports answer it. The view model is drawn with its own
+field of view, fixed at 90 and widened for the screen exactly as the world's is
+in the Hor+ change above, so the gun keeps the size it has at 90 whatever the
+world is drawn at. The software renderer reads the projection out of four
+globals — `xscale` and `yscale` for the bounding-box check, `aliasxscale` and
+`aliasyscale` for the vertices — and nothing but the view model is drawn between
+saving them and putting them back.
+
+### `common.c`, `sys_linux.c`, `menu.c` — no way to change game from inside
+
+`-game`, `-hipnotic` and `-rogue` are read once, in `COM_InitFilesystem`, and
+nothing rebuilds `com_searchpaths` afterwards. So a mission pack or a mod meant
+stopping the container, editing a variable and starting it again, which for
+something as ordinary as trying a mod is a lot to ask of somebody playing in a
+browser.
+
+Switching the path underneath a running game is not the answer: every model,
+sound, texture and progs in the hunk belongs to the old path, so it would mean
+throwing all of it away and loading it again — most of what starting over does,
+with none of the certainty. The menu writes the chosen directory to a file
+beside the game directories and quits instead. `COM_InitFilesystem` reads it
+when the command line says nothing, and applies exactly what the switch for that
+directory would have, `rogue` and `hipnotic` flags included, because those two
+change the status bar and the menu as well as the search path. The container's
+restart loop and the page's own reconnect make the restart a few dark seconds.
+
+`Sys_ListGameDirs`, `Sys_SetGameChoice` and `Sys_GetGameChoice` are in
+`sys_linux.c` because listing a directory is `opendir` here and `FindFirstFile`
+on Windows; a revived `sys_win.c` would need its own three.
+
 ---
 
 ## New files

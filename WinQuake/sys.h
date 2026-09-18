@@ -37,6 +37,16 @@ int	Sys_FileTime (char *path);
 void Sys_mkdir (char *path);
 
 //
+// game directories
+//
+// Which games are installed, and which one the menu picked last time. Only the
+// Linux port has these; a revived sys_win.c would want FindFirstFile versions.
+//
+int Sys_ListGameDirs (char *basepath, char out[][MAX_QPATH], int max);
+void Sys_SetGameChoice (char *basepath, char *dir);
+qboolean Sys_GetGameChoice (char *basepath, char *out, int outlen);
+
+//
 // memory protection
 //
 void Sys_MakeCodeWriteable (unsigned long startaddr, unsigned long length);

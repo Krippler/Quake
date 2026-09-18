@@ -62,7 +62,7 @@
           Type="Variable" Display="always" Required="false" Mask="false">480</Config>
 
   <Config Name="Game" Target="QUAKE_GAME" Default=""
-          Description="Leave empty for the base game. hipnotic for Scourge of Armagon, rogue for Dissolution of Eternity, or a mod directory name. The directory has to be in the game data mount."
+          Description="Which game to start on. Leave empty for the base game. hipnotic for Scourge of Armagon, rogue for Dissolution of Eternity, or a mod directory name. The directory has to be in the game data mount. This is the starting point only: Options - Game / mission pack in the game switches between whatever is installed, and that choice sticks until this is changed."
           Type="Variable" Display="always" Required="false" Mask="false"></Config>
 
   <Config Name="VNC password" Target="QUAKE_VNC_PASSWORD" Default=""

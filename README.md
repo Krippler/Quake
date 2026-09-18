@@ -47,6 +47,10 @@ container finds them:
 └── music/track02.ogg ...     ← the soundtrack, see below
 ```
 
+`QUAKE_GAME` picks the one to start on; **Options → Game / mission pack** in
+the game switches between whatever is installed, and Quake restarts on it.
+
+
 Mounted read-only, as above, is right: the container never writes to your game
 data. It builds a writable game directory of its own in the state volume and
 links your pak files into it, because Quake writes `config.cfg` and its

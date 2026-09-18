@@ -42,15 +42,33 @@ files.
 
 ### Mission packs and mods
 
+Everything beside `id1` in the mount is offered in the menu, under **Options →
+Game / mission pack**. Pick one and Quake restarts on it — the container brings
+the engine straight back and the page reconnects on its own, so it looks like a
+few dark seconds. The choice is kept in the state volume and survives a restart
+of the container.
+
+`QUAKE_GAME` says which one to start on:
+
 | | |
 | --- | --- |
-| `QUAKE_GAME=hipnotic` | Scourge of Armagon — passes `-hipnotic`, which also changes the status bar and the menu |
-| `QUAKE_GAME=rogue` | Dissolution of Eternity — passes `-rogue`, likewise |
-| `QUAKE_GAME=<dir>` | any other mod — passes `-game <dir>` |
+| `QUAKE_GAME=hipnotic` | Scourge of Armagon — which also changes the status bar and the menu |
+| `QUAKE_GAME=rogue` | Dissolution of Eternity — likewise |
+| `QUAKE_GAME=<dir>` | any other mod, by directory name |
+
+It is the starting point, not a lock: setting it, or changing it, overrides
+whatever the menu last chose, and leaving it alone leaves the menu's choice
+alone. So a container configured with `QUAKE_GAME=hipnotic` does not drag the
+game back to Scourge of Armagon every time somebody switches in the menu. An
+explicit `-game`, `-hipnotic` or `-rogue` in `QUAKE_ARGS` beats both.
 
 The directory has to be in the mount. A mod that ships loose files rather than
 a pak works too: a directory holding `progs.dat` or a `maps/` folder is
 recognised as a game directory even with no pak in it.
+
+The shareware data cannot run mission packs or mods — Quake refuses modified
+games without the registered pak files, and the menu says so rather than
+restarting into the refusal.
 
 ### Music
 
