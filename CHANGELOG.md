@@ -48,6 +48,16 @@ on the default branch publishes that version, `## [Unreleased]` publishes only
   seconds, and an assertion that the tone is still arriving five seconds after
   the engine is let go. It fails on the previous build and passes on this one.
 
+- **The quicksave was the one save the load menu would not show.** F6 and F9 are
+  bound to `save quick` and `load quick`, which writes `quick.sav`; the menu only
+  ever looked for `s0.sav` to `s11.sav`. In 1996 that was survivable, because F9
+  was right there. In a browser it is not — the page may never see F9 at all, and
+  a player who had quicksaved had no way back to it.
+
+  It is a thirteenth row now, in both the load and the save menu, after a blank
+  line so it reads as separate and drawn in white rather than gold so it is still
+  identifiable once it holds a real comment.
+
 ## [1.4.0] — 2026-09-18
 
 ### Added
