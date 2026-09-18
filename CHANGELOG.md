@@ -5,9 +5,45 @@ top section's heading is what the release workflow reads: `## [X.Y.Z] — DATE`
 on the default branch publishes that version, `## [Unreleased]` publishes only
 `edge`.
 
-## [Unreleased]
+## [1.2.0] — 2026-09-18
 
 ### Fixed
+
+- **Widescreen modes were stretched.** `vid.aspect` is the shape of one pixel,
+  and the renderer multiplies the vertical scale by it. id computed it as
+  `(height / width) * (320 / 240)`, which cancels to a constant 4:3 whatever
+  the mode is — correct in 1996, when every mode was 4:3 and 320x200 really was
+  displayed with non-square pixels. Every mode here is a framebuffer in a
+  browser, where a pixel is square, so the renderer drew a 4:3 picture and the
+  browser showed it at 16:9. Measured as the ratio of the renderer's vertical
+  to horizontal scale: 1.0 at 4:3, 0.83 at 16:10, 0.75 at 16:9 — a quarter too
+  wide, which is exactly the mode's aspect over 4:3.
+
+  A wider screen now also shows more to the sides rather than cropping the top
+  and bottom off, which is what a fixed horizontal `fov` would otherwise do:
+  the horizontal field of view is widened by however much wider than 4:3 the
+  screen is, leaving the vertical one where 4:3 puts it. Nothing changes at 4:3
+  or narrower — 640x480 renders the same scale factors it always did — and
+  `fov` still means the horizontal angle at 4:3.
+
+- **The sound lagged further behind than it needed to.** The engine mixes ahead
+  of itself, and id's `_snd_mixahead` of 0.1 s is most of the delay between
+  firing a shot and hearing it. Measured from a keystroke to the sound reaching
+  the socket: 130 ms at 0.1, 84 ms at 0.06, 72 ms at 0.04, and no further gain
+  at 0.02 — below about 0.04 the floor is one engine frame plus the chunk size.
+  The container asks for 0.06, which takes the 46 ms that is really there;
+  `QUAKE_SND_MIXAHEAD` moves it, and 0.1 is id's behaviour exactly.
+
+  Passed as a console command rather than seeded into `config.cfg`, because the
+  cvar is archived: a state volume that already exists has id's 0.1 in its
+  config and would overrule anything written there.
+
+- The page says in the container log when its own buffer grows, and by how
+  much. It answers an underrun by holding more sound — a longer delay beats a
+  click — and on a machine that cannot keep up that climbs to 250 ms and
+  becomes most of the delay. The figure existed only in `window.__audio()`, so
+  a report of delay arrived with no way to tell a grown buffer from a container
+  sending late.
 
 - **The engine crashed while reporting that it could not open the display.**
   `VID_Init` answers a display it cannot open with `Sys_Error`, which calls

@@ -398,6 +398,29 @@ void R_ViewChanged (vrect_t *pvrect, int lineadj, float aspect)
 // 320*240 1.0 pixelAspect = 1.3333 screenAspect
 // proper 320*200 pixelAspect = 0.8333333
 
+// A wider screen shows more to the sides, rather than less above and below.
+//
+// fov is a horizontal angle, so with square pixels and a fixed fov a 16:9
+// screen renders the same width as a 4:3 one and crops the top and bottom off
+// -- a narrower view than the mode it replaced, which is not what picking a
+// widescreen resolution is meant to do. Widen the horizontal field of view by
+// however much wider than 4:3 the viewport is, which leaves the vertical one
+// exactly where a 4:3 screen would put it.
+//
+// Measured against the screen rather than against screenAspect, which is the
+// viewport and is wider than the screen because the status bar takes height
+// off it. Using the viewport widened the view at 640x480 as well, where
+// nothing should change at all.
+//
+// Nothing happens at 4:3 or narrower, so every mode id shipped is untouched,
+// and the fov cvar still means what it did: the horizontal angle at 4:3.
+	{
+		float	screen = (float)vid.width / (float)vid.height;
+
+		if (screen > 4.0 / 3.0)
+			r_refdef.horizontalFieldOfView *= screen / (4.0 / 3.0);
+	}
+
 	verticalFieldOfView = r_refdef.horizontalFieldOfView / screenAspect;
 
 // values for perspective projection

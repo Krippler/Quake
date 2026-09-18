@@ -118,6 +118,30 @@ void VID_MenuKey (int key);
 static void VID_ApplyMode (int width, int height);
 static void VID_ClampMode (int *width, int *height);
 
+/*
+================
+VID_PixelAspect
+
+The shape of one pixel, which is what the renderer means by vid.aspect: it
+multiplies the vertical scale by it, so 1.0 is a square pixel and anything else
+is a picture that has been stretched.
+
+id computed it as (height / width) * (320 / 240), which cancels to a constant
+4:3 whatever the mode is -- because in 1996 every mode was 4:3. 320x200 really
+was displayed as 4:3, on a CRT that made the pixels taller than they were wide,
+and this is the number that said so.
+
+Every mode here is a framebuffer in a browser, where a pixel is square. Leaving
+the 1996 formula in place made the renderer draw a 4:3 picture and the browser
+show it at 16:9 -- a quarter wider than it should be, which is what
+"widescreen resolutions appear stretched" is.
+================
+*/
+static float VID_PixelAspect (void)
+{
+	return 1.0;
+}
+
 // As vid_win.c and vid_dos.c do: menu.h declares none of these.
 extern void M_Menu_Options_f (void);
 extern void M_Print (int cx, int cy, char *str);
@@ -855,7 +879,7 @@ void	VID_Init (unsigned char *palette)
 	vid.conrowbytes = vid.rowbytes;
 	vid.conwidth = vid.width;
 	vid.conheight = vid.height;
-	vid.aspect = ((float)vid.height / (float)vid.width) * (320.0 / 240.0);
+	vid.aspect = VID_PixelAspect ();
 
 // menu.c hides the Video Options line when these are null, which is why the
 // X build never had one. It has the whole mode list now.
@@ -1855,8 +1879,7 @@ void	VID_Update (vrect_t *rects)
 
 		if (verbose)
 			Con_Printf ("VID: now %dx%d\n", vid.width, vid.height);
-		vid.aspect = ((float)vid.height / (float)vid.width)
-					 * (320.0 / 240.0);
+		vid.aspect = VID_PixelAspect ();
 		vid.recalc_refdef = 1;				// force a surface cache flush
 		Cvar_SetValue ("vid_width", vid.width);
 		Cvar_SetValue ("vid_height", vid.height);

@@ -518,6 +518,58 @@ Only done when `-resizescreen` says the engine owns the display, which the
 container's entrypoint passes and a desktop does not: picking a resolution in
 Quake's menu has no business rearranging somebody's other windows.
 
+### `vid_x.c`, `r_main.c` — every mode was drawn as 4:3
+
+`vid.aspect` is the shape of one pixel. `R_ViewChanged` takes it as
+`pixelAspect`, and the two places that matter are
+
+```c
+	screenAspect = r_refdef.vrect.width * pixelAspect / r_refdef.vrect.height;
+	...
+	yscale = xscale * pixelAspect;
+```
+
+id computed it as `(vid.height / vid.width) * (320.0 / 240.0)`. Substitute that
+into the first line and the width cancels: `screenAspect` is 4:3 for every mode
+there has ever been. That was right in 1996 — every mode was 4:3, and 320x200
+was displayed on a CRT that made the pixels taller than they were wide, which
+is what the `320/240` says. It is wrong for a framebuffer in a browser, where a
+pixel is square: the renderer drew a 4:3 picture and the browser showed it at
+16:9.
+
+Measured, as the ratio of the renderer's own vertical scale to its horizontal
+one — 1.0 is a square pixel:
+
+| mode | before | after |
+| --- | --- | --- |
+| 640x480, 1280x960 | 1.0000 | 1.0000 |
+| 1280x800 | 0.8333 | 1.0000 |
+| 1920x1080 | 0.7500 | 1.0000 |
+
+The error is exactly the mode's aspect divided by 4:3, which is what "a quarter
+too wide" looks like at 16:9.
+
+With square pixels and a fixed horizontal `fov`, a wider screen renders the
+same width and crops the top and bottom off — a narrower view than the mode it
+replaced, which is not what picking a widescreen resolution is for. So
+`R_ViewChanged` widens `horizontalFieldOfView` by however much wider than 4:3
+the screen is, which leaves the vertical field of view exactly where 4:3 puts
+it.
+
+Two things that had to be got right:
+
+* **Measured against the screen, not `screenAspect`.** `screenAspect` is the
+  viewport, and the status bar takes height off it, so it is wider than the
+  screen even at 640x480 — 1.48 rather than 1.33. Keying the widening to it
+  widened the view at 640x480 as well, where nothing should change at all. The
+  first version of this did that, and 640x480's horizontal scale went from 320
+  to 288 before the table above caught it.
+
+* **`r_fov_greater_than_90` is left alone.** It reads the `fov` cvar, and all
+  it does is hide the weapon model, which looks wrong past 90 degrees. Basing
+  it on the widened angle instead would have made the weapon disappear on every
+  widescreen mode.
+
 ### `vid_x.c` — `MappingNotify` was ignored
 
 Xlib caches the keyboard mapping when the connection opens and rereads it only
