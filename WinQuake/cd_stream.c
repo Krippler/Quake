@@ -65,6 +65,14 @@ static qboolean	music_looping = false;
 static byte		music_track = 0;			// 0 = nothing playing
 static char		music_dir[MAX_OSPATH];
 
+// Extensions in the order they are tried. WAV last: a directory holding both
+// a compressed rip and the wav it was made from wants the compressed one.
+//
+// Outside the sndfile block because the search for a music directory reads it
+// too, and that search is common code -- a build with MUSIC=none or MUSIC=cd
+// still has to compile.
+static const char *music_exts[] = { "ogg", "opus", "flac", "mp3", "wav", NULL };
+
 #ifdef QUAKE_MUSIC_SNDFILE
 
 static SNDFILE	*music_sf;
@@ -77,10 +85,6 @@ static float	music_prev[2];		// the frame behind music_frac
 static float	music_next[2];		// the frame ahead of it
 static float	music_step;			// source frames per output frame
 static qboolean	music_eof;
-
-// Extensions in the order they are tried. WAV last: a directory holding both
-// a compressed rip and the wav it was made from wants the compressed one.
-static const char *music_exts[] = { "ogg", "opus", "flac", "mp3", "wav", NULL };
 
 #endif
 
