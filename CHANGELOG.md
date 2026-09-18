@@ -5,6 +5,61 @@ top section's heading is what the release workflow reads: `## [X.Y.Z] — DATE`
 on the default branch publishes that version, `## [Unreleased]` publishes only
 `edge`.
 
+## [Unreleased]
+
+### Added
+
+- **Mission packs and mods are in the menu.** **Options → Game / mission pack**
+  lists everything installed beside `id1` — Scourge of Armagon, Dissolution of
+  Eternity and the mission packs' own name for anything else, by directory.
+  Picking one restarts Quake on it.
+
+  It restarts rather than switching in place because the search path is built
+  once, in `COM_InitFilesystem`, and nothing rebuilds it: swapping it underneath
+  a running game means throwing away every model, sound, texture and progs the
+  hunk holds and loading them again, which is most of what starting over does
+  anyway with none of the certainty. In the container the restart is close to
+  invisible — the engine already runs in a restart loop and the page reconnects
+  by itself, so it is a few dark seconds. Started by hand it quits, and the
+  choice applies next time.
+
+  The choice is stored beside the game directories and read at startup, and it
+  applies exactly what the switch for that directory would have: `rogue` and
+  `hipnotic` are not only search paths, they change the status bar and the menu.
+  An explicit `-game`, `-hipnotic` or `-rogue` still wins, because the engine
+  reads its command line before it reads the file.
+
+- **`QUAKE_GAME` is a starting point rather than a lock.** Setting it, or
+  changing it, overrides whatever the menu last chose; leaving it alone leaves
+  the menu's choice alone. Without that, a container configured with
+  `QUAKE_GAME=hipnotic` would drag the game back to Scourge of Armagon on every
+  restart and the new menu would appear to do nothing.
+
+- **The sliders say what they are set to.** A slider shows how far along it is,
+  which for a field of view or a mouse speed is not the number anybody wants.
+  Printed to the right of the bar now, with as few decimals as the value needs.
+
+### Fixed
+
+- **The weapon disappeared above a 90 degree field of view.** id's own guard:
+  `R_DrawViewModel` returned on `r_fov_greater_than_90`, because the gun is a
+  foot from the camera where a wide projection stretches it across the screen
+  and out through the wall behind it. Fine when the field of view was a console
+  command nobody found; not fine now that it is a slider, where moving it made
+  the weapon vanish with no explanation.
+
+  Answered the way every later port answers it: the view model gets its own
+  field of view, fixed at 90 and widened for the screen exactly as the world's
+  is, and the world keeps the player's. The software renderer reads the
+  projection out of four globals, and nothing but the view model is drawn
+  between saving them and putting them back.
+
+- **The sound delay slider went low enough to starve the mixer.** Quake paints
+  one buffer per frame, so `_snd_mixahead` is also how long a frame may take
+  before the sound runs dry; 0.02 s is 20 ms, which no browser-in-a-container is
+  going to hold to. The slider starts at 0.04 now. Anything lower is still there
+  at the console for somebody who means it.
+
 ## [1.3.0] — 2026-09-18
 
 ### Added

@@ -1240,6 +1240,10 @@ typedef struct
 char    com_cachedir[MAX_OSPATH];
 char    com_gamedir[MAX_OSPATH];
 
+// Where the game directories live: basedir, after -basedir has had its say.
+// The menu needs it to list them.
+char    com_basedir[MAX_OSPATH];
+
 typedef struct searchpath_s
 {
 	char    filename[MAX_OSPATH];
@@ -1733,6 +1737,7 @@ void COM_InitFilesystem (void)
 {
 	int             i, j;
 	char    basedir[MAX_OSPATH];
+	char    stored[MAX_QPATH];
 	searchpath_t    *search;
 
 //
@@ -1752,6 +1757,8 @@ void COM_InitFilesystem (void)
 		if ((basedir[j-1] == '\\') || (basedir[j-1] == '/'))
 			basedir[j-1] = 0;
 	}
+
+	strcpy (com_basedir, basedir);
 
 //
 // -cachedir <path>
@@ -1790,6 +1797,35 @@ void COM_InitFilesystem (void)
 	{
 		com_modified = true;
 		COM_AddGameDirectory (va("%s/%s", basedir, com_argv[i+1]));
+	}
+//
+// Otherwise, whatever the menu picked the last time it ran.
+//
+// It only speaks when the command line says nothing, so a -game or a mission
+// pack switch still wins and a script that passes one is unaffected. What it
+// does is exactly what the switch for that directory would have done, flags
+// and all -- rogue and hipnotic are not just search paths, they change the
+// status bar and the menu, and a mission pack reached this way has to look the
+// same as one reached with -rogue.
+//
+	else if (!COM_CheckParm ("-rogue") && !COM_CheckParm ("-hipnotic")
+			 && Sys_GetGameChoice (basedir, stored, sizeof(stored))
+			 && Q_strcmp (stored, GAMENAME))
+	{
+		if (!Q_strcmp (stored, "rogue"))
+		{
+			rogue = true;
+			standard_quake = false;
+		}
+		else if (!Q_strcmp (stored, "hipnotic"))
+		{
+			hipnotic = true;
+			standard_quake = false;
+		}
+		else
+			com_modified = true;
+
+		COM_AddGameDirectory (va("%s/%s", basedir, stored));
 	}
 
 //

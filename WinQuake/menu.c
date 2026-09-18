@@ -26,7 +26,7 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 void (*vid_menudrawfn)(void);
 void (*vid_menukeyfn)(int key);
 
-enum {m_none, m_main, m_singleplayer, m_load, m_save, m_multiplayer, m_setup, m_net, m_options, m_video, m_keys, m_help, m_quit, m_serialconfig, m_modemconfig, m_lanconfig, m_gameoptions, m_search, m_slist} m_state;
+enum {m_none, m_main, m_singleplayer, m_load, m_save, m_multiplayer, m_setup, m_net, m_options, m_video, m_keys, m_help, m_quit, m_game, m_serialconfig, m_modemconfig, m_lanconfig, m_gameoptions, m_search, m_slist} m_state;
 
 void M_Menu_Main_f (void);
 	void M_Menu_SinglePlayer_f (void);
@@ -36,6 +36,7 @@ void M_Menu_Main_f (void);
 		void M_Menu_Setup_f (void);
 		void M_Menu_Net_f (void);
 	void M_Menu_Options_f (void);
+	void M_Menu_Game_f (void);
 		void M_Menu_Keys_f (void);
 		void M_Menu_Video_f (void);
 	void M_Menu_Help_f (void);
@@ -55,6 +56,7 @@ void M_Main_Draw (void);
 		void M_Setup_Draw (void);
 		void M_Net_Draw (void);
 	void M_Options_Draw (void);
+	void M_Game_Draw (void);
 		void M_Keys_Draw (void);
 		void M_Video_Draw (void);
 	void M_Help_Draw (void);
@@ -74,6 +76,7 @@ void M_Main_Key (int key);
 		void M_Setup_Key (int key);
 		void M_Net_Key (int key);
 	void M_Options_Key (int key);
+	void M_Game_Key (int key);
 		void M_Keys_Key (int key);
 		void M_Video_Key (int key);
 	void M_Help_Key (int key);
@@ -1069,6 +1072,7 @@ typedef enum
 #define	OPT_BOB			8
 #define	OPT_KICK		9
 #define	OPT_DETAIL		10
+#define	OPT_GAME		11
 
 typedef struct
 {
@@ -1078,6 +1082,23 @@ typedef struct
 	float	min, max, step;
 	int		id;				// which action, or which custom row
 } option_t;
+
+
+/*
+================
+M_Game_Dir
+
+The game directory being played. com_gamedir is the last one
+COM_AddGameDirectory was given, so its final component is the mission pack or
+the mod if there is one, and id1 if there is not.
+================
+*/
+static char *M_Game_Dir (void)
+{
+	char	*p = strrchr (com_gamedir, '/');
+
+	return p ? p + 1 : com_gamedir;
+}
 
 // Six of these were not archived cvars, because id never offered them
 // anywhere but the console and a console setting was not expected to last.
@@ -1090,6 +1111,7 @@ static option_t	options[] =
 	{"Go to console",		o_action, NULL,             0,     0,    0,    OPT_CONSOLE},
 	{"Reset to defaults",	o_action, NULL,             0,     0,    0,    OPT_RESET},
 	{"Video options",		o_action, NULL,             0,     0,    0,    OPT_VIDEO},
+	{"Game / mission pack",	o_action, NULL,             0,     0,    0,    OPT_GAME},
 
 	{"Screen size",			o_custom, NULL,             0,     0,    0,    OPT_VIEWSIZE},
 	{"Brightness",			o_custom, NULL,             0,     0,    0,    OPT_GAMMA},
@@ -1097,7 +1119,7 @@ static option_t	options[] =
 
 	{"Sound volume",		o_slider, "volume",         0,     1,    0.1,  0},
 	{"Music volume",		o_slider, "bgmvolume",      0,     1,    0.1,  0},
-	{"Sound delay",			o_slider, "_snd_mixahead",  0.02,  0.2,  0.02, 0},
+	{"Sound delay",			o_slider, "_snd_mixahead",  0.04,  0.2,  0.02, 0},
 
 	{"Mouse speed",			o_slider, "sensitivity",    1,     11,   0.5,  0},
 	{"Mouse look",			o_toggle, "freelook",       0,     0,    0,    0},
@@ -1122,6 +1144,9 @@ static option_t	options[] =
 #define	OPTIONS_TOP_Y	40
 #define	OPTIONS_VISIBLE	17
 #define	OPTIONS_VALUE_X	184
+// M_DrawSlider draws from OPTIONS_VALUE_X-8 to OPTIONS_VALUE_X+80, so the
+// number goes after that and still leaves room for four characters.
+#define	OPTIONS_NUMBER_X	288
 
 #define	SLIDER_RANGE	10
 
@@ -1326,6 +1351,33 @@ void M_DrawCheckbox (int x, int y, int on)
 
 /*
 ================
+M_Options_Number
+
+A slider says how far along it is, not what it is set to, and for a field of
+view or a mouse speed the number is the thing somebody actually wants. Printed
+to the right of the bar with as few decimals as the value needs: 90 rather than
+90.00, 0.06 rather than 0.060000.
+================
+*/
+static char *M_Options_Number (float v)
+{
+	static char	buf[16];
+	int			i;
+
+	snprintf (buf, sizeof(buf), "%.2f", v);
+
+	i = strlen (buf) - 1;
+	while (i > 0 && buf[i] == '0')
+		buf[i--] = 0;
+	if (i > 0 && buf[i] == '.')
+		buf[i] = 0;
+
+	return buf;
+}
+
+
+/*
+================
 M_Options_DrawValue
 ================
 */
@@ -1344,10 +1396,14 @@ static void M_Options_DrawValue (int y, option_t *o)
 	switch (o->type)
 	{
 	case o_action:
+	// The one action row with something to report: which game this is.
+		if (o->id == OPT_GAME)
+			M_Print (OPTIONS_VALUE_X, y, M_Game_Dir ());
 		return;
 
 	case o_slider:
 		M_DrawSlider (OPTIONS_VALUE_X, y, (v - o->min) / (o->max - o->min));
+		M_Print (OPTIONS_NUMBER_X, y, M_Options_Number (v));
 		return;
 
 	case o_toggle:
@@ -1362,10 +1418,12 @@ static void M_Options_DrawValue (int y, option_t *o)
 	{
 	case OPT_VIEWSIZE:
 		M_DrawSlider (OPTIONS_VALUE_X, y, (v - 30) / (120 - 30));
+		M_Print (OPTIONS_NUMBER_X, y, M_Options_Number (v));
 		break;
 
 	case OPT_GAMMA:
 		M_DrawSlider (OPTIONS_VALUE_X, y, (1.0 - v) / 0.5);
+		M_Print (OPTIONS_NUMBER_X, y, M_Options_Number (v));
 		break;
 
 	case OPT_DETAIL:
@@ -1452,6 +1510,10 @@ void M_Options_Key (int k)
 
 		case OPT_RESET:
 			Cbuf_AddText ("exec default.cfg\n");
+			break;
+
+		case OPT_GAME:
+			M_Menu_Game_f ();
 			break;
 
 		case OPT_VIDEO:
@@ -1740,6 +1802,248 @@ void M_Keys_Key (int k)
 	case K_DEL:				// delete bindings
 		S_LocalSound ("misc/menu2.wav");
 		M_UnbindCommand (bindnames[keys_cursor][0]);
+		break;
+	}
+}
+
+//=============================================================================
+/* GAME MENU */
+
+//
+// Mission packs and mods.
+//
+// The search path is built once, in COM_InitFilesystem, and rebuilding it
+// underneath a running game would mean throwing away every model, sound,
+// texture and progs the hunk holds and loading them again -- which is most of
+// what starting over does anyway, with none of the certainty. So this menu
+// does not switch anything. It stores the choice and quits, and the next run
+// comes up on it.
+//
+// In the container that is close to invisible: the engine is run in a restart
+// loop and the page reconnects by itself, so the screen goes dark for a few
+// seconds and comes back on the new game. Started by hand it simply quits, and
+// the choice applies the next time.
+//
+
+// Whether this is the full game. common.h is included before cvar.h, so the
+// declaration cannot live beside com_basedir where it belongs.
+extern cvar_t	registered;
+
+#define	MAX_GAMEDIRS	32
+
+#define	GAME_TOP_Y		48
+#define	GAME_VISIBLE	13
+#define	GAME_DIR_X		216
+
+static char	gamedirs[MAX_GAMEDIRS][MAX_QPATH];
+static int	numgamedirs;
+static int	game_cursor;
+static int	game_top;
+static int	game_current;		// the one being played, -1 if it is not in the list
+static int	game_chosen;		// what Enter picked; -1 while the list is up
+static qboolean	game_denied;	// Enter on something the shareware data cannot run
+
+//
+// A directory name is not what the thing is called.
+//
+// These are the ones somebody is likely to have. Anything else is a mod, and a
+// mod is known by its directory anyway -- there is no manifest in a Quake mod
+// to read a name out of, so inventing one would mean guessing.
+//
+static char	*gametitles[][2] =
+{
+	{"id1",			"Quake"},
+	{"hipnotic",	"Scourge of Armagon"},
+	{"rogue",		"Dissolution of Eternity"},
+	{"dopa",		"Dimension of the Past"},
+};
+
+static char *M_Game_Title (char *dir)
+{
+	int		i;
+
+	for (i = 0 ; i < (int)(sizeof(gametitles) / sizeof(gametitles[0])) ; i++)
+		if (!Q_strcmp (dir, gametitles[i][0]))
+			return gametitles[i][1];
+
+	return dir;
+}
+
+
+void M_Menu_Game_f (void)
+{
+	char	*playing;
+	int		i;
+
+	key_dest = key_menu;
+	m_state = m_game;
+	m_entersound = true;
+
+	game_chosen = -1;
+	game_denied = false;
+
+// Read every time the menu opens rather than once at startup: a mod mounted
+// while the container was running is there the next time somebody looks.
+	numgamedirs = Sys_ListGameDirs (com_basedir, gamedirs, MAX_GAMEDIRS);
+
+	playing = M_Game_Dir ();
+	game_current = -1;
+	for (i = 0 ; i < numgamedirs ; i++)
+		if (!Q_strcmp (gamedirs[i], playing))
+			game_current = i;
+
+	game_cursor = game_current > 0 ? game_current : 0;
+}
+
+
+void M_Game_Draw (void)
+{
+	qpic_t	*p;
+	int		i, row, y, last;
+	char	*title;
+
+	M_DrawTransPic (16, 4, Draw_CachePic ("gfx/qplaque.lmp") );
+	p = Draw_CachePic ("gfx/p_option.lmp");
+	M_DrawPic ( (320-p->width)/2, 4, p);
+
+	if (!numgamedirs)
+	{
+		M_Print (16, GAME_TOP_Y, "Nothing found next to the base game.");
+		M_Print (16, GAME_TOP_Y + 16, "A mission pack or a mod is a folder");
+		M_Print (16, GAME_TOP_Y + 24, "of its own beside id1.");
+		return;
+	}
+
+	if (game_denied)
+	{
+	// COM_CheckRegistered would refuse this a second after the restart, and the
+	// container would sit in a restart loop with the reason scrolling past in a
+	// log nobody is reading. Say it here instead, while there is a screen.
+		M_DrawTextBox (32, 72, 30, 4);
+		M_Print (40, 80, "The shareware data cannot run");
+		M_Print (40, 88, "mission packs or mods. The full");
+		M_Print (40, 96, "version of Quake is needed.");
+		M_Print (40, 104, "Press any key.");
+		return;
+	}
+
+	if (game_chosen >= 0)
+	{
+		M_DrawTextBox (32, 72, 30, 4);
+		M_Print (40, 80, "Switch to");
+		M_PrintWhite (40, 88, M_Game_Title (gamedirs[game_chosen]));
+		M_Print (40, 104, "Quake must restart.  Y / N");
+		return;
+	}
+
+	M_Print (16, 32, "Enter to switch, Escape to go back");
+
+// Keep the cursor inside the window, as the controls and options menus do.
+	if (game_cursor < game_top)
+		game_top = game_cursor;
+	if (game_cursor >= game_top + GAME_VISIBLE)
+		game_top = game_cursor - GAME_VISIBLE + 1;
+	if (game_top > numgamedirs - GAME_VISIBLE)
+		game_top = numgamedirs - GAME_VISIBLE;
+	if (game_top < 0)
+		game_top = 0;
+
+	last = game_top + GAME_VISIBLE;
+	if (last > numgamedirs)
+		last = numgamedirs;
+
+	for (i = game_top, row = 0 ; i < last ; i++, row++)
+	{
+		y = GAME_TOP_Y + row * 8;
+		title = M_Game_Title (gamedirs[i]);
+
+	// The one running now in white, so that the list says where you are as
+	// well as where you could go.
+		if (i == game_current)
+			M_PrintWhite (16, y, title);
+		else
+			M_Print (16, y, title);
+
+	// A mod is listed by its directory already; printing it twice says
+	// nothing. A mission pack is listed by name, and the directory is worth
+	// showing because that is what -game and QUAKE_GAME want.
+		if (Q_strcmp (title, gamedirs[i]))
+			M_Print (GAME_DIR_X, y, gamedirs[i]);
+
+		if (i == game_cursor)
+			M_DrawCharacter (8, y, 12 + ((int)(realtime*4) & 1));
+	}
+
+	if (game_top > 0)
+		M_Print (16, GAME_TOP_Y - 8, "^ more above");
+	if (last < numgamedirs)
+		M_Print (16, GAME_TOP_Y + GAME_VISIBLE * 8, "v more below");
+}
+
+
+void M_Game_Key (int k)
+{
+	if (game_denied)
+	{
+		game_denied = false;
+		m_entersound = true;
+		return;
+	}
+
+	if (game_chosen >= 0)
+	{
+		switch (k)
+		{
+		case K_ENTER:
+		case 'y':
+		case 'Y':
+			Sys_SetGameChoice (com_basedir, gamedirs[game_chosen]);
+			key_dest = key_console;
+			Host_Quit_f ();
+			break;
+
+		case K_ESCAPE:
+		case 'n':
+		case 'N':
+			game_chosen = -1;
+			m_entersound = true;
+			break;
+		}
+		return;
+	}
+
+	switch (k)
+	{
+	case K_ESCAPE:
+		M_Menu_Options_f ();
+		break;
+
+	case K_ENTER:
+		if (!numgamedirs)
+			break;
+		m_entersound = true;
+		if (game_cursor == game_current)
+			M_Menu_Options_f ();		// already playing it; nothing to restart for
+		else if (!registered.value && Q_strcmp (gamedirs[game_cursor], GAMENAME))
+			game_denied = true;
+		else
+			game_chosen = game_cursor;
+		break;
+
+	case K_UPARROW:
+		if (!numgamedirs)
+			break;
+		S_LocalSound ("misc/menu1.wav");
+		if (--game_cursor < 0)
+			game_cursor = numgamedirs - 1;
+		break;
+
+	case K_DOWNARROW:
+		if (!numgamedirs)
+			break;
+		S_LocalSound ("misc/menu1.wav");
+		if (++game_cursor >= numgamedirs)
+			game_cursor = 0;
 		break;
 	}
 }
@@ -3254,6 +3558,7 @@ void M_Init (void)
 	Cmd_AddCommand ("menu_options", M_Menu_Options_f);
 	Cmd_AddCommand ("menu_keys", M_Menu_Keys_f);
 	Cmd_AddCommand ("menu_video", M_Menu_Video_f);
+	Cmd_AddCommand ("menu_game", M_Menu_Game_f);
 	Cmd_AddCommand ("help", M_Menu_Help_f);
 	Cmd_AddCommand ("menu_quit", M_Menu_Quit_f);
 }
@@ -3328,6 +3633,10 @@ void M_Draw (void)
 
 	case m_video:
 		M_Video_Draw ();
+		break;
+
+	case m_game:
+		M_Game_Draw ();
 		break;
 
 	case m_help:
@@ -3420,6 +3729,10 @@ void M_Keydown (int key)
 
 	case m_video:
 		M_Video_Key (key);
+		return;
+
+	case m_game:
+		M_Game_Key (key);
 		return;
 
 	case m_help:
