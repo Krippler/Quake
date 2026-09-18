@@ -794,6 +794,35 @@ case " $* " in
     *" -width "*|*" -winsize "*) MANAGE_SIZE=0 ;;
 esac
 
+#
+# How far ahead the engine mixes sound, which is most of the delay between a
+# shot being fired and being heard.
+#
+# id's default is 0.1 s. Measured here, keystroke to audible on the socket:
+# 0.1 gives 130 ms, 0.06 gives 84 ms, 0.04 gives 72 ms, and 0.02 gives no
+# further gain at all -- below about 0.04 the floor is the engine's frame and
+# the chunk size, and all a smaller number buys is underruns. 0.06 takes the
+# 46 ms that is actually there and keeps half again the cushion of the floor.
+#
+# Passed as a console command rather than written into config.cfg, because the
+# cvar is archived: an existing state volume already has id's 0.1 in its config
+# and would overrule anything seeded. quake.rc runs stuffcmds after it execs
+# config.cfg, so this wins on every start, old volume or new.
+#
+# A machine that cannot keep up will underrun, and the browser answers an
+# underrun by growing its own buffer by more than this saves. Raise it back
+# towards 0.1 there -- QUAKE_SND_MIXAHEAD=0.1 is exactly id's behaviour.
+#
+MIXAHEAD="${QUAKE_SND_MIXAHEAD:-0.06}"
+case "$MIXAHEAD" in
+    ''|*[!0-9.]*|*.*.*) die "QUAKE_SND_MIXAHEAD must be a number of seconds (got '$MIXAHEAD')" ;;
+esac
+
+case " $* " in
+    *" +_snd_mixahead "*) ;;
+    *) set -- "$@" +_snd_mixahead "$MIXAHEAD" ;;
+esac
+
 # Nothing else is on this display, so the engine may resize the screen itself
 # rather than leaving a window in the corner of a framebuffer it cannot fill.
 # Without this switch it only ever resizes its window, which is the right thing

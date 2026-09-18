@@ -81,6 +81,10 @@ directory was found and what is playing; `cd play 4`, `cd loop 4`, `cd stop`,
 | `QUAKE_MAX_HEIGHT` | `1200` | The largest height the in-game menu can reach |
 | `QUAKE_DISPLAY` | `:99` | Which X display the container runs internally |
 
+Widescreen modes are drawn as widescreen: square pixels, and a wider screen
+shows more to the left and right rather than the same picture stretched across
+it. 4:3 modes are untouched, and `fov` still means the horizontal angle at 4:3.
+
 The renderer is in software, so every pixel costs. 640x480 is comfortable
 anywhere; 1280x800 is fine on a modern core; 1920x1200 is a choice. The browser
 scales whatever it is given to fit the window, so a lower number is a softer
@@ -118,6 +122,7 @@ and the pointer is not captured.
 | | | |
 | --- | --- | --- |
 | `QUAKE_SOUND` | `1` | `0` turns the sound off entirely |
+| `QUAKE_SND_MIXAHEAD` | `0.06` | Seconds of sound the engine mixes ahead. Most of the delay between firing a shot and hearing it. `0.1` is id's default |
 | `QUAKE_AUDIOSTREAM_ARGS` | | Extra arguments for `audiostream`, e.g. `--verbose` |
 
 22050 Hz, 16-bit stereo, fixed: the engine produces it and the page consumes
@@ -284,6 +289,31 @@ actually sent — so `docker logs` answers the question on its own.
 ---
 
 ## Troubleshooting
+
+### The sound lags behind the picture
+
+Some of it is fixed cost and some of it is the machine.
+
+The fixed part is the engine mixing ahead of itself. Measured from a keystroke
+to the sound reaching the socket: id's `0.1` gives about 130 ms, the `0.06`
+this ships gives about 85 ms, and `0.04` gives about 70 ms. Below that there is
+nothing left to win — the floor is one engine frame plus the chunk size — and
+all a smaller number buys is underruns. `QUAKE_SND_MIXAHEAD` moves it.
+
+The rest is the browser. It holds a small buffer, 25 ms to begin with, and
+**grows it by 20 ms every time it runs dry**, because a longer delay is better
+than a click. On a machine that cannot keep up it will climb to 250 ms, and
+that is then most of what you hear. It says so in the container log:
+
+```
+[quake] sound: buffer grew to 105 ms after 4 underrun(s). That is added delay,
+        and it is this machine not keeping up rather than the container
+        sending late -- a lower resolution is what shortens it.
+```
+
+If you see that line, the answer is a lower resolution in **Options → Video
+Options**, not a sound setting. The same shortage shows up in the picture as
+`picture gap` lines.
 
 ### The colours went wrong after quitting to the title screen
 

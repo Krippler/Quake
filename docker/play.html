@@ -1755,6 +1755,40 @@ let audioOutVia = '';        // ... and which way the sound went out
 let audioWatchdog = null;
 let audioVia = '';
 
+//
+// Say when the delay grows, and why.
+//
+// The ring answers an underrun by holding more sound, which is the right
+// trade -- a longer delay beats a click -- but it is also the whole of what
+// "the audio is delayed" turns out to be on a machine that cannot keep up.
+// The number that says so existed only in window.__audio(), so a report of
+// delay arrived with no way to tell a grown buffer from a container sending
+// late. Put it where a bug report will pick it up on its own: the container
+// log, the same place the rest of this goes.
+//
+let audioGrowthReports = 0;
+let audioLastTarget = 0;
+
+setInterval(() => {
+  if (!audioRing || !audioNode) return;
+
+  const held = Math.round(audioRing.target * 1000 / audioRing.srcRate);
+
+  if (audioLastTarget === 0) {
+    audioLastTarget = held;
+    return;
+  }
+
+  if (held > audioLastTarget && audioGrowthReports < 4) {
+    audioGrowthReports++;
+    audioLastTarget = held;
+    soundLog('buffer grew to ' + held + ' ms after ' + audioRing.underruns
+           + ' underrun(s). That is added delay, and it is this machine not'
+           + ' keeping up rather than the container sending late -- a lower'
+           + ' resolution is what shortens it.');
+  }
+}, 15000);
+
 // For automated checks; harmless otherwise, like __rfb above.
 window.__audio = () => ({
   build: '__QUAKE_VERSION__',
