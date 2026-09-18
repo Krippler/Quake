@@ -5,6 +5,59 @@ top section's heading is what the release workflow reads: `## [X.Y.Z] — DATE`
 on the default branch publishes that version, `## [Unreleased]` publishes only
 `edge`.
 
+## [1.4.1] — 2026-09-18
+
+### Fixed
+
+- **The sound stopped for good after any frame longer than three quarters of a
+  second — which every level load is.**
+
+  `GetSoundtime` worked out where playback had got to by counting the times the
+  ring buffer wrapped, one wrap per call, and id's own comment above it says
+  what is wrong with that: *"it is possible to miscount buffers if it has
+  wrapped twice between calls to S_Update. Oh well."* The ring is 16384 frames,
+  0.74 s at 22050 Hz. In 1996 a frame that long meant the machine had stopped.
+  Here a level load is that long, and a browser on a busy machine is worse —
+  this port logs picture gaps of one to eighteen seconds as an ordinary
+  occurrence.
+
+  A lost wrap is lost for good, because nothing ever recounts. `paintedtime`
+  follows `soundtime`, and `SNDDMA_Submit` will not send past `paintedtime`, so
+  from then on every frame went down the pipe as silence rather than as the
+  mixer's output. At exactly the right rate — so the browser's buffer never
+  underran, the page reported nothing, the container reported nothing, and the
+  game simply went quiet and stayed quiet.
+
+  Measured on a demo loop: a 3.5 s level load left `paintedtime` 63331 frames
+  behind the clock, and it was still exactly 63331 frames behind twenty seconds
+  later. With the same engine stalled deliberately for four seconds, the audio
+  captured off the pipe was full-scale for twelve seconds and then flat zero for
+  the remaining fourteen.
+
+  There is no sound card here and nothing to reconstruct: this backend's clock
+  *is* the playback position. `SNDDMA_GetSamples` hands the running count over
+  and `GetSoundtime` stops guessing. Same test, same stall: audio the whole way
+  through.
+
+  The 0.04 s floor on the sound-delay slider in 1.4.0 was not this. It was a
+  guard put up while the cause was still unknown, and it stays because 0.02 s
+  is genuinely too little for one frame's grace — but it fixed nothing, and
+  this is what was actually wrong.
+
+- The smoke test grew a phase for it: a sustained tone, `SIGSTOP` for three
+  seconds, and an assertion that the tone is still arriving five seconds after
+  the engine is let go. It fails on the previous build and passes on this one.
+
+- **The quicksave was the one save the load menu would not show.** F6 and F9 are
+  bound to `save quick` and `load quick`, which writes `quick.sav`; the menu only
+  ever looked for `s0.sav` to `s11.sav`. In 1996 that was survivable, because F9
+  was right there. In a browser it is not — the page may never see F9 at all, and
+  a player who had quicksaved had no way back to it.
+
+  It is a thirteenth row now, in both the load and the save menu, after a blank
+  line so it reads as separate and drawn in white rather than gold so it is still
+  identifiable once it holds a real comment.
+
 ## [1.4.0] — 2026-09-18
 
 ### Added

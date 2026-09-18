@@ -80,6 +80,11 @@ static qboolean	snd_inited = false;
 static double			snd_starttime;
 static unsigned int		snd_sent;
 
+// Subtracted from the elapsed count so that what SNDDMA_GetSamples hands out
+// stays inside an int. Moved only by SNDDMA_RebaseClock, which moves snd_sent
+// with it so that nothing else notices.
+static unsigned int		snd_base;
+
 // Frames the pipe would not take last time, kept so that a partial write is
 // resumed rather than restarted. A short write that is not a whole number of
 // frames is worse than a gap: the listener assembles every sample after it
@@ -169,6 +174,7 @@ qboolean SNDDMA_Init (void)
 
 	snd_starttime = Sys_FloatTime ();
 	snd_sent = 0;
+	snd_base = 0;
 	snd_pendinglen = 0;
 	snd_inited = true;
 
@@ -213,10 +219,71 @@ int SNDDMA_GetDMAPos (void)
 	if (!snd_inited)
 		return 0;
 
-	shm->samplepos = (SNDDMA_ElapsedFrames () * STREAM_CHANNELS)
+	shm->samplepos = ((SNDDMA_ElapsedFrames () - snd_base) * STREAM_CHANNELS)
 					 % shm->samples;
 
 	return shm->samplepos;
+}
+
+
+/*
+==================
+SNDDMA_GetSamples
+
+The playback position as a running count of frames, rather than as a position
+inside the ring.
+
+GetSoundtime otherwise reconstructs that count from the position by watching
+it wrap, and id's own comment there says what is wrong with that: "it is
+possible to miscount buffers if it has wrapped twice between calls to
+S_Update. Oh well." The ring is 0.74 seconds long, so a frame that takes
+longer than that loses a whole ring -- and it is never found again, because
+nothing recounts.
+
+In 1996 a frame that long meant the machine had stopped. Here a level load is
+that long, and a browser on a busy machine is worse: this port logs picture
+gaps of one to eighteen seconds as an ordinary occurrence.
+
+What made it more than a cosmetic slip is what SNDDMA_Submit does with it.
+Submit will not send past paintedtime, and paintedtime follows soundtime; so
+once soundtime is a ring or more behind the clock, every frame is padded with
+silence rather than carried from the mixer -- for the rest of the run, at
+exactly the right rate. The listener's buffer never underruns and nothing
+anywhere reports a fault. The game goes quiet after the first level load and
+stays quiet. Measured on a demo loop: a 3.5 second load left paintedtime
+63331 frames behind the clock, and it was still exactly 63331 behind twenty
+seconds later.
+
+There is no sound card here and no wrapping to reconstruct. This backend's
+clock is the playback position, so hand the count over and let GetSoundtime
+stop guessing.
+==================
+*/
+int SNDDMA_GetSamples (void)
+{
+	if (!snd_inited)
+		return 0;
+
+	return (int)(SNDDMA_ElapsedFrames () - snd_base);
+}
+
+
+/*
+==================
+SNDDMA_RebaseClock
+
+Moves the origin forward, so the running count above stays inside an int.
+
+soundtime and paintedtime are both ints, and 2^31 frames is twenty-seven
+hours -- which a container on somebody's home server passes without anyone
+thinking about it. snd_sent moves by the same amount, so SNDDMA_Submit's
+arithmetic is untouched and no audio is lost across the move.
+==================
+*/
+void SNDDMA_RebaseClock (int frames)
+{
+	snd_base += (unsigned int)frames;
+	snd_sent -= (unsigned int)frames;
 }
 
 

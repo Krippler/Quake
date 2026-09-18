@@ -809,12 +809,34 @@ void S_Update(vec3_t origin, vec3_t forward, vec3_t right, vec3_t up)
 
 void GetSoundtime(void)
 {
+	int		fullsamples;
+#ifndef SND_HAS_GETSAMPLES
 	int		samplepos;
 	static	int		buffers;
 	static	int		oldsamplepos;
-	int		fullsamples;
-	
+#endif
+
 	fullsamples = shm->samples / shm->channels;
+
+#ifdef SND_HAS_GETSAMPLES
+//
+// The backend counts frames itself, so there is nothing here to reconstruct
+// and nothing to miscount. What the reconstruction below cost -- silence for
+// the rest of the run after any frame longer than the ring -- is written up
+// at SNDDMA_GetSamples in snd_stream.c.
+//
+	soundtime = SNDDMA_GetSamples();
+
+	if (soundtime > 0x40000000)
+	{	// time to chop things off to avoid 32 bit limits
+		SNDDMA_RebaseClock (0x40000000);
+		paintedtime -= 0x40000000;
+		if (paintedtime < fullsamples)
+			paintedtime = fullsamples;
+		soundtime = SNDDMA_GetSamples();
+		S_StopAllSounds (true);
+	}
+#else
 
 // it is possible to miscount buffers if it has wrapped twice between
 // calls to S_Update.  Oh well.
@@ -838,6 +860,7 @@ void GetSoundtime(void)
 	oldsamplepos = samplepos;
 
 	soundtime = buffers*fullsamples + samplepos/shm->channels;
+#endif
 #endif
 }
 

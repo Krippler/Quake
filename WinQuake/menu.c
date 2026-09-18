@@ -440,11 +440,45 @@ void M_SinglePlayer_Key (int key)
 //=============================================================================
 /* LOAD/SAVE MENU */
 
-int		load_cursor;		// 0 < load_cursor < MAX_SAVEGAMES
+int		load_cursor;		// 0 < load_cursor < SAVE_SLOTS
 
 #define	MAX_SAVEGAMES		12
-char	m_filenames[MAX_SAVEGAMES][SAVEGAME_COMMENT_LENGTH+1];
-int		loadable[MAX_SAVEGAMES];
+
+//
+// The quicksave, as a row of its own.
+//
+// F6 and F9 are bound to "save quick" and "load quick", which writes
+// quick.sav -- and this menu only ever looked for s0.sav to s11.sav, so the
+// save everybody actually uses was the one save the menu would not show. In
+// 1996 that was survivable, because F9 was right there. In a browser it is
+// not: the page may never see F9, and a player who has quicksaved has no way
+// back to it at all.
+//
+// One more row, after a blank line so it reads as separate, and drawn in white
+// rather than gold so it is still identifiable once it holds a real comment.
+//
+#define	QUICK_SLOT			MAX_SAVEGAMES
+#define	SAVE_SLOTS			(MAX_SAVEGAMES + 1)
+
+char	m_filenames[SAVE_SLOTS][SAVEGAME_COMMENT_LENGTH+1];
+int		loadable[SAVE_SLOTS];
+
+// What the load and save commands call the slot, and where its row sits.
+static char *M_SaveSlotName (int i)
+{
+	static char	name[16];
+
+	if (i == QUICK_SLOT)
+		return "quick";
+
+	sprintf (name, "s%i", i);
+	return name;
+}
+
+static int M_SaveSlotY (int i)
+{
+	return 32 + 8*i + (i == QUICK_SLOT ? 8 : 0);
+}
 
 void M_ScanSaves (void)
 {
@@ -453,11 +487,13 @@ void M_ScanSaves (void)
 	FILE	*f;
 	int		version;
 
-	for (i=0 ; i<MAX_SAVEGAMES ; i++)
+	for (i=0 ; i<SAVE_SLOTS ; i++)
 	{
-		strcpy (m_filenames[i], "--- UNUSED SLOT ---");
+		strcpy (m_filenames[i], i == QUICK_SLOT
+				? "--- QUICKSAVE SLOT ---" : "--- UNUSED SLOT ---");
 		loadable[i] = false;
-		sprintf (name, "%s/s%i.sav", com_gamedir, i);
+		snprintf (name, sizeof(name), "%s/%s.sav", com_gamedir,
+				  M_SaveSlotName (i));
 		f = fopen (name, "r");
 		if (!f)
 			continue;
@@ -506,11 +542,16 @@ void M_Load_Draw (void)
 	p = Draw_CachePic ("gfx/p_load.lmp");
 	M_DrawPic ( (320-p->width)/2, 4, p);
 
-	for (i=0 ; i< MAX_SAVEGAMES; i++)
-		M_Print (16, 32 + 8*i, m_filenames[i]);
+	for (i=0 ; i< SAVE_SLOTS; i++)
+	{
+		if (i == QUICK_SLOT)
+			M_PrintWhite (16, M_SaveSlotY (i), m_filenames[i]);
+		else
+			M_Print (16, M_SaveSlotY (i), m_filenames[i]);
+	}
 
 // line cursor
-	M_DrawCharacter (8, 32 + load_cursor*8, 12+((int)(realtime*4)&1));
+	M_DrawCharacter (8, M_SaveSlotY (load_cursor), 12+((int)(realtime*4)&1));
 }
 
 
@@ -522,11 +563,16 @@ void M_Save_Draw (void)
 	p = Draw_CachePic ("gfx/p_save.lmp");
 	M_DrawPic ( (320-p->width)/2, 4, p);
 
-	for (i=0 ; i<MAX_SAVEGAMES ; i++)
-		M_Print (16, 32 + 8*i, m_filenames[i]);
+	for (i=0 ; i<SAVE_SLOTS ; i++)
+	{
+		if (i == QUICK_SLOT)
+			M_PrintWhite (16, M_SaveSlotY (i), m_filenames[i]);
+		else
+			M_Print (16, M_SaveSlotY (i), m_filenames[i]);
+	}
 
 // line cursor
-	M_DrawCharacter (8, 32 + load_cursor*8, 12+((int)(realtime*4)&1));
+	M_DrawCharacter (8, M_SaveSlotY (load_cursor), 12+((int)(realtime*4)&1));
 }
 
 
@@ -550,7 +596,7 @@ void M_Load_Key (int k)
 		SCR_BeginLoadingPlaque ();
 
 	// issue the load command
-		Cbuf_AddText (va ("load s%i\n", load_cursor) );
+		Cbuf_AddText (va ("load %s\n", M_SaveSlotName (load_cursor)) );
 		return;
 
 	case K_UPARROW:
@@ -558,14 +604,14 @@ void M_Load_Key (int k)
 		S_LocalSound ("misc/menu1.wav");
 		load_cursor--;
 		if (load_cursor < 0)
-			load_cursor = MAX_SAVEGAMES-1;
+			load_cursor = SAVE_SLOTS-1;
 		break;
 
 	case K_DOWNARROW:
 	case K_RIGHTARROW:
 		S_LocalSound ("misc/menu1.wav");
 		load_cursor++;
-		if (load_cursor >= MAX_SAVEGAMES)
+		if (load_cursor >= SAVE_SLOTS)
 			load_cursor = 0;
 		break;
 	}
@@ -583,7 +629,7 @@ void M_Save_Key (int k)
 	case K_ENTER:
 		m_state = m_none;
 		key_dest = key_game;
-		Cbuf_AddText (va("save s%i\n", load_cursor));
+		Cbuf_AddText (va("save %s\n", M_SaveSlotName (load_cursor)));
 		return;
 
 	case K_UPARROW:
@@ -591,14 +637,14 @@ void M_Save_Key (int k)
 		S_LocalSound ("misc/menu1.wav");
 		load_cursor--;
 		if (load_cursor < 0)
-			load_cursor = MAX_SAVEGAMES-1;
+			load_cursor = SAVE_SLOTS-1;
 		break;
 
 	case K_DOWNARROW:
 	case K_RIGHTARROW:
 		S_LocalSound ("misc/menu1.wav");
 		load_cursor++;
-		if (load_cursor >= MAX_SAVEGAMES)
+		if (load_cursor >= SAVE_SLOTS)
 			load_cursor = 0;
 		break;
 	}
