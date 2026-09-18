@@ -235,6 +235,17 @@ all that fits on a 320x200 screen, so the rest could only be bound by typing
 `bind` at the console. The list scrolls, with `^ more above` and `v more below`
 to say which way there is more.
 
+**Options** holds the settings, not just a handful of them: the field of view,
+mouse look, smooth mouse, the crosshair, whether the weapon is drawn, view bob,
+view kick, water warp, texture detail and the sound delay, alongside the screen
+size, brightness, volumes, mouse speed and the rest. The list scrolls, and
+everything in it is saved in the state volume.
+
+Two of those are worth knowing about on a machine that is struggling:
+**Texture detail** trades sharpness for frames, and **Sound delay** is how far
+ahead the engine mixes — see the troubleshooting note below before shortening
+it.
+
 **Options → Video Options** changes the resolution while the game is running:
 twenty modes from 320x240 up to `QUAKE_MAX_WIDTH`/`QUAKE_MAX_HEIGHT`, applied
 as soon as you pick one and remembered in `config.cfg`. The X11 build never had

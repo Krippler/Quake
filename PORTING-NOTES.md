@@ -570,6 +570,53 @@ Two things that had to be got right:
   it on the widened angle instead would have made the weapon disappear on every
   widescreen mode.
 
+### `menu.c` — three switch statements that had to agree
+
+The options menu drew each row in one `switch`, adjusted it in a second and
+acted on Enter in a third, and a row's identity was its position in all three:
+
+```c
+	M_Print (16, 56, "           Screen size");    // row 3, by counting
+	...
+	case 3:	// screen size
+		scr_viewsize.value += dir * 10;
+	...
+		case 3:	// screen size  -- no, Enter fell through to M_AdjustSliders
+```
+
+Adding a setting meant editing three places and renumbering everything below
+it in each. That is why every setting id added after 1996 went to the console
+and stayed there, and why everything this port added — `freelook`, the sound
+delay, the field of view that widescreen made worth changing — was
+console-only too.
+
+One table now. A row says what it is and which cvar it moves; the drawing and
+the adjusting are written once against that, and the list scrolls the way the
+controls menu does. Twenty-three rows, and adding one is a line.
+
+Three things the rewrite had to get right:
+
+* **Rows with nothing behind them.** `-nosound` makes `S_Init` return before it
+  registers `volume`, `bgmvolume` and `_snd_mixahead`, so those three rows
+  moved cvars that were not there — and `Cvar_Set` answers a name it cannot
+  find with `Cvar_Set: variable volume not found`, once per press of an arrow
+  key. id's menu did exactly that. A row now checks `Cvar_FindVar` first, shows
+  `n/a` and does nothing.
+
+* **Settings that did not last.** `fov`, `r_drawviewmodel`, `cl_bob`,
+  `v_kicktime`, `r_waterwarp` and `d_mipcap` were not archived, because a
+  console setting was not expected to survive a restart. A row in a menu is:
+  archived now, so it is written to `config.cfg` on the way out.
+
+* **`d_mipcap` did nothing.** It was read in `D_InitCaches`, which runs when
+  the video mode changes and at no other time, so the cvar appeared to be
+  ignored until a resolution change applied it as if by accident. Read in
+  `D_SetupFrame` instead, once a frame.
+
+`r_dynamic` and `r_shadows` were on the list until a check showed they are
+declared only in `glquake.h` — GL-only, and not registered in this build at
+all. They would have been two rows that did nothing.
+
 ### `vid_x.c` — `MappingNotify` was ignored
 
 Xlib caches the keyboard mapping when the connection opens and rereads it only
