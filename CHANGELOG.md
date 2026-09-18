@@ -5,6 +5,37 @@ top section's heading is what the release workflow reads: `## [X.Y.Z] — DATE`
 on the default branch publishes that version, `## [Unreleased]` publishes only
 `edge`.
 
+## [1.4.4] — 2026-09-18
+
+### Fixed
+
+- **A game that could not start took the container with it.** The engine stops
+  on a `Sys_Error` — a map it cannot read, data that is not there — and that is
+  not something restarting fixes, so the run loop breaks on it. But which game
+  is played is a choice stored in the state volume, and the menu that sets it is
+  inside the game: if that choice was what the engine died on, the container
+  stopped on every start and the only way back was to edit the state volume by
+  hand.
+
+  The stored choice is dropped and the base game tried once instead, with the
+  reason in the log. An explicit `-game`, `-hipnotic` or `-rogue` in
+  `QUAKE_ARGS` is left alone, because it applies again on the next start
+  whatever the stored file says — dropping it would throw away the player's pick
+  and change nothing else. A clean quit and a crash are unaffected: they already
+  restart on the same game.
+
+- **BSP2 maps now say what they are.** `Mod_LoadBrushModel` reported them as
+  `wrong version number (844124994 should be 29)`, and that figure is the four
+  bytes `BSP2` read as an integer. BSP2 is a map format from long after 1996 —
+  32-bit node and leaf indices, a larger visibility lump — and it is what the
+  Quake re-release ships, so anyone taking an episode out of Steam rather than
+  off the CD will meet it. *Dimension of the Past* is the usual way. The engine
+  names the format and says this renderer only reads the original version 29.
+
+  Reading BSP2 is not something this port does. It is the 1996 software
+  renderer, and the format exists precisely to get past what that renderer
+  assumes.
+
 ## [1.4.3] — 2026-09-18
 
 ### Fixed
