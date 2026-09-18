@@ -697,6 +697,24 @@ hours of uptime. `GetSoundtime` uses them when the backend declares
 The reconstruction is still there for the OSS backend, which has a real DMA
 pointer and no alternative.
 
+### `cd_stream.c` — one music directory for every game
+
+The music search put `$QUAKE_MUSICDIR` first, ahead of `<gamedir>/music`. That
+is the wrong way round once there is more than one game installed: the mission
+packs have soundtracks that are not Quake's, a rip of each goes beside its own
+paks, and an environment variable can only ever name one directory for all of
+them. The container made it concrete by setting `$QUAKE_MUSICDIR` to
+`id1/music` whenever that existed, so Scourge of Armagon played Quake's music.
+
+The order is `-musicdir` (explicit, one run), `<gamedir>/music` (specific),
+`$QUAKE_MUSICDIR` (the cross-game default), `<basedir>/id1/music` (so a mod
+with no music of its own still gets Quake's). The entrypoint no longer sets
+`$QUAKE_MUSICDIR` from `id1/music`, because the last of those already covers it.
+
+`CDAudio_DirHasFiles` also only checked `S_ISDIR`, so an empty `music`
+directory won the search and produced silence with the fallbacks unreached. It
+looks for a `track*` file in a readable format now.
+
 ---
 
 ## New files

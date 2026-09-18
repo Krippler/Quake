@@ -306,6 +306,82 @@ if after < 500:
 print("[smoke] tone peak %d before the stall, %d after it" % (before, after))
 PY
 
+# ------------------------------------------------------------------- the music
+#
+# Which music directory wins.
+#
+# cd_stream.c looks at -musicdir, then <gamedir>/music, then $QUAKE_MUSICDIR,
+# then <basedir>/id1/music. The order matters because the mission packs have
+# soundtracks of their own and a rip of each goes beside its own paks, while
+# $QUAKE_MUSICDIR can only ever name one directory for every game the container
+# can run. It used to come first, and the entrypoint used to set it to
+# id1/music -- between them, a mission pack played Quake's music over its own.
+#
+# The fixture writes 880 Hz into the game's own directory and 440 into the
+# shared one. With both present and the environment pointing at the shared one,
+# what should come out is 880.
+#
+say "phase one and three quarters: the music directory the engine picks"
+
+rm -f "$work/music.fifo" "$work/music-pcm.raw"
+mkfifo "$work/music.fifo"
+cat "$work/music.fifo" > "$work/music-pcm.raw" &
+cat_pid=$!
+
+DISPLAY="$disp" QUAKE_AUDIO_FIFO="$work/music.fifo" \
+    QUAKE_MUSICDIR="$work/shared-music" \
+    "$engine" -basedir "$work" -width 320 -height 200 \
+    +volume 1 +bgmvolume 1 +"cd loop 2" >"$work/music.log" 2>&1 &
+game_pid=$!
+
+sleep 12
+
+kill -TERM "$game_pid"
+i=0
+while kill -0 "$game_pid" 2>/dev/null && [ "$i" -lt 50 ]; do
+    i=$((i + 1))
+    sleep 0.1
+done
+game_pid=""
+kill "$cat_pid" 2>/dev/null || true
+cat_pid=""
+sleep 1
+
+grep -q "music from $work/id1/music" "$work/music.log" \
+    || die "the engine chose $(grep -i 'music from' "$work/music.log" | head -1)
+        rather than the game's own directory; see $work/music.log"
+
+python3 - "$work/music-pcm.raw" <<'PY'
+import struct, sys
+
+RATE = 22050
+
+data = open(sys.argv[1], 'rb').read()
+frames = len(data) // 4
+if frames < RATE * 8:
+    raise SystemExit("[smoke] FAILED: only %.2f s of audio while music played"
+                     % (frames / float(RATE)))
+
+left = struct.unpack('<%dh' % (frames * 2), data)[0::2]
+
+# From four seconds in, well clear of the 0.6 s startup tone quake.rc plays.
+seg = left[RATE * 4:RATE * 8]
+peak = max(abs(v) for v in seg)
+if peak < 500:
+    raise SystemExit("[smoke] FAILED: the music never reached the mixer "
+                     "(peak %d)" % peak)
+
+crossings = sum(1 for i in range(1, len(seg)) if (seg[i-1] < 0) != (seg[i] < 0))
+hz = crossings / 2 / (len(seg) / float(RATE))
+
+print("[smoke] music came out at %.0f Hz (880 = the game's own directory, "
+      "440 = $QUAKE_MUSICDIR)" % hz)
+
+if not 800 <= hz <= 960:
+    raise SystemExit("[smoke] FAILED: the music came out at %.0f Hz. The "
+                     "game's own music directory did not win." % hz)
+PY
+
 #
 # Phase two: real game data, if there is any.
 #

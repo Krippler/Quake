@@ -453,6 +453,22 @@ def main():
     print("wrote %s (%d files, %d bytes)" % (pak, len(files),
                                              os.path.getsize(pak)))
 
+    # Two music directories, so the smoke test can tell which one the engine
+    # picked rather than only that it picked one. The game's own is 880 Hz and
+    # the shared one -- what $QUAKE_MUSICDIR points at -- is 440, and the game's
+    # own is meant to win: a mission pack has a soundtrack of its own and the
+    # environment can only ever name one directory for every game.
+    #
+    # WAV rather than Ogg because libsndfile always reads WAV, and a test that
+    # needs a Vorbis-enabled build to run is a test that quietly stops running.
+    for sub, freq in (("id1/music", 880.0), ("shared-music", 440.0)):
+        d = os.path.join(dest, sub)
+        os.makedirs(d, exist_ok=True)
+        track = os.path.join(d, "track02.wav")
+        with open(track, "wb") as f:
+            f.write(make_wav(12.0, freq, sustain=True))
+        print("wrote %s (%.0f Hz)" % (track, freq))
+
 
 if __name__ == "__main__":
     main()

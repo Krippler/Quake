@@ -45,6 +45,7 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 #include <stdio.h>
 #include <string.h>
 #include <sys/stat.h>
+#include <dirent.h>
 
 #include "quakedef.h"
 
@@ -88,25 +89,69 @@ static const char *music_exts[] = { "ogg", "opus", "flac", "mp3", "wav", NULL };
 ==================
 CDAudio_FindMusicDir
 
-The first of these that exists and holds anything:
+The first of these that exists and holds a track:
 
-  $QUAKE_MUSICDIR      set by the container's entrypoint, or by hand
+  -musicdir <path>     an explicit override for this run
   <gamedir>/music      beside the pak files, which is where a rip usually goes
+  $QUAKE_MUSICDIR      set by the container's entrypoint, or by hand
   <basedir>/id1/music  so that -game mod still finds the base game's music
 
-Only the directory is settled here. Which files are in it is decided per
-track, because a partial rip is normal -- someone who has track 4 and not
-track 7 should get track 4.
+The game directory beats the environment on purpose. Scourge of Armagon and
+Dissolution of Eternity have soundtracks of their own, and a rip of each goes
+in its own directory -- but $QUAKE_MUSICDIR is necessarily one directory for
+every game the container can run, so if it won, a mission pack would play
+Quake's music instead of its own. It is the cross-game default, which is what
+it is left to be. -musicdir is still first, because it is aimed at one run.
+
+"Holds a track" is checked rather than assumed. The container links a music
+directory into every game directory it finds, so an empty one is easy to end
+up with, and an empty directory that won would mean silence with no fallback
+rather than the base game's soundtrack.
+
+Which file is used for a given track is still decided per track, because a
+partial rip is normal -- someone who has track 4 and not track 7 should get
+track 4.
 ==================
 */
 static qboolean CDAudio_DirHasFiles (const char *dir)
 {
-	struct stat	st;
+	struct stat		st;
+	DIR				*d;
+	struct dirent	*e;
+	qboolean		found = false;
 
 	if (!dir || !*dir)
 		return false;
 
-	return stat (dir, &st) == 0 && S_ISDIR (st.st_mode);
+	if (stat (dir, &st) != 0 || !S_ISDIR (st.st_mode))
+		return false;
+
+	d = opendir (dir);
+	if (!d)
+		return false;
+
+	while (!found && (e = readdir (d)) != NULL)
+	{
+		const char	*ext;
+		int			i;
+
+		if (Q_strncasecmp ((char *)e->d_name, "track", 5))
+			continue;
+
+		ext = strrchr (e->d_name, '.');
+		if (!ext)
+			continue;
+
+		for (i = 0; music_exts[i]; i++)
+			if (!Q_strcasecmp ((char *)ext + 1, (char *)music_exts[i]))
+			{
+				found = true;
+				break;
+			}
+	}
+
+	closedir (d);
+	return found;
 }
 
 static void CDAudio_FindMusicDir (void)
@@ -116,13 +161,6 @@ static void CDAudio_FindMusicDir (void)
 	int			i;
 
 	music_dir[0] = 0;
-
-	env = getenv ("QUAKE_MUSICDIR");
-	if (CDAudio_DirHasFiles (env))
-	{
-		Q_strncpy (music_dir, (char *)env, sizeof(music_dir) - 1);
-		return;
-	}
 
 	i = COM_CheckParm ("-musicdir");
 	if (i && i < com_argc - 1 && CDAudio_DirHasFiles (com_argv[i+1]))
@@ -135,6 +173,13 @@ static void CDAudio_FindMusicDir (void)
 	if (CDAudio_DirHasFiles (trial))
 	{
 		Q_strncpy (music_dir, trial, sizeof(music_dir) - 1);
+		return;
+	}
+
+	env = getenv ("QUAKE_MUSICDIR");
+	if (CDAudio_DirHasFiles (env))
+	{
+		Q_strncpy (music_dir, (char *)env, sizeof(music_dir) - 1);
 		return;
 	}
 
@@ -499,8 +544,9 @@ static void CD_f (void)
 		if (!music_enabled)
 			Con_Printf ("No music: this build has no decoder.\n");
 		else if (!music_dir[0])
-			Con_Printf ("No music directory. Looked for $QUAKE_MUSICDIR,\n"
-						"<gamedir>/music and <basedir>/%s/music.\n", GAMENAME);
+			Con_Printf ("No music directory. Looked for -musicdir,\n"
+						"<gamedir>/music, $QUAKE_MUSICDIR and\n"
+						"<basedir>/%s/music.\n", GAMENAME);
 		else
 		{
 			Con_Printf ("Music directory: %s\n", music_dir);
