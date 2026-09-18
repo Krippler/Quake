@@ -75,6 +75,22 @@ The shareware data cannot run mission packs or mods — Quake refuses modified
 games without the registered pak files, and the menu says so rather than
 restarting into the refusal.
 
+### Data from the Quake re-release
+
+Pak files lifted out of the 2021 re-release mostly work, but its **maps are
+BSP2**, a format from long after 1996 that this renderer cannot read — 32-bit
+node and leaf indices and a larger visibility lump. *Dimension of the Past*
+(`dopa`) is the usual way to meet it. The engine stops with
+
+```
+Mod_LoadBrushModel: maps/e5m2.bsp is a BSP2 map.
+```
+
+and the container goes back to the base game rather than failing to start over
+and over. Music, sounds and models from the re-release are fine; it is the maps
+that are not. Playing those episodes needs a modern source port, which is a
+different project from this one.
+
 ### Music
 
 Quake's soundtrack is audio tracks 2 to 11 of the CD and is not in the pak

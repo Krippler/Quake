@@ -1155,7 +1155,31 @@ void Mod_LoadBrushModel (model_t *mod, void *buffer)
 
 	i = LittleLong (header->version);
 	if (i != BSPVERSION)
+	{
+	//
+	// BSP2 is a map format, not a corrupt map.
+	//
+	// Modern compilers and source ports use it to get past the 1996 limits --
+	// 32-bit node and leaf indices, a bigger visibility lump. It is what the
+	// Quake re-release ships, so anybody taking a mission pack or an episode
+	// out of Steam rather than off the CD will meet it, and the numbers in
+	// id's message ("844124994 should be 29") say nothing about what happened:
+	// that figure is the four bytes "BSP2" read as an integer.
+	//
+	// This renderer is the 1996 one and cannot load either format. Saying so
+	// plainly is the whole of the fix.
+	//
+		if (i == (int)(('2'<<24) + ('P'<<16) + ('S'<<8) + 'B')
+			|| i == (int)(('B'<<24) + ('S'<<16) + ('P'<<8) + '2'))
+			Sys_Error ("Mod_LoadBrushModel: %s is a BSP2 map.\n"
+					   "This is the 1996 software renderer, which only reads\n"
+					   "the original BSP version %i. BSP2 maps come from the\n"
+					   "Quake re-release and from modern map compilers, and\n"
+					   "need a modern source port.",
+					   mod->name, BSPVERSION);
+
 		Sys_Error ("Mod_LoadBrushModel: %s has wrong version number (%i should be %i)", mod->name, i, BSPVERSION);
+	}
 
 // swap all the lumps
 	mod_base = (byte *)header;

@@ -1142,6 +1142,50 @@ while :; do
         *)                   why="" ;;
     esac
 
+    #
+    # A game that cannot start must not take the container with it.
+    #
+    # The engine stops on a Sys_Error -- a map it cannot read, data that is not
+    # there -- and that is not something restarting fixes, so the loop below
+    # breaks on it. But the game being played is a choice stored in the state
+    # volume, and the menu is inside the game: if that choice is what the engine
+    # died on, the container stops on every start and the only way back is to
+    # edit the state volume by hand. A mission pack from the Quake re-release is
+    # enough to do it, because its maps are BSP2 and this renderer is from 1996.
+    #
+    # So the stored choice is dropped and the base game tried once. If that dies
+    # too, "why" is still empty and the loop breaks as before.
+    #
+    if [ -z "$why" ] && [ "$SHUTTING_DOWN" = "0" ] && [ "$RESTART" = "1" ]; then
+        # Only when the stored choice is what is actually in effect. An
+        # explicit -game, -hipnotic or -rogue in QUAKE_ARGS applies again on
+        # the next start whatever this file says, so dropping it would throw
+        # away the player's pick and change nothing else.
+        case " $* " in
+            *" -game "*|*" -hipnotic "*|*" -rogue "*) explicit=1 ;;
+            *)                                       explicit=0 ;;
+        esac
+
+        failed_game=$(current_game "$@")
+        if [ "$explicit" = 0 ] && [ "$failed_game" != id1 ] \
+           && [ -f "$BASEDIR/nextgame" ]; then
+            log ""
+            log "$failed_game did not start, and it is the game this container"
+            log "was told to play -- so every start would end the same way."
+            log "Going back to id1. Pick $failed_game again from Options ->"
+            log "Game / mission pack if that was a one-off; if it was not, the"
+            log "reason is in the lines above this one."
+            log ""
+            # The record of which QUAKE_GAME was last applied is deliberately
+            # left alone. Removing it would make the next container start see
+            # QUAKE_GAME as newly set, write the same broken choice back, and
+            # arrive here again. Changing QUAKE_GAME still applies, which is
+            # the operator saying something new.
+            rm -f "$BASEDIR/nextgame"
+            why="fallback"
+        fi
+    fi
+
     [ -n "$why" ] || break
     [ "$SHUTTING_DOWN" = "0" ] || break
     [ "$RESTART" = "1" ] || break
@@ -1161,7 +1205,9 @@ while :; do
         break
     fi
 
-    if [ "$why" = "quit" ]; then
+    if [ "$why" = "fallback" ]; then
+        log "starting the base game."
+    elif [ "$why" = "quit" ]; then
         log "starting the game again. Stopping the container is what stops the"
         log "container; quitting just brings you back to the title screen."
     else
