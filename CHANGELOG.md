@@ -5,6 +5,34 @@ top section's heading is what the release workflow reads: `## [X.Y.Z] — DATE`
 on the default branch publishes that version, `## [Unreleased]` publishes only
 `edge`.
 
+## [Unreleased]
+
+### Fixed
+
+- **One stray pak file could hide every mission pack and mod.** The data mount
+  was checked for pak files sitting loose at the top *first*, and the scan for a
+  directory per game was the `else` branch — so a single `pak0.pak` beside a
+  perfectly good `id1/`, `hipnotic/` and `rogue/` took the whole mount over. It
+  became id1, nothing else was ever looked at, and the game directories were
+  linked into id1 as loose files. The symptom was a Game menu holding nothing
+  but Quake.
+
+  The per-directory scan runs first now, and the loose-paks guess only when that
+  found no base game — so the documented layout always wins and the convenience
+  still works for a mount that is nothing but pak files.
+
+- **A mod added while the container was running never appeared.** The mount was
+  scanned once, at container start, but the engine restarts whenever the player
+  quits or picks a different game — so anything dropped in between was invisible
+  until a `docker restart`. The scan runs before each start of the engine now,
+  and says so in the log only when the answer changed.
+
+- **A game directory that lost its pak files took the player's savegames with
+  it.** The directory is removed when it turns out to hold no game data, which
+  is right for a directory the script has just made and wrong for one the engine
+  has been writing `config.cfg`, savegames and screenshots into. It is left
+  alone now, with a line in the log saying why.
+
 ## [1.4.2] — 2026-09-18
 
 ### Fixed

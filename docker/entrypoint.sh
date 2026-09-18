@@ -227,41 +227,83 @@ link_game_dir() {
 
 FOUND_GAMES=""
 
-if [ -d "$DATADIR" ]; then
-    # Paks sitting directly in the mount, with no id1 around them. A common
-    # enough mistake that guessing is kinder than an error: nothing else is
-    # ever mounted here.
-    if [ -f "$DATADIR/pak0.pak" ] || [ -f "$DATADIR/PAK0.PAK" ]; then
-        log "found pak files directly in $DATADIR; treating them as id1"
-        link_game_dir "$DATADIR" id1 && FOUND_GAMES="id1"
-    else
-        for d in "$DATADIR"/*; do
-            [ -d "$d" ] || continue
-            name=$(basename "$d" | tr 'A-Z' 'a-z')
+#
+# What is installed, as a list of game directory names.
+#
+# Called again before each start of the engine, not only at container start:
+# the engine is restarted when the player quits and when they pick a different
+# game in the menu, and a mod dropped into the mount between those two moments
+# should be there when they look. Everything it does is idempotent -- ln -sfn
+# replaces a link it already made -- so running it again costs a walk of the
+# mount and nothing else.
+#
+discover_games() {
+    FOUND_GAMES=""
 
-            # The soundtrack is not a game directory. Without this it becomes
-            # one -- an empty mod called "music" in the engine's search path,
-            # which is confusing in the log and would shadow a mod of that name.
-            [ "$name" = music ] && continue
+    [ -d "$DATADIR" ] || return 0
+    # A directory per game, which is the layout the documentation describes and
+    # the only one a mission pack or a mod can use.
+    for d in "$DATADIR"/*; do
+        [ -d "$d" ] || continue
+        name=$(basename "$d" | tr 'A-Z' 'a-z')
 
-            if link_game_dir "$d" "$name"; then
+        # The soundtrack is not a game directory. Without this it becomes one --
+        # an empty mod called "music" in the engine's search path, which is
+        # confusing in the log and would shadow a mod of that name.
+        [ "$name" = music ] && continue
+
+        if link_game_dir "$d" "$name"; then
+            FOUND_GAMES="$FOUND_GAMES $name"
+        else
+            # No paks in it, but it may still be an unpacked mod.
+            if [ -e "$BASEDIR/$name/progs.dat" ] || [ -d "$BASEDIR/$name/maps" ]; then
                 FOUND_GAMES="$FOUND_GAMES $name"
             else
-                # No paks in it, but it may still be an unpacked mod.
-                if [ -e "$BASEDIR/$name/progs.dat" ] || [ -d "$BASEDIR/$name/maps" ]; then
-                    FOUND_GAMES="$FOUND_GAMES $name"
+                # Not a game directory after all. Everything in there is a
+                # symlink this script has just made, so removing the lot is
+                # safe -- and rmdir alone would fail and leave it behind.
+                #
+                # Unless the engine has written into it. config.cfg, savegames
+                # and screenshots live here and are the player's, so a mount
+                # that has lost its paks must not take them with it.
+                keep=$(find "$BASEDIR/$name" -maxdepth 1 -type f \
+                            \( -name 'config.cfg' -o -name '*.sav' \
+                               -o -name '*.pcx' \) 2>/dev/null | wc -l)
+                if [ "$keep" -gt 0 ]; then
+                    log "$name has no game files any more, but holds settings"
+                    log "  or savegames, so it is being left alone"
                 else
-                    # Not a game directory after all. Everything in there is a
-                    # symlink this script has just made, so removing the lot is
-                    # safe -- and rmdir alone would fail and leave it behind.
                     rm -rf "$BASEDIR/$name"
                 fi
             fi
-        done
-    fi
-fi
+        fi
+    done
 
-FOUND_GAMES=$(printf '%s' "$FOUND_GAMES" | sed 's/^ *//')
+    #
+    # Paks sitting directly in the mount, with no id1 around them. A common
+    # enough mistake that guessing is kinder than an error.
+    #
+    # Only when the scan above did not turn up a base game. This used to be
+    # checked first and the scan was the else branch, so a single stray pak
+    # beside a perfectly good set of directories took the whole mount over: it
+    # became id1, the mission packs and mods were never looked at, and their
+    # directories were linked into id1 as loose files. The symptom was a Game
+    # menu with nothing in it but Quake.
+    #
+    case " $FOUND_GAMES " in
+        *" id1 "*) ;;
+        *)
+            if [ -f "$DATADIR/pak0.pak" ] || [ -f "$DATADIR/PAK0.PAK" ]; then
+                log "found pak files directly in $DATADIR; treating them as id1"
+                link_game_dir "$DATADIR" id1 && FOUND_GAMES="$FOUND_GAMES id1"
+            fi
+            ;;
+    esac
+
+    FOUND_GAMES=$(printf '%s' "$FOUND_GAMES" | sed 's/^ *//')
+}
+
+discover_games
 
 if [ -z "$FOUND_GAMES" ]; then
     log ""
@@ -1037,6 +1079,15 @@ while :; do
     # at it is what keeps the window from being resized straight after it is
     # created. See the note on config_size above for what that costs.
     [ "$MANAGE_SIZE" = 1 ] && config_size "$@"
+
+    # And look at the mount again, so a mod added since the container started
+    # is in the Game menu after the next restart rather than after the next
+    # docker restart. Quiet unless the answer changed: this runs on every quit.
+    was_found="$FOUND_GAMES"
+    discover_games
+    if [ "$FOUND_GAMES" != "$was_found" ]; then
+        log "game data changed: $FOUND_GAMES"
+    fi
 
     # Count the starts, so the page can tell that the engine it is looking at
     # is not the one it connected to. x11vnc keeps converting this 8-bit screen
