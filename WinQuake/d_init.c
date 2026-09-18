@@ -25,7 +25,7 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 #define NUM_MIPS	4
 
 cvar_t	d_subdiv16 = {"d_subdiv16", "1"};
-cvar_t	d_mipcap = {"d_mipcap", "0"};
+cvar_t	d_mipcap = {"d_mipcap", "0", true};
 cvar_t	d_mipscale = {"d_mipscale", "1"};
 
 surfcache_t		*d_initial_rover;
@@ -45,6 +45,8 @@ void (*d_drawspans) (espan_t *pspan);
 D_Init
 ===============
 */
+static void D_SetMipCap (void);
+
 void D_Init (void)
 {
 
@@ -119,9 +121,35 @@ void D_DisableBackBufferAccess (void)
 D_SetupFrame
 ===============
 */
+/*
+===============
+D_SetMipCap
+
+d_mipcap is how blurry the far end of a wall is allowed to get, and dropping
+detail is one of the few things that buys frames in a software renderer.
+
+It was read once, in D_InitCaches, which runs when the video mode changes and
+at no other time -- so setting the cvar did nothing at all until the resolution
+was changed, and then took effect as if by accident. Read per frame instead; it
+is one float and a clamp against everything else a frame does.
+===============
+*/
+static void D_SetMipCap (void)
+{
+	d_minmip = d_mipcap.value;
+
+	if (d_minmip > 3)
+		d_minmip = 3;
+	else if (d_minmip < 0)
+		d_minmip = 0;
+}
+
+
 void D_SetupFrame (void)
 {
 	int		i;
+
+	D_SetMipCap ();
 
 	if (r_dowarp)
 		d_viewbuffer = r_warpbuffer;
@@ -136,11 +164,7 @@ void D_SetupFrame (void)
 	d_roverwrapped = false;
 	d_initial_rover = sc_rover;
 
-	d_minmip = d_mipcap.value;
-	if (d_minmip > 3)
-		d_minmip = 3;
-	else if (d_minmip < 0)
-		d_minmip = 0;
+	D_SetMipCap ();
 
 	for (i=0 ; i<(NUM_MIPS-1) ; i++)
 		d_scalemip[i] = basemip[i] * d_mipscale.value;

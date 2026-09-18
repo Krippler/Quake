@@ -1035,84 +1035,233 @@ again:
 
 //=============================================================================
 /* OPTIONS MENU */
+//
+// One table, rather than three switch statements that had to agree.
+//
+// id's options menu drew each row in one switch, adjusted it in a second and
+// acted on Enter in a third, with the row's identity being its position in all
+// three. Adding a setting meant editing three places and getting the numbering
+// right in each, and every setting id added after 1996 went to the console
+// instead. This port had added several of its own -- freelook, the sound
+// delay, the field of view that widescreen made worth changing -- and they
+// were all console-only for the same reason.
+//
+// A row now says what it is and which cvar it moves. The drawing and the
+// adjusting are written once against that, and adding a setting is one line.
+//
+typedef enum
+{
+	o_action,		// Enter does something; there is no value to show
+	o_slider,		// a number between min and max
+	o_toggle,		// a cvar that is off or on
+	o_custom		// the handful that are not simply a cvar
+} otype_t;
 
-#ifdef _WIN32
-#define	OPTIONS_ITEMS	14
-#else
-#define	OPTIONS_ITEMS	13
-#endif
+// o_action and o_custom rows, by name rather than by row number.
+#define	OPT_KEYS		0
+#define	OPT_CONSOLE		1
+#define	OPT_RESET		2
+#define	OPT_VIDEO		3
+#define	OPT_VIEWSIZE	4
+#define	OPT_GAMMA		5
+#define	OPT_ALWAYSRUN	6
+#define	OPT_INVERT		7
+#define	OPT_BOB			8
+#define	OPT_KICK		9
+#define	OPT_DETAIL		10
+
+typedef struct
+{
+	char	*label;
+	otype_t	type;
+	char	*cvar;			// what a slider or a toggle moves
+	float	min, max, step;
+	int		id;				// which action, or which custom row
+} option_t;
+
+// Six of these were not archived cvars, because id never offered them
+// anywhere but the console and a console setting was not expected to last.
+// A row in a menu is: set it, and it is still set tomorrow. fov,
+// r_drawviewmodel, cl_bob, v_kicktime, r_waterwarp and d_mipcap are archived
+// now, which is what puts them in config.cfg on the way out.
+static option_t	options[] =
+{
+	{"Customize controls",	o_action, NULL,             0,     0,    0,    OPT_KEYS},
+	{"Go to console",		o_action, NULL,             0,     0,    0,    OPT_CONSOLE},
+	{"Reset to defaults",	o_action, NULL,             0,     0,    0,    OPT_RESET},
+	{"Video options",		o_action, NULL,             0,     0,    0,    OPT_VIDEO},
+
+	{"Screen size",			o_custom, NULL,             0,     0,    0,    OPT_VIEWSIZE},
+	{"Brightness",			o_custom, NULL,             0,     0,    0,    OPT_GAMMA},
+	{"Field of view",		o_slider, "fov",            75,    130,  5,    0},
+
+	{"Sound volume",		o_slider, "volume",         0,     1,    0.1,  0},
+	{"Music volume",		o_slider, "bgmvolume",      0,     1,    0.1,  0},
+	{"Sound delay",			o_slider, "_snd_mixahead",  0.02,  0.2,  0.02, 0},
+
+	{"Mouse speed",			o_slider, "sensitivity",    1,     11,   0.5,  0},
+	{"Mouse look",			o_toggle, "freelook",       0,     0,    0,    0},
+	{"Invert mouse",		o_custom, NULL,             0,     0,    0,    OPT_INVERT},
+	{"Smooth mouse",		o_toggle, "m_filter",       0,     0,    0,    0},
+	{"Lookspring",			o_toggle, "lookspring",     0,     0,    0,    0},
+	{"Lookstrafe",			o_toggle, "lookstrafe",     0,     0,    0,    0},
+	{"Always run",			o_custom, NULL,             0,     0,    0,    OPT_ALWAYSRUN},
+
+	{"Crosshair",			o_toggle, "crosshair",      0,     0,    0,    0},
+	{"Show weapon",			o_toggle, "r_drawviewmodel",0,     0,    0,    0},
+	{"View bob",			o_custom, NULL,             0,     0,    0,    OPT_BOB},
+	{"View kick",			o_custom, NULL,             0,     0,    0,    OPT_KICK},
+
+	{"Water warp",			o_toggle, "r_waterwarp",    0,     0,    0,    0},
+	{"Texture detail",		o_custom, NULL,             0,     0,    0,    OPT_DETAIL},
+};
+
+#define	OPTIONS_ITEMS	((int)(sizeof(options) / sizeof(options[0])))
+
+// More rows than fit, so the list scrolls, as the controls menu does.
+#define	OPTIONS_TOP_Y	40
+#define	OPTIONS_VISIBLE	17
+#define	OPTIONS_VALUE_X	184
 
 #define	SLIDER_RANGE	10
 
 int		options_cursor;
+static int	options_top;
+
+// Texture detail is d_mipcap, which is how blurry the far end of a wall may
+// get. Named rather than numbered, because "2" says nothing.
+static char	*options_detail[] = { "sharp", "softer", "soft", "softest" };
 
 void M_Menu_Options_f (void)
 {
 	key_dest = key_menu;
 	m_state = m_options;
 	m_entersound = true;
-
-#ifdef _WIN32
-	if ((options_cursor == 13) && (modestate != MS_WINDOWED))
-	{
-		options_cursor = 0;
-	}
-#endif
 }
 
 
+/*
+================
+M_Options_Live
+
+Whether the setting behind a row exists at all.
+
+-nosound makes S_Init return before it registers volume, bgmvolume and
+_snd_mixahead, so on a run with the sound off those three rows move a cvar
+that is not there -- and Cvar_Set answers a name it cannot find by printing
+"variable volume not found", once per press of an arrow key. id's menu did
+that too. A row with nothing behind it says so and does nothing instead.
+================
+*/
+static qboolean M_Options_Live (option_t *o)
+{
+	if (o->type == o_action || o->type == o_custom)
+		return true;
+
+	return Cvar_FindVar (o->cvar) != NULL;
+}
+
+
+/*
+================
+M_Options_Value
+
+What a row currently reads, as a number. Sliders and toggles are their cvar;
+the custom rows are whatever id decided they were.
+================
+*/
+static float M_Options_Value (option_t *o)
+{
+	switch (o->type)
+	{
+	case o_slider:
+	case o_toggle:
+		return Cvar_VariableValue (o->cvar);
+
+	case o_custom:
+		switch (o->id)
+		{
+		case OPT_VIEWSIZE:	return scr_viewsize.value;
+		case OPT_GAMMA:		return v_gamma.value;
+		case OPT_ALWAYSRUN:	return cl_forwardspeed.value > 200;
+		case OPT_INVERT:	return m_pitch.value < 0;
+		case OPT_BOB:		return Cvar_VariableValue ("cl_bob") != 0;
+		case OPT_KICK:		return Cvar_VariableValue ("v_kicktime") != 0;
+		case OPT_DETAIL:	return Cvar_VariableValue ("d_mipcap");
+		}
+		break;
+
+	default:
+		break;
+	}
+
+	return 0;
+}
+
+
+/*
+================
+M_AdjustSliders
+
+dir is -1 for left and 1 for right. Enter comes through here as 1 as well, so
+a toggle answers Enter and the arrows the same way.
+================
+*/
 void M_AdjustSliders (int dir)
 {
+	option_t	*o = &options[options_cursor];
+	float		v;
+
+	if (!M_Options_Live (o))
+		return;
+
 	S_LocalSound ("misc/menu3.wav");
 
-	switch (options_cursor)
+	switch (o->type)
 	{
-	case 3:	// screen size
-		scr_viewsize.value += dir * 10;
-		if (scr_viewsize.value < 30)
-			scr_viewsize.value = 30;
-		if (scr_viewsize.value > 120)
-			scr_viewsize.value = 120;
-		Cvar_SetValue ("viewsize", scr_viewsize.value);
+	case o_action:
+		return;
+
+	case o_slider:
+		v = Cvar_VariableValue (o->cvar) + dir * o->step;
+		if (v < o->min)
+			v = o->min;
+		if (v > o->max)
+			v = o->max;
+		Cvar_SetValue (o->cvar, v);
+		return;
+
+	case o_toggle:
+		Cvar_SetValue (o->cvar, !Cvar_VariableValue (o->cvar));
+		return;
+
+	case o_custom:
 		break;
-	case 4:	// gamma
-		v_gamma.value -= dir * 0.05;
-		if (v_gamma.value < 0.5)
-			v_gamma.value = 0.5;
-		if (v_gamma.value > 1)
-			v_gamma.value = 1;
-		Cvar_SetValue ("gamma", v_gamma.value);
-		break;
-	case 5:	// mouse speed
-		sensitivity.value += dir * 0.5;
-		if (sensitivity.value < 1)
-			sensitivity.value = 1;
-		if (sensitivity.value > 11)
-			sensitivity.value = 11;
-		Cvar_SetValue ("sensitivity", sensitivity.value);
-		break;
-	case 6:	// music volume
-#ifdef _WIN32
-		bgmvolume.value += dir * 1.0;
-#else
-		bgmvolume.value += dir * 0.1;
-#endif
-		if (bgmvolume.value < 0)
-			bgmvolume.value = 0;
-		if (bgmvolume.value > 1)
-			bgmvolume.value = 1;
-		Cvar_SetValue ("bgmvolume", bgmvolume.value);
-		break;
-	case 7:	// sfx volume
-		volume.value += dir * 0.1;
-		if (volume.value < 0)
-			volume.value = 0;
-		if (volume.value > 1)
-			volume.value = 1;
-		Cvar_SetValue ("volume", volume.value);
+	}
+
+	switch (o->id)
+	{
+	case OPT_VIEWSIZE:
+		v = scr_viewsize.value + dir * 10;
+		if (v < 30)
+			v = 30;
+		if (v > 120)
+			v = 120;
+		Cvar_SetValue ("viewsize", v);
 		break;
 
-	case 8:	// allways run
+	case OPT_GAMMA:
+	// Backwards on purpose: right is brighter, and a smaller gamma is
+	// brighter.
+		v = v_gamma.value - dir * 0.05;
+		if (v < 0.5)
+			v = 0.5;
+		if (v > 1)
+			v = 1;
+		Cvar_SetValue ("gamma", v);
+		break;
+
+	case OPT_ALWAYSRUN:
 		if (cl_forwardspeed.value > 200)
 		{
 			Cvar_SetValue ("cl_forwardspeed", 200);
@@ -1125,23 +1274,28 @@ void M_AdjustSliders (int dir)
 		}
 		break;
 
-	case 9:	// invert mouse
+	case OPT_INVERT:
 		Cvar_SetValue ("m_pitch", -m_pitch.value);
 		break;
 
-	case 10:	// lookspring
-		Cvar_SetValue ("lookspring", !lookspring.value);
+	case OPT_BOB:
+	// id's default, and off. The cvar is a distance, not a flag.
+		Cvar_SetValue ("cl_bob", Cvar_VariableValue ("cl_bob") ? 0 : 0.02);
 		break;
 
-	case 11:	// lookstrafe
-		Cvar_SetValue ("lookstrafe", !lookstrafe.value);
+	case OPT_KICK:
+	// How long the view is thrown by a hit. Zero is no throw at all.
+		Cvar_SetValue ("v_kicktime", Cvar_VariableValue ("v_kicktime") ? 0 : 0.5);
 		break;
 
-#ifdef _WIN32
-	case 13:	// _windowed_mouse
-		Cvar_SetValue ("_windowed_mouse", !_windowed_mouse.value);
+	case OPT_DETAIL:
+		v = Cvar_VariableValue ("d_mipcap") + dir;
+		if (v < 0)
+			v = 0;
+		if (v > 3)
+			v = 3;
+		Cvar_SetValue ("d_mipcap", v);
 		break;
-#endif
 	}
 }
 
@@ -1163,76 +1317,108 @@ void M_DrawSlider (int x, int y, float range)
 
 void M_DrawCheckbox (int x, int y, int on)
 {
-#if 0
-	if (on)
-		M_DrawCharacter (x, y, 131);
-	else
-		M_DrawCharacter (x, y, 129);
-#endif
 	if (on)
 		M_Print (x, y, "on");
 	else
 		M_Print (x, y, "off");
 }
 
+
+/*
+================
+M_Options_DrawValue
+================
+*/
+static void M_Options_DrawValue (int y, option_t *o)
+{
+	float	v;
+
+	if (!M_Options_Live (o))
+	{
+		M_Print (OPTIONS_VALUE_X, y, "n/a");
+		return;
+	}
+
+	v = M_Options_Value (o);
+
+	switch (o->type)
+	{
+	case o_action:
+		return;
+
+	case o_slider:
+		M_DrawSlider (OPTIONS_VALUE_X, y, (v - o->min) / (o->max - o->min));
+		return;
+
+	case o_toggle:
+		M_DrawCheckbox (OPTIONS_VALUE_X, y, v != 0);
+		return;
+
+	case o_custom:
+		break;
+	}
+
+	switch (o->id)
+	{
+	case OPT_VIEWSIZE:
+		M_DrawSlider (OPTIONS_VALUE_X, y, (v - 30) / (120 - 30));
+		break;
+
+	case OPT_GAMMA:
+		M_DrawSlider (OPTIONS_VALUE_X, y, (1.0 - v) / 0.5);
+		break;
+
+	case OPT_DETAIL:
+		M_Print (OPTIONS_VALUE_X, y,
+				 options_detail[(int)v < 0 ? 0 : ((int)v > 3 ? 3 : (int)v)]);
+		break;
+
+	default:
+		M_DrawCheckbox (OPTIONS_VALUE_X, y, v != 0);
+		break;
+	}
+}
+
+
 void M_Options_Draw (void)
 {
-	float		r;
 	qpic_t	*p;
+	int		i, row, y, last;
 
 	M_DrawTransPic (16, 4, Draw_CachePic ("gfx/qplaque.lmp") );
 	p = Draw_CachePic ("gfx/p_option.lmp");
 	M_DrawPic ( (320-p->width)/2, 4, p);
 
-	M_Print (16, 32, "    Customize controls");
-	M_Print (16, 40, "         Go to console");
-	M_Print (16, 48, "     Reset to defaults");
+// Keep the cursor inside the window. Done here rather than in M_Options_Key so
+// that it is also right the first time the menu is opened.
+	if (options_cursor < options_top)
+		options_top = options_cursor;
+	if (options_cursor >= options_top + OPTIONS_VISIBLE)
+		options_top = options_cursor - OPTIONS_VISIBLE + 1;
+	if (options_top > OPTIONS_ITEMS - OPTIONS_VISIBLE)
+		options_top = OPTIONS_ITEMS - OPTIONS_VISIBLE;
+	if (options_top < 0)
+		options_top = 0;
 
-	M_Print (16, 56, "           Screen size");
-	r = (scr_viewsize.value - 30) / (120 - 30);
-	M_DrawSlider (220, 56, r);
+	last = options_top + OPTIONS_VISIBLE;
+	if (last > OPTIONS_ITEMS)
+		last = OPTIONS_ITEMS;
 
-	M_Print (16, 64, "            Brightness");
-	r = (1.0 - v_gamma.value) / 0.5;
-	M_DrawSlider (220, 64, r);
-
-	M_Print (16, 72, "           Mouse Speed");
-	r = (sensitivity.value - 1)/10;
-	M_DrawSlider (220, 72, r);
-
-	M_Print (16, 80, "       CD Music Volume");
-	r = bgmvolume.value;
-	M_DrawSlider (220, 80, r);
-
-	M_Print (16, 88, "          Sound Volume");
-	r = volume.value;
-	M_DrawSlider (220, 88, r);
-
-	M_Print (16, 96,  "            Always Run");
-	M_DrawCheckbox (220, 96, cl_forwardspeed.value > 200);
-
-	M_Print (16, 104, "          Invert Mouse");
-	M_DrawCheckbox (220, 104, m_pitch.value < 0);
-
-	M_Print (16, 112, "            Lookspring");
-	M_DrawCheckbox (220, 112, lookspring.value);
-
-	M_Print (16, 120, "            Lookstrafe");
-	M_DrawCheckbox (220, 120, lookstrafe.value);
-
-	if (vid_menudrawfn)
-		M_Print (16, 128, "         Video Options");
-
-#ifdef _WIN32
-	if (modestate == MS_WINDOWED)
+	for (i = options_top, row = 0 ; i < last ; i++, row++)
 	{
-		M_Print (16, 136, "             Use Mouse");
-		M_DrawCheckbox (220, 136, _windowed_mouse.value);
-	}
-#endif
+		y = OPTIONS_TOP_Y + row * 8;
 
-// cursor
-	M_DrawCharacter (200, 32 + options_cursor*8, 12+((int)(realtime*4)&1));
+		M_Print (16, y, options[i].label);
+		M_Options_DrawValue (y, &options[i]);
+
+		if (i == options_cursor)
+			M_DrawCharacter (8, y, 12 + ((int)(realtime*4) & 1));
+	}
+
+	if (options_top > 0)
+		M_Print (16, OPTIONS_TOP_Y - 8, "^ more above");
+	if (last < OPTIONS_ITEMS)
+		M_Print (16, OPTIONS_TOP_Y + OPTIONS_VISIBLE * 8, "v more below");
 }
 
 
@@ -1246,23 +1432,36 @@ void M_Options_Key (int k)
 
 	case K_ENTER:
 		m_entersound = true;
-		switch (options_cursor)
+
+		if (options[options_cursor].type != o_action)
 		{
-		case 0:
+			M_AdjustSliders (1);
+			return;
+		}
+
+		switch (options[options_cursor].id)
+		{
+		case OPT_KEYS:
 			M_Menu_Keys_f ();
 			break;
-		case 1:
+
+		case OPT_CONSOLE:
 			m_state = m_none;
 			Con_ToggleConsole_f ();
 			break;
-		case 2:
+
+		case OPT_RESET:
 			Cbuf_AddText ("exec default.cfg\n");
 			break;
-		case 12:
-			M_Menu_Video_f ();
-			break;
-		default:
-			M_AdjustSliders (1);
+
+		case OPT_VIDEO:
+		// The old menu hid this row when the video driver claimed no menu.
+		// This one shows it and does nothing, which is a worse answer, so
+		// say why instead. Every driver this builds against sets it.
+			if (vid_menudrawfn)
+				M_Menu_Video_f ();
+			else
+				Con_Printf ("This video driver has no mode menu.\n");
 			break;
 		}
 		return;
@@ -1289,24 +1488,6 @@ void M_Options_Key (int k)
 		M_AdjustSliders (1);
 		break;
 	}
-
-	if (options_cursor == 12 && vid_menudrawfn == NULL)
-	{
-		if (k == K_UPARROW)
-			options_cursor = 11;
-		else
-			options_cursor = 0;
-	}
-
-#ifdef _WIN32
-	if ((options_cursor == 13) && (modestate != MS_WINDOWED))
-	{
-		if (k == K_UPARROW)
-			options_cursor = 12;
-		else
-			options_cursor = 0;
-	}
-#endif
 }
 
 //=============================================================================

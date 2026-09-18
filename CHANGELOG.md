@@ -5,6 +5,45 @@ top section's heading is what the release workflow reads: `## [X.Y.Z] — DATE`
 on the default branch publishes that version, `## [Unreleased]` publishes only
 `edge`.
 
+## [Unreleased]
+
+### Added
+
+- **The options menu covers the settings, rather than thirteen of them.**
+  Twenty-three rows now, scrolling the way the controls menu does: the field of
+  view, mouse look, smooth mouse, the crosshair, whether the weapon is drawn,
+  view bob, view kick, water warp, texture detail and the sound delay, next to
+  everything that was already there.
+
+  id's menu drew each row in one switch statement, adjusted it in a second and
+  acted on Enter in a third, with the row's identity being its position in all
+  three — so adding a setting meant editing three places and getting the
+  numbering right in each. Everything id added after 1996 went to the console
+  instead, and so had everything this port added: `freelook`, the sound delay,
+  the field of view that widescreen made worth changing. One table now says
+  what each row is and which cvar it moves, and adding a setting is one line.
+
+### Fixed
+
+- Six of the settings now in the menu were not archived cvars, because id only
+  ever offered them at the console and a console setting was not expected to
+  last. A row in a menu is: set it, and it is still set tomorrow. `fov`,
+  `r_drawviewmodel`, `cl_bob`, `v_kicktime`, `r_waterwarp` and `d_mipcap` are
+  archived now.
+
+- **`d_mipcap` did nothing until the resolution changed.** It caps how blurry
+  the far end of a wall may get, and dropping detail is one of the few things
+  that buys frames in a software renderer — but it was read once, in
+  `D_InitCaches`, which runs on a video mode change and at no other time. Read
+  per frame now, which is a float and a clamp against everything else a frame
+  does.
+
+- A menu row whose cvar does not exist says `n/a` and does nothing, rather than
+  printing `Cvar_Set: variable volume not found` once per press of an arrow
+  key. `-nosound` makes `S_Init` return before it registers `volume`,
+  `bgmvolume` and `_snd_mixahead`, so the three sound rows had nothing behind
+  them on a run with the sound off. id's menu did that too.
+
 ## [1.2.0] — 2026-09-18
 
 ### Fixed
