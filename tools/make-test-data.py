@@ -190,18 +190,26 @@ def make_conchars():
     return bytes(sheet)
 
 
-def make_wav(seconds=0.6, freq=440.0, rate=11025):
+def make_wav(seconds=0.6, freq=440.0, rate=11025, sustain=False):
     """An 8-bit mono RIFF, which is the shape every sound in Quake's pak is.
 
     A tone rather than silence, so the smoke test can tell "the mixer ran" from
     "the mixer ran and produced nothing".
+
+    sustain drops the decay and holds the level to the end. One long sustained
+    tone is how the stall phase of the smoke test can ask whether the mixer is
+    still reaching the pipe some seconds after something held the engine up --
+    a decaying tone would be indistinguishable from the fault it is looking
+    for.
     """
     n = int(rate * seconds)
     samples = bytearray()
     for i in range(n):
         # A short attack and a long decay, so it sounds like something rather
         # than clicking at both ends.
-        env = min(1.0, i / (rate * 0.01)) * (1.0 - i / n)
+        env = min(1.0, i / (rate * 0.01))
+        if not sustain:
+            env *= 1.0 - i / n
         v = math.sin(2 * math.pi * freq * i / rate) * env
         samples.append(max(0, min(255, int(128 + v * 100))))
 
@@ -417,6 +425,10 @@ def main():
         # line that plays it. Neither exists in the real game data.
         "sound/misc/menu1.wav": make_wav(0.6, 440.0),
         "sound/misc/menu2.wav": make_wav(0.3, 660.0),
+        # Half a minute of unbroken 440 Hz, played by the stall phase of the
+        # smoke test and by nothing else. Long enough that the question "is the
+        # mixer still getting through" has an answer at any point in that run.
+        "sound/misc/talk.wav": make_wav(30.0, 440.0, sustain=True),
         "quake.rc": (b"exec default.cfg\nexec config.cfg\nstuffcmds\n"
                      b"volume 1\nplay misc/menu1\n"),
         "default.cfg": (b"bind w +forward\nbind s +back\n"

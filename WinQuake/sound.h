@@ -120,6 +120,14 @@ qboolean SNDDMA_Init(void);
 // gets the current DMA position
 int SNDDMA_GetDMAPos(void);
 
+// Backends that keep the playback position as a running count of frames say so
+// with SND_HAS_GETSAMPLES, and GetSoundtime asks them rather than
+// reconstructing the count from the ring position. See snd_stream.c.
+#ifdef SND_HAS_GETSAMPLES
+int SNDDMA_GetSamples(void);
+void SNDDMA_RebaseClock(int frames);
+#endif
+
 // shutdown the DMA xfer.
 void SNDDMA_Shutdown(void);
 

@@ -664,6 +664,39 @@ restart loop and the page's own reconnect make the restart a few dark seconds.
 `sys_linux.c` because listing a directory is `opendir` here and `FindFirstFile`
 on Windows; a revived `sys_win.c` would need its own three.
 
+### `snd_dma.c` — the playback position was reconstructed, and got it wrong
+
+`GetSoundtime` derives `soundtime` from `SNDDMA_GetDMAPos`, which is a position
+inside the ring rather than a running count, by incrementing a wrap counter each
+time the position goes backwards. That is one wrap per call, and id's comment
+above it is candid about the consequence: *"it is possible to miscount buffers
+if it has wrapped twice between calls to S_Update. Oh well."*
+
+The ring here is 16384 frames, 0.74 s at 22050 Hz. Two wraps between calls means
+a frame longer than a second and a half, which on a 1996 machine meant it had
+stopped. It is not exotic here: a level load takes several seconds, and this
+port logs picture gaps of one to eighteen seconds on a busy host as a matter of
+course.
+
+What made it fatal rather than cosmetic is what sits downstream. `paintedtime`
+follows `soundtime`; `SNDDMA_Submit` will not send past `paintedtime`, because
+beyond it the ring still holds the previous buffer's audio. So once `soundtime`
+was a ring or more behind the clock, every frame was padded with silence instead
+of carried from the mixer — permanently, and at exactly the right rate, so the
+listener's buffer never underran and nothing anywhere had reason to complain.
+The symptom was "the sound stopped", with a healthy log.
+
+Measured: a 3.5 s level load in the demo loop left `paintedtime` 63331 frames
+(3.87 rings) behind, and it was still exactly 63331 behind twenty seconds later.
+
+`snd_stream.c` has no card and no wrapping to reconstruct — its clock is the
+playback position — so it now offers `SNDDMA_GetSamples`, the running count,
+and `SNDDMA_RebaseClock` to keep that count inside an `int` past twenty-seven
+hours of uptime. `GetSoundtime` uses them when the backend declares
+`SND_HAS_GETSAMPLES`, which the Makefile defines beside the choice of backend.
+The reconstruction is still there for the OSS backend, which has a real DMA
+pointer and no alternative.
+
 ---
 
 ## New files

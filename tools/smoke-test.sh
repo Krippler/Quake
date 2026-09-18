@@ -220,6 +220,92 @@ if not 400 <= hz <= 480:
     raise SystemExit("[smoke] FAILED: the tone came out at %.0f Hz, not 440" % hz)
 PY
 
+# ----------------------------------------------------------------- a long stall
+#
+# What a frame longer than the sound ring does to the sound.
+#
+# The ring is 0.74 s. GetSoundtime used to reconstruct the playback position by
+# counting the times that ring wrapped, one per call -- so a frame that took
+# longer than the ring lost a wrap, and lost it for good, because nothing ever
+# recounted. paintedtime follows soundtime, SNDDMA_Submit will not send past
+# paintedtime, and so every frame after that was padded with silence instead of
+# carried from the mixer. At the right rate, for the rest of the run: the
+# listener never underran and nothing reported a fault. A level load was long
+# enough to do it.
+#
+# SIGSTOP is the shortest way to a frame that long. Three seconds is four rings.
+#
+say "phase one and a half: the mixer across a three-second stall"
+
+rm -f "$work/stall.fifo" "$work/stall-pcm.raw"
+mkfifo "$work/stall.fifo"
+cat "$work/stall.fifo" > "$work/stall-pcm.raw" &
+cat_pid=$!
+
+DISPLAY="$disp" QUAKE_AUDIO_FIFO="$work/stall.fifo" \
+    "$engine" -basedir "$work" -width 320 -height 200 \
+    +volume 1 +"play misc/talk" >"$work/stall.log" 2>&1 &
+game_pid=$!
+
+sleep 6
+kill -0 "$game_pid" 2>/dev/null || die "the engine exited; see $work/stall.log"
+
+kill -STOP "$game_pid"
+sleep 3
+kill -CONT "$game_pid"
+
+sleep 8
+
+kill -TERM "$game_pid"
+i=0
+while kill -0 "$game_pid" 2>/dev/null && [ "$i" -lt 50 ]; do
+    i=$((i + 1))
+    sleep 0.1
+done
+game_pid=""
+kill "$cat_pid" 2>/dev/null || true
+cat_pid=""
+sleep 1
+
+python3 - "$work/stall-pcm.raw" <<'PY'
+import struct, sys
+
+RATE = 22050
+
+data = open(sys.argv[1], 'rb').read()
+frames = len(data) // 4
+if frames < RATE * 12:
+    raise SystemExit("[smoke] FAILED: only %.2f s of audio across the stall"
+                     % (frames / float(RATE)))
+
+left = struct.unpack('<%dh' % (frames * 2), data)[0::2]
+
+
+def peak(a, b):
+    seg = left[a * RATE:b * RATE]
+    return max(abs(v) for v in seg) if seg else 0
+
+
+# The stall is at 6 s and lasts 3. Before it the tone is playing; the two
+# seconds either side of the restart are where the engine is catching up and
+# are not asserted on. What matters is that the tone is still arriving well
+# after it.
+before = peak(3, 5)
+after = peak(11, frames // RATE)
+
+if before < 500:
+    raise SystemExit("[smoke] FAILED: no tone before the stall (peak %d), so "
+                     "this phase proves nothing" % before)
+
+if after < 500:
+    raise SystemExit("[smoke] FAILED: the mixer stopped reaching the pipe "
+                     "after a 3 s stall (peak %d before, %d after). The "
+                     "playback position has fallen behind and does not "
+                     "recover." % (before, after))
+
+print("[smoke] tone peak %d before the stall, %d after it" % (before, after))
+PY
+
 #
 # Phase two: real game data, if there is any.
 #

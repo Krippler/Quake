@@ -40,7 +40,7 @@ else
 CFLAGS ?= $(OPT_CFLAGS)
 endif
 
-ALL_CFLAGS = $(BASE_CFLAGS) $(QUIET_WARNINGS) $(CFLAGS) $(MUSIC_CFLAGS) $(EXTRA_CFLAGS)
+ALL_CFLAGS = $(BASE_CFLAGS) $(QUIET_WARNINGS) $(CFLAGS) $(MUSIC_CFLAGS) $(SND_CFLAGS) $(EXTRA_CFLAGS)
 
 # -lXrandr is what lets the video menu resize the X screen as well as the
 # window; see VID_SetScreenSize in vid_x.c.
@@ -72,6 +72,10 @@ ifeq ($(SOUND),none)
 SND_OBJ = $(BUILDDIR)/snd_null.o
 else
 SND_OBJ = $(MIXER_OBJS) $(BUILDDIR)/snd_stream.o
+# snd_stream.c keeps the playback position as a running count, so GetSoundtime
+# can ask for it instead of reconstructing it from a ring position. See
+# SNDDMA_GetSamples there for why that is not a tidying-up.
+SND_CFLAGS = -DSND_HAS_GETSAMPLES
 endif
 endif
 
