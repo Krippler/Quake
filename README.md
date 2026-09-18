@@ -41,10 +41,12 @@ container finds them:
 ```
 /path/to/quake/
 ├── id1/pak0.pak, pak1.pak    ← the game
+│   └── music/track02.ogg ... ← its soundtrack, see below
 ├── hipnotic/pak0.pak         ← Scourge of Armagon      (QUAKE_GAME=hipnotic)
+│   └── music/track02.ogg ... ← and its own soundtrack
 ├── rogue/pak0.pak            ← Dissolution of Eternity (QUAKE_GAME=rogue)
 ├── ad/                       ← any mod                 (QUAKE_GAME=ad)
-└── music/track02.ogg ...     ← the soundtrack, see below
+└── music/track02.ogg ...     ← or one rip shared by all of them
 ```
 
 `QUAKE_GAME` picks the one to start on; **Options → Game / mission pack** in
@@ -60,9 +62,16 @@ savegames next to the pak files and would otherwise silently lose both.
 
 Quake's soundtrack is not in the pak files and never was: it is audio tracks 2
 to 11 of the CD, and the 1996 code plays them by telling a CD drive to. There
-is no drive here, so rip them and put them in `music/` as `track02.ogg`,
-`track03.ogg` and so on — the numbering the CD used. Ogg Vorbis, FLAC, Opus,
-WAV, and MP3 where the installed libsndfile has it.
+is no drive here, so rip them and put them in a `music/` directory as
+`track02.ogg`, `track03.ogg` and so on — the numbering the CD used. Ogg Vorbis,
+FLAC, Opus, WAV, and MP3 where the installed libsndfile has it.
+
+**`music/` goes inside the game directory it belongs to**, beside that game's
+pak files: `id1/music/` for Quake, `hipnotic/music/` for Scourge of Armagon,
+`rogue/music/` for Dissolution of Eternity. They are different soundtracks, and
+this is what lets each game play its own. A `music/` directory at the top level
+instead is one rip shared by every game that has none of its own, which is
+right if you only have Quake's.
 
 Without them the game is silent where the music would be, which is exactly what
 the shareware release was like for anyone who downloaded it.

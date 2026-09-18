@@ -5,6 +5,40 @@ top section's heading is what the release workflow reads: `## [X.Y.Z] — DATE`
 on the default branch publishes that version, `## [Unreleased]` publishes only
 `edge`.
 
+## [1.4.2] — 2026-09-18
+
+### Fixed
+
+- **A mission pack played Quake's music instead of its own.** The soundtracks
+  differ — Scourge of Armagon and Dissolution of Eternity have their own — and
+  a rip of each belongs beside its own pak files, in `hipnotic/music`,
+  `rogue/music` and so on. The engine does look there. It just looked at
+  `$QUAKE_MUSICDIR` first, and the entrypoint set that to `id1/music` whenever
+  that directory existed, so from then on every game played Quake's tracks.
+
+  `$QUAKE_MUSICDIR` can only ever name one directory for every game the
+  container can run, so it is the cross-game default and the game's own
+  directory now beats it. The full order is `-musicdir`, then `<game>/music`,
+  then `$QUAKE_MUSICDIR`, then `id1/music` — the last so a mod with no music of
+  its own still gets Quake's. The entrypoint no longer points
+  `$QUAKE_MUSICDIR` at `id1/music` at all; that fallback was already in the
+  engine, and setting it was what did the damage.
+
+- **An empty `music` directory won and played nothing.** The check behind the
+  search was `S_ISDIR`, despite being called `CDAudio_DirHasFiles`, so a
+  directory with no tracks in it was taken and the fallbacks below were never
+  reached. It looks for a `track*` file in a format libsndfile reads now, and
+  falls through when there is not one. The container links a `music` directory
+  into every game directory it finds, so an empty one is easy to end up with.
+
+- The startup log now says which games have music of their own, rather than
+  naming one directory and leaving the rest to be guessed at.
+
+- The smoke test grew a phase for it: 880 Hz in the game's own music directory,
+  440 Hz in the shared one, `$QUAKE_MUSICDIR` pointed at the shared one, and an
+  assertion that what comes out of the mixer is 880. It fails on the previous
+  build and passes on this one.
+
 ## [1.4.1] — 2026-09-18
 
 ### Fixed

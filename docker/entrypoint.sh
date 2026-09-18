@@ -388,16 +388,47 @@ fi
 #
 # Quake's soundtrack was audio tracks 2 to 11 of the CD, so it is not in the
 # pak files and never was. cd_stream.c looks for track02.ogg and friends in a
-# music directory; point it at the mounted one if there is one.
+# music directory, and it looks in the game's own directory first -- so a rip
+# that lives beside each game's paks needs nothing from this script.
+# link_game_dir has already linked that directory in with everything else, and
+# Scourge of Armagon and Dissolution of Eternity have soundtracks of their own
+# that belong beside their own paks.
+#
+# QUAKE_MUSICDIR is for one rip shared by every game, mounted at the top of the
+# data directory. It is a fallback rather than an override: the engine reaches
+# it only for a game with no music of its own.
+#
+# What this must not do is point QUAKE_MUSICDIR at id1/music. That spelling was
+# here, and while the environment still won it meant a mission pack played
+# Quake's music over its own. The engine falls back to <basedir>/id1/music by
+# itself, so there was never anything to point at.
 ##############################################################################
 if [ -d "$DATADIR/music" ]; then
     export QUAKE_MUSICDIR="$DATADIR/music"
-    log "music: $DATADIR/music"
-elif [ -d "$DATADIR/id1/music" ]; then
-    export QUAKE_MUSICDIR="$DATADIR/id1/music"
-    log "music: $DATADIR/id1/music"
-else
-    log "music: none found (put track02.ogg and friends in $DATADIR/music)"
+    log "music: $DATADIR/music, shared by every game without its own"
+fi
+
+music_own=""
+for g in $FOUND_GAMES; do
+    [ -d "$BASEDIR/$g/music" ] || continue
+
+    # -L because these are symlinks into a read-only mount.
+    n=$(find -L "$BASEDIR/$g/music" -maxdepth 1 -type f \
+             \( -iname 'track*.ogg'  -o -iname 'track*.opus' \
+                -o -iname 'track*.flac' -o -iname 'track*.mp3' \
+                -o -iname 'track*.wav' \) 2>/dev/null | wc -l)
+
+    if [ "$n" -gt 0 ]; then
+        log "music: $g has $n track(s) of its own"
+        music_own=yes
+    else
+        log "music: $g/music holds no track files; $g will fall back"
+    fi
+done
+
+if [ -z "${QUAKE_MUSICDIR:-}" ] && [ -z "$music_own" ]; then
+    log "music: none found. Put track02.ogg and friends in"
+    log "       $DATADIR/<game>/music, or in $DATADIR/music to share one rip."
 fi
 
 ##############################################################################

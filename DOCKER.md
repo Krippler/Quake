@@ -26,8 +26,13 @@ Nothing is bundled and nothing can be — see [README.md](README.md#your-own-gam
 ├── hipnotic/pak0.pak     Scourge of Armagon
 ├── rogue/pak0.pak        Dissolution of Eternity
 ├── <mod>/                anything else
-└── music/track02.ogg     the soundtrack, see below
+└── music/track02.ogg     one soundtrack shared by all of them, see below
 ```
+
+Each game can have a `music/` directory of its own instead —
+`id1/music/track02.ogg`, `hipnotic/music/track02.ogg` and so on — which is what
+you want if you have the mission packs, because their soundtracks are not
+Quake's.
 
 Pak files sitting directly in `/quakedata` with no `id1` around them are
 treated as `id1`, because nothing else is ever mounted there and guessing is
@@ -73,14 +78,31 @@ restarting into the refusal.
 ### Music
 
 Quake's soundtrack is audio tracks 2 to 11 of the CD and is not in the pak
-files. Put a rip in `/quakedata/music` as `track02.ogg`, `track03.ogg` and so
+files. Put a rip in a `music` directory as `track02.ogg`, `track03.ogg` and so
 on. Ogg Vorbis, Opus, FLAC and WAV always work; MP3 works where the installed
 libsndfile was built with it.
 
-`QUAKE_MUSICDIR` overrides where to look. In the game, `cd info` says which
-directory was found and what is playing; `cd play 4`, `cd loop 4`, `cd stop`,
-`cd pause` and `cd resume` work as they always did. `eject`, `close` and
-`reset` do not, and say so.
+Where the engine looks, in order:
+
+| | |
+| --- | --- |
+| `-musicdir <path>` | an explicit override for one run, via `QUAKE_ARGS` |
+| `<game>/music` | beside that game's paks — `/quakedata/hipnotic/music` and so on |
+| `$QUAKE_MUSICDIR` | set from `/quakedata/music` when that exists: one rip for every game |
+| `id1/music` | so a mod with no music of its own still gets Quake's |
+
+The game's own directory beats `QUAKE_MUSICDIR` deliberately. Scourge of
+Armagon and Dissolution of Eternity have soundtracks that are not Quake's, and
+an environment variable can only name one directory for every game the
+container can run — so if it won, a mission pack would play the wrong music. A
+`music` directory that holds no `track*` files is skipped rather than taken,
+so an empty one falls through instead of turning into silence.
+
+The startup log says which games were found to have music of their own.
+
+In the game, `cd info` says which directory was found and what is playing;
+`cd play 4`, `cd loop 4`, `cd stop`, `cd pause` and `cd resume` work as they
+always did. `eject`, `close` and `reset` do not, and say so.
 
 `bgmvolume` sets the music level and the master `volume` applies to it as well
 — on a CD it could not, because the music never went through the mixer.
