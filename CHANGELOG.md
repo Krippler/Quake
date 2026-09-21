@@ -5,6 +5,23 @@ top section's heading is what the release workflow reads: `## [X.Y.Z] — DATE`
 on the default branch publishes that version, `## [Unreleased]` publishes only
 `edge`.
 
+## [1.4.5] — 2026-09-21
+
+### Fixed
+
+- **A NaN in the renderer crashed the engine by writing 16 GB out of bounds.**
+  `R_EmitEdge` clamps each projected vertex to the viewport and uses `ceil()` of
+  the result to index the per-scanline edge arrays. Every comparison against a
+  NaN is false, so a NaN passed both clamps untouched, `ceil()` returned a NaN,
+  and the cast to `int` gave `INT_MIN` — 16 GB below the array.
+
+  It arrived as a SIGSEGV in `R_EmitEdge` on a remastered Scourge of Armagon
+  map, and the reported fault address was 16.00 GB below the text segment, which
+  is `INT_MIN` times the size of a pointer. The clamps are negated now, so a NaN
+  takes the assignment rather than skipping it, and the two scanline indices are
+  checked immediately before they are used. For finite values nothing changes:
+  the rendered frame is byte-for-byte identical to the previous build.
+
 ## [1.4.4] — 2026-09-18
 
 ### Fixed
