@@ -754,6 +754,60 @@ with no music of its own still gets Quake's). The entrypoint no longer sets
 directory won the search and produced silence with the fallbacks unreached. It
 looks for a `track*` file in a readable format now.
 
+### `model.c`, `model.h`, `world.c` — the second map format
+
+BSP2 is what the Quake re-release ships and what every modern compiler emits.
+It is not a redesign: the same fifteen lumps, with the indices and bounds
+widened past what a short holds, which is the limit it exists to escape. Nine
+lumps are byte-identical between the two; six are not.
+
+| lump | BSP29 | BSP2 |
+| --- | --- | --- |
+| nodes | short children, short bounds | int children, float bounds |
+| leafs | short bounds, ushort marksurfaces | float bounds, uint marksurfaces |
+| faces | short planenum/side/numedges/texinfo | int throughout |
+| clipnodes | short children | int children |
+| edges | ushort vertices | uint vertices |
+| marksurfaces | ushort | uint |
+
+The readers take a branch on `loadmodel_bsp2`, set once from the version field.
+The in-memory structures widened to match — `medge_t.v`, `mnode_t`'s surface
+range, and the culling bounds, which are floats now because BSP2's are.
+
+The part that is not mechanical is collision. id traced against `dclipnode_t`,
+the on-disk record, directly: `hull_t.clipnodes` pointed into the loaded lump.
+BSP2's on-disk clipnode has int children where BSP29's has short, so neither
+can be the runtime type any more. Both are read into an `mclipnode_t`, and
+`SV_HullPointContents` and `SV_RecursiveHullCheck` trace against that.
+
+`MAX_MAP_LEAFS` went from 8192 to 65536. Four static PVS bitvectors are sized
+from it — `mod_novis`, the decompression scratch, `checkpvs` and `fatpvs` — at
+8 KB each, which was a quarter of a 1996 machine and is nothing now.
+
+#### Proving it
+
+A map is the same map in either layout, so the two readers have to produce the
+same model. `tools/bsp29to2.py` rewrites a BSP29 map as BSP2 and `bspchecksum`
+CRCs what the reader built, with pointers turned into indices because those are
+hunk addresses and differ between runs by construction. All nine shareware maps
+give identical checksums through both paths.
+
+Comparing rendered frames was the first attempt and it does not work: Quake
+animates textures and entities against the clock, so two runs of the *same* map
+differ. Five of nine maps "failed" that way before the control run — the same
+map against itself — showed the method was measuring the clock. On e1m1, whose
+opening view happens to hold nothing animated, the frame is byte-for-byte
+identical through both readers, and the player settles at the same position,
+which is the collision hulls agreeing.
+
+`tools/make-pop-pak.py` exists for that test. Until `COM_CheckRegistered`
+succeeds, `COM_FindFile` refuses any name with a '/' in it when it reaches a
+directory, so a test cannot drop a map in `maps/` and load it. The check reads
+`gfx/pop.lmp` and compares it against the `pop[]` table compiled into
+`common.c` — so the file it wants is fully described by the source, and the
+tool writes it. It unlocks the loose-file path and nothing else; there is no
+game content in 256 bytes of checksum table.
+
 ---
 
 ## New files

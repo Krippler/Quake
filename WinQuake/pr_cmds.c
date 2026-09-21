@@ -867,7 +867,7 @@ void PF_cvar_set (void)
 	var = G_STRING(OFS_PARM0);
 	val = G_STRING(OFS_PARM1);
 	
-	Cvar_Set (var, val);
+	Cvar_SetFromQC (var, val);
 }
 
 /*

@@ -382,6 +382,102 @@ if not 800 <= hz <= 960:
                      "game's own music directory did not win." % hz)
 PY
 
+# --------------------------------------------------------------------- BSP2
+#
+# The two map layouts, loading the same map.
+#
+# BSP29 is id's; BSP2 is what the Quake re-release and modern compilers emit,
+# and it exists because the 1996 index and bounds widths were too small. Six of
+# the fifteen lumps differ; the rest are byte-identical.
+#
+# So: take a map the engine already reads, rewrite it as BSP2, load both, and
+# compare what the readers built. bspchecksum walks the loaded world and runs a
+# CRC over the values -- with pointers turned into indices, since those are
+# hunk addresses and differ between runs by construction.
+#
+# Comparing rendered frames cannot do this job: Quake animates textures and
+# entities against the clock, so two runs of the *same* map do not match each
+# other. That was tried first and it is why this compares the model instead.
+#
+# This phase runs before phase two sets $real up, so it finds the pak itself,
+# accepting either of the two layouts phase two accepts.
+smoke_pak=""
+if [ -n "${QUAKE_SMOKE_DATA:-}" ]; then
+    if [ -f "$QUAKE_SMOKE_DATA/id1/pak0.pak" ]; then
+        smoke_pak="$QUAKE_SMOKE_DATA/id1/pak0.pak"
+    elif [ -f "$QUAKE_SMOKE_DATA/pak0.pak" ]; then
+        smoke_pak="$QUAKE_SMOKE_DATA/pak0.pak"
+    fi
+fi
+
+if [ -n "$smoke_pak" ]; then
+    say "phase one and seven eighths: BSP29 and BSP2 load the same"
+
+    bsp2dir="$work/bsp2"
+    rm -rf "$bsp2dir"
+    mkdir -p "$bsp2dir/id1/maps"
+    ln -sfn "$smoke_pak" "$bsp2dir/id1/pak0.pak"
+
+    # gfx/pop.lmp is how the engine decides it is the registered game, and
+    # without it a loose file with a '/' in its name is unreachable -- see
+    # COM_FindFile. The contents are the pop[] table in common.c, so the
+    # fixture can carry it without any of id's data.
+    python3 "$here/tools/make-pop-pak.py" "$here/WinQuake/common.c" \
+        "$bsp2dir/id1/pak1.pak" >/dev/null
+
+    python3 - "$smoke_pak" "$bsp2dir/e1m1.bsp" <<'PY'
+import struct, sys
+d = open(sys.argv[1], 'rb').read()
+ofs, ln = struct.unpack_from('<ii', d, 4)
+for i in range(ln // 64):
+    name = d[ofs+i*64:ofs+i*64+56].split(b'\x00')[0].decode()
+    fo, fl = struct.unpack_from('<ii', d, ofs+i*64+56)
+    if name == 'maps/e1m1.bsp':
+        open(sys.argv[2], 'wb').write(d[fo:fo+fl])
+        break
+else:
+    raise SystemExit("[smoke] FAILED: no maps/e1m1.bsp in the pak")
+PY
+
+    cp "$bsp2dir/e1m1.bsp" "$bsp2dir/id1/maps/b29.bsp"
+    python3 "$here/tools/bsp29to2.py" "$bsp2dir/e1m1.bsp" \
+        "$bsp2dir/id1/maps/b2.bsp" >/dev/null \
+        || die "the BSP29 to BSP2 converter failed"
+
+    # -bspchecksum prints as the world is loaded, so this needs no console and
+    # no keystrokes; the engine is killed once it has said its piece.
+    bsp_sum() {
+        DISPLAY="$disp" "$engine" -basedir "$bsp2dir" -nosound -bspchecksum \
+            -width 320 -height 200 +map "$1" >"$work/bsp-$1.log" 2>&1 &
+        bsp_pid=$!
+        i=0
+        while [ "$i" -lt 60 ]; do
+            grep -q 'bspchecksum' "$work/bsp-$1.log" 2>/dev/null && break
+            kill -0 "$bsp_pid" 2>/dev/null || break
+            i=$((i + 1))
+            sleep 0.5
+        done
+        kill -TERM "$bsp_pid" 2>/dev/null || true
+        wait "$bsp_pid" 2>/dev/null || true
+
+        grep -o 'bspchecksum [0-9]*' "$work/bsp-$1.log" | head -1
+        grep -o 'verts .*' "$work/bsp-$1.log" | head -1
+    }
+
+    sum29=$(bsp_sum b29)
+    sum2=$(bsp_sum b2)
+
+    [ -n "$sum29" ] || die "the BSP29 map produced no checksum; see $work/bsp-b29.log"
+    [ -n "$sum2" ]  || die "the BSP2 map produced no checksum; see $work/bsp-b2.log"
+
+    if [ "$sum29" != "$sum2" ]; then
+        printf '[smoke] BSP29: %s\n[smoke] BSP2 : %s\n' "$sum29" "$sum2" >&2
+        die "the BSP2 reader built a different model from the same map"
+    fi
+
+    say "both layouts built the same model ($(printf '%s' "$sum29" | head -1))"
+fi
+
 #
 # Phase two: real game data, if there is any.
 #

@@ -90,6 +90,8 @@ void ED_WriteGlobals (FILE *f);
 void ED_ParseGlobals (char *data);
 
 void ED_LoadFromFile (char *data);
+void ED_ResetUnknownFields (void);
+void ED_ReportUnknownField (char *keyname);
 
 //define EDICT_NUM(n) ((edict_t *)(sv.edicts+ (n)*pr_edict_size))
 //define NUM_FOR_EDICT(e) (((byte *)(e) - sv.edicts)/pr_edict_size)

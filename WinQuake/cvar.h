@@ -68,6 +68,10 @@ void 	Cvar_RegisterVariable (cvar_t *variable);
 // archive elements set.
 
 void 	Cvar_Set (char *var_name, char *value);
+
+void	Cvar_SetFromQC (char *var_name, char *value);
+// as Cvar_Set, but registers a name the engine does not know rather than
+// refusing the write -- see the note in cvar.c
 // equivelant to "<name> <variable>" typed at the console
 
 void	Cvar_SetValue (char *var_name, float value);

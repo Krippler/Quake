@@ -799,6 +799,61 @@ qboolean	ED_ParseEpair (void *base, ddef_t *key, char *s)
 
 /*
 ====================
+ED_ReportUnknownField
+
+Says once per name that the map asked for a field the progs does not define.
+
+Every key in a map's entity lump is looked up in the progs' field list, and one
+that is not there gets a line. On id's maps that is a handful. On a map built
+for the re-release it is not: those carry "alpha", "fog" and a run of
+"_property" keys that only the re-release progs declare, on hundreds of
+entities, and the same three or four names scrolled past hundreds of times.
+
+The name is still worth saying -- it is how you find out a mod wants a field
+this engine has no idea about -- so it is said once each and then counted.
+====================
+*/
+#define	MAX_REPORTED_FIELDS	32
+
+static char	ed_reported[MAX_REPORTED_FIELDS][64];
+static int	ed_numreported;
+static int	ed_suppressed;
+
+void ED_ResetUnknownFields (void)
+{
+	if (ed_suppressed)
+		Con_Printf ("(%d more unknown field%s not listed)\n",
+					ed_suppressed, ed_suppressed == 1 ? "" : "s");
+
+	ed_numreported = 0;
+	ed_suppressed = 0;
+}
+
+void ED_ReportUnknownField (char *keyname)
+{
+	int		i;
+
+	for (i = 0; i < ed_numreported; i++)
+		if (!Q_strcmp (ed_reported[i], keyname))
+		{
+			ed_suppressed++;
+			return;
+		}
+
+	if (ed_numreported < MAX_REPORTED_FIELDS
+		&& Q_strlen (keyname) < (int)sizeof(ed_reported[0]))
+	{
+		Q_strcpy (ed_reported[ed_numreported], keyname);
+		ed_numreported++;
+		Con_Printf ("'%s' is not a field\n", keyname);
+	}
+	else
+		ed_suppressed++;
+}
+
+
+/*
+====================
 ED_ParseEdict
 
 Parses an edict out of the given string, returning the new position
@@ -872,7 +927,7 @@ if (!strcmp(com_token, "light"))
 		key = ED_FindField (keyname);
 		if (!key)
 		{
-			Con_Printf ("'%s' is not a field\n", keyname);
+			ED_ReportUnknownField (keyname);
 			continue;
 		}
 
@@ -918,6 +973,9 @@ void ED_LoadFromFile (char *data)
 	ent = NULL;
 	inhibit = 0;
 	pr_global_struct->time = sv.time;
+
+// one report per unknown field name per map, not per entity
+	ED_ResetUnknownFields ();
 	
 // parse ents
 	while (1)
