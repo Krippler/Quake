@@ -87,7 +87,7 @@ typedef struct texture_s
 // !!! if this is changed, it must be changed in asm_draw.h too !!!
 typedef struct
 {
-	unsigned short	v[2];
+	unsigned int	v[2];		// int, not short: BSP2 indexes more vertices
 	unsigned int	cachededgeoffset;
 } medge_t;
 
@@ -131,7 +131,7 @@ typedef struct mnode_s
 	int			contents;		// 0, to differentiate from leafs
 	int			visframe;		// node needs to be traversed if current
 	
-	short		minmaxs[6];		// for bounding box culling
+	float		minmaxs[6];		// for bounding box culling
 
 	struct mnode_s	*parent;
 
@@ -139,8 +139,8 @@ typedef struct mnode_s
 	mplane_t	*plane;
 	struct mnode_s	*children[2];	
 
-	unsigned short		firstsurface;
-	unsigned short		numsurfaces;
+	unsigned int		firstsurface;
+	unsigned int		numsurfaces;
 } mnode_t;
 
 
@@ -151,7 +151,7 @@ typedef struct mleaf_s
 	int			contents;		// wil be a negative contents number
 	int			visframe;		// node needs to be traversed if current
 
-	short		minmaxs[6];		// for bounding box culling
+	float		minmaxs[6];		// for bounding box culling
 
 	struct mnode_s	*parent;
 
@@ -166,9 +166,22 @@ typedef struct mleaf_s
 } mleaf_t;
 
 // !!! if this is changed, it must be changed in asm_i386.h too !!!
+//
+// The clipnode the server traces against.
+//
+// id traced against dclipnode_t, the on-disk record, directly. BSP2's on-disk
+// clipnode has int children where BSP29's has short, so neither on-disk struct
+// can be the runtime one any more -- both are read into this.
+//
 typedef struct
 {
-	dclipnode_t	*clipnodes;
+	int			planenum;
+	int			children[2];	// negative numbers are contents
+} mclipnode_t;
+
+typedef struct
+{
+	mclipnode_t	*clipnodes;
 	mplane_t	*planes;
 	int			firstclipnode;
 	int			lastclipnode;
@@ -347,7 +360,7 @@ typedef struct model_s
 	int			*surfedges;
 
 	int			numclipnodes;
-	dclipnode_t	*clipnodes;
+	mclipnode_t	*clipnodes;
 
 	int			nummarksurfaces;
 	msurface_t	**marksurfaces;

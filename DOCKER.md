@@ -77,19 +77,27 @@ restarting into the refusal.
 
 ### Data from the Quake re-release
 
-Pak files lifted out of the 2021 re-release mostly work, but its **maps are
-BSP2**, a format from long after 1996 that this renderer cannot read — 32-bit
-node and leaf indices and a larger visibility lump. *Dimension of the Past*
-(`dopa`) is the usual way to meet it. The engine stops with
+Pak files from the 2021 re-release work, **BSP2 maps included** — so
+*Dimension of the Past* (`dopa`) and the machine campaigns load. BSP2 is the
+same fifteen lumps as the original format with the indices and bounds widened
+past what a short holds, and six of them are read both ways now.
 
-```
-Mod_LoadBrushModel: maps/e5m2.bsp is a BSP2 map.
-```
+What to expect:
 
-and the container goes back to the base game rather than failing to start over
-and over. Music, sounds and models from the re-release are fine; it is the maps
-that are not. Playing those episodes needs a modern source port, which is a
-different project from this one.
+- Entity keys the 1996 QuakeC does not define (`alpha`, `fog`) are reported
+  once each per map and ignored. id's engine did the same; it just said it
+  again for every entity.
+- A cvar the re-release progs sets but this engine does not define — `campaign`
+  is the one you will see — is created on demand rather than refused, so the
+  progs reads back what it wrote.
+- `scr_usekfont` is the re-release's scalable font and is not implemented; the
+  one "Unknown command" line at startup is accurate.
+- The re-release campaigns are much larger than anything from 1996. Where they
+  exceed the fixed pools the software renderer works from, geometry drops out
+  of a frame rather than the engine failing cleanly.
+
+**2PSB**, the RMQ variant of BSP2, is not read. The engine names it rather than
+printing a number.
 
 ### Music
 

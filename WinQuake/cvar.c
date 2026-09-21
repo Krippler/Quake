@@ -143,6 +143,58 @@ void Cvar_SetValue (char *var_name, float value)
 
 /*
 ============
+Cvar_CreateFromQC
+
+A cvar the progs asked for that the engine has never heard of.
+
+QuakeC's cvar_set on an unknown name used to print "there is an error in C code
+if this happens" and drop the write. For the re-release progs that is not an
+error and not rare: it sets "campaign" on almost every frame, which filled the
+log with hundreds of identical lines and, worse, meant the value never came
+back when the progs read it again.
+
+So the name is registered on demand instead. The cvar_t and its name outlive
+the call because nothing ever unregisters one; they are allocated here and kept.
+Engine code still goes through Cvar_Set, where an unknown name really is a bug
+and still says so.
+============
+*/
+static cvar_t *Cvar_CreateFromQC (char *var_name, char *value)
+{
+	cvar_t	*var;
+
+	var = Z_Malloc (sizeof(*var));
+	var->name = Z_Malloc (Q_strlen (var_name) + 1);
+	Q_strcpy (var->name, var_name);
+	var->string = Z_Malloc (1);
+	var->string[0] = 0;
+	var->archive = false;
+	var->server = false;
+	var->value = 0;
+
+	var->next = cvar_vars;
+	cvar_vars = var;
+
+	Con_DPrintf ("progs created cvar \"%s\"\n", var_name);
+
+	Cvar_Set (var_name, value);
+	return var;
+}
+
+void Cvar_SetFromQC (char *var_name, char *value)
+{
+	if (!Cvar_FindVar (var_name))
+	{
+		Cvar_CreateFromQC (var_name, value);
+		return;
+	}
+
+	Cvar_Set (var_name, value);
+}
+
+
+/*
+============
 Cvar_RegisterVariable
 
 Adds a freestanding variable to the variable list.

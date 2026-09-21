@@ -76,14 +76,21 @@ right if you only have Quake's.
 Without them the game is silent where the music would be, which is exactly what
 the shareware release was like for anyone who downloaded it.
 
-## What this will not play
+## Data from the Quake re-release
 
-Maps in **BSP2** format. It is what the 2021 Quake re-release ships and what
-modern map compilers produce, and it exists because the 1996 limits were too
-small — this is the 1996 renderer, so it reads the original BSP version 29 and
-nothing else. *Dimension of the Past* taken from the re-release is the usual way
-to run into it. The engine says which map and why, and the container goes back
-to the base game instead of refusing to start.
+Pak files from the 2021 re-release work, including its **BSP2** maps —
+*Dimension of the Past* and the machine campaigns. BSP2 widens the indices and
+bounds that the 1996 format kept in a short, and both layouts are read now.
+
+Two things to know. The maps built for the re-release carry entity keys the
+1996 QuakeC does not define (`alpha`, `fog`) — those are reported once each and
+ignored, which is the same thing id's engine did, just not several hundred
+times. And the re-release campaigns are far larger than anything from 1996, so
+where they exceed what the software renderer keeps in fixed pools the result is
+dropped geometry rather than a clean failure.
+
+The other BSP2 spelling, **2PSB** (the RMQ variant), is not read; the engine
+says so by name rather than printing a number.
 
 ## Keeping savegames and settings
 

@@ -5,6 +5,52 @@ top section's heading is what the release workflow reads: `## [X.Y.Z] — DATE`
 on the default branch publishes that version, `## [Unreleased]` publishes only
 `edge`.
 
+## [Unreleased]
+
+### Added
+
+- **BSP2 maps load.** The Quake re-release and every modern map compiler emit
+  BSP2, which is the same fifteen lumps as id's format with the indices and
+  bounds widened past what a short holds. Six of them differ — nodes, leafs,
+  faces, clipnodes, edges and marksurfaces — and all six are read both ways now.
+  *Dimension of the Past* and the machine campaigns are the reason you would
+  care.
+
+  The in-memory structures widened with them, and the server's collision hulls
+  moved off the on-disk record: id traced against `dclipnode_t` directly, whose
+  children are shorts, so neither on-disk layout can be the runtime one any
+  more. Both are read into an `mclipnode_t` instead. `MAX_MAP_LEAFS` went from
+  8192 to 65536, which is four PVS bitvectors at 8 KB each.
+
+  Verified by conversion rather than by assertion. `tools/bsp29to2.py` rewrites
+  a BSP29 map as BSP2, and a new `bspchecksum` command walks the loaded world
+  and CRCs the values — pointers turned into indices, since those are hunk
+  addresses. Across all nine shareware maps the two layouts produce **identical
+  checksums**, and on e1m1 the rendered frame is byte-for-byte identical and the
+  player settles at the same position, which is the collision hulls agreeing.
+
+  Comparing rendered frames alone cannot do this job: Quake animates textures
+  and entities against the clock, so two runs of the *same* map do not match
+  each other. That was tried first, and it is why the test compares the model.
+
+  **2PSB**, the RMQ variant, is still not read — the engine names it rather than
+  printing a number.
+
+### Fixed
+
+- **A cvar the progs sets but the engine does not define is created rather than
+  refused.** QuakeC's `cvar_set` on an unknown name printed "there is an error
+  in C code if this happens" and dropped the write. For the re-release progs
+  that is neither an error nor rare: it sets `campaign` almost every frame, so
+  the log filled with hundreds of identical lines and the value never came back
+  when the progs read it. Engine code still goes through `Cvar_Set`, where an
+  unknown name really is a bug.
+
+- **An unknown entity field is reported once per name, not once per entity.**
+  Maps built for the re-release carry `alpha` and `fog` keys that the 1996
+  QuakeC does not declare, on every entity. Measured on a map with 369 such
+  entities: **738 lines before, 2 after**, with a count of what was suppressed.
+
 ## [1.4.5] — 2026-09-21
 
 ### Fixed
