@@ -244,6 +244,45 @@ include. It returns `qboolean`, which is the same width as the `int` an
 implicit declaration assumes, so it worked — and a compiler that treats an
 implicit declaration as the error C99 made it will not build the file at all.
 
+### `r_draw.c` — a NaN walked through every clamp and indexed 16 GB out
+
+`R_EmitEdge` projects each vertex, clamps the result to the viewport, takes
+`ceil()` of it and uses that as a scanline index into `newedges[]` and
+`removeedges[]`. The clamps are also the safety net, and they are written the
+obvious way:
+
+```c
+	if (v0 < r_refdef.fvrecty_adj)      v0 = r_refdef.fvrecty_adj;
+	if (v0 > r_refdef.fvrectbottom_adj) v0 = r_refdef.fvrectbottom_adj;
+	ceilv0 = (int) ceil(v0);
+```
+
+Every comparison against a NaN is false. A NaN therefore passes *both* clamps
+untouched, `ceil()` hands back a NaN, and the conversion to `int` is undefined —
+on x86-64 it is `INT_MIN`. `newedges[INT_MIN]` is 16 GB below the array.
+
+That is not theoretical: it came in as a SIGSEGV in `R_EmitEdge` on a
+remastered Scourge of Armagon map, and the reported fault address was exactly
+16.00 GB below the text segment, which is `INT_MIN * sizeof(edge_t *)`.
+
+The clamps are negated — `if (!(v0 > lo)) v0 = lo;` — so a NaN takes the
+assignment instead of skipping it. For every finite value the two spellings do
+the same thing, which the rendered frame confirms: byte-for-byte identical
+before and after.
+
+Where the NaN comes from is upstream and map-specific; `R_RecursiveClipBPoly`
+interpolates with `frac = dist / (dist - lastdist)`, which is `0/0` for a
+degenerate edge. The fix does not depend on finding it. There is also a check
+on the two indices immediately before they are used, so no arithmetic anywhere
+above can put a write outside the arrays — it costs two comparisons on a path
+that already does a division.
+
+Worth noting what this was *not*. The first theory was the edge pool:
+`R_RenderBmodelFace` reserves `psurf->numedges + 4` but then walks the polygon
+*after* `R_RecursiveClipBPoly` has split it, which is a longer chain. That is a
+real discrepancy — measured at 2 over on id's maps, inside the 4 of headroom —
+but it was not this crash, and the fault address is what ruled it out.
+
 ### `common.c` — unbounded path construction
 
 `COM_WriteFile` and `COM_FindFile` build `"<gamedir>/<file>"` with `sprintf`

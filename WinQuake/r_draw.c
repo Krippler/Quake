@@ -103,7 +103,19 @@ void R_EmitEdge (mvertex_t *pv0, mvertex_t *pv1)
 		VectorSubtract (world, modelorg, local);
 		TransformVector (local, transformed);
 	
-		if (transformed[2] < NEAR_CLIP)
+	//
+	// The comparisons are negated so that a NaN is caught.
+	//
+	// Every clamp here is also the safety net for what follows, and
+	// "if (x < lo) x = lo;" is not a net at all when x is a NaN: every
+	// comparison against a NaN is false, so it passes both clamps untouched,
+	// ceil() hands back a NaN, and the cast to int is undefined -- in practice
+	// INT_MIN. That index then reaches newedges[v] below, sixteen gigabytes
+	// out of bounds, which is the crash this came from. Written as
+	// "if (!(x > lo)) x = lo;" a NaN takes the assignment instead. For any
+	// finite value the two spellings do the same thing.
+	//
+		if (!(transformed[2] > NEAR_CLIP))
 			transformed[2] = NEAR_CLIP;
 	
 		lzi0 = 1.0 / transformed[2];
@@ -111,16 +123,16 @@ void R_EmitEdge (mvertex_t *pv0, mvertex_t *pv1)
 	// FIXME: build x/yscale into transform?
 		scale = xscale * lzi0;
 		u0 = (xcenter + scale*transformed[0]);
-		if (u0 < r_refdef.fvrectx_adj)
+		if (!(u0 > r_refdef.fvrectx_adj))
 			u0 = r_refdef.fvrectx_adj;
-		if (u0 > r_refdef.fvrectright_adj)
+		if (!(u0 < r_refdef.fvrectright_adj))
 			u0 = r_refdef.fvrectright_adj;
 	
 		scale = yscale * lzi0;
 		v0 = (ycenter - scale*transformed[1]);
-		if (v0 < r_refdef.fvrecty_adj)
+		if (!(v0 > r_refdef.fvrecty_adj))
 			v0 = r_refdef.fvrecty_adj;
-		if (v0 > r_refdef.fvrectbottom_adj)
+		if (!(v0 < r_refdef.fvrectbottom_adj))
 			v0 = r_refdef.fvrectbottom_adj;
 	
 		ceilv0 = (int) ceil(v0);
@@ -132,23 +144,25 @@ void R_EmitEdge (mvertex_t *pv0, mvertex_t *pv1)
 	VectorSubtract (world, modelorg, local);
 	TransformVector (local, transformed);
 
-	if (transformed[2] < NEAR_CLIP)
+// Negated for the same reason as the block above: these clamps are what keeps
+// a NaN out of ceil() and out of the scanline index.
+	if (!(transformed[2] > NEAR_CLIP))
 		transformed[2] = NEAR_CLIP;
 
 	r_lzi1 = 1.0 / transformed[2];
 
 	scale = xscale * r_lzi1;
 	r_u1 = (xcenter + scale*transformed[0]);
-	if (r_u1 < r_refdef.fvrectx_adj)
+	if (!(r_u1 > r_refdef.fvrectx_adj))
 		r_u1 = r_refdef.fvrectx_adj;
-	if (r_u1 > r_refdef.fvrectright_adj)
+	if (!(r_u1 < r_refdef.fvrectright_adj))
 		r_u1 = r_refdef.fvrectright_adj;
 
 	scale = yscale * r_lzi1;
 	r_v1 = (ycenter - scale*transformed[1]);
-	if (r_v1 < r_refdef.fvrecty_adj)
+	if (!(r_v1 > r_refdef.fvrecty_adj))
 		r_v1 = r_refdef.fvrecty_adj;
-	if (r_v1 > r_refdef.fvrectbottom_adj)
+	if (!(r_v1 < r_refdef.fvrectbottom_adj))
 		r_v1 = r_refdef.fvrectbottom_adj;
 
 	if (r_lzi1 > lzi0)
@@ -180,6 +194,16 @@ void R_EmitEdge (mvertex_t *pv0, mvertex_t *pv1)
 	}
 
 	side = ceilv0 > r_ceilv1;
+
+	if (edge_p >= edge_max)
+	{
+	// R_RenderBmodelFace reserves psurf->numedges + 4, but the chain it walks
+	// is the polygon after R_RecursiveClipBPoly has split it, which is longer.
+	// Measured at 2 over on id's maps, inside the 4 of headroom -- a deeper
+	// BSP has more room to exceed it, and this is a stack array.
+		r_outofedges++;
+		return;
+	}
 
 	edge = edge_p++;
 
@@ -224,6 +248,28 @@ void R_EmitEdge (mvertex_t *pv0, mvertex_t *pv1)
 		edge->u = r_refdef.vrect_x_adj_shift20;
 	if (edge->u > r_refdef.vrectright_adj_shift20)
 		edge->u = r_refdef.vrectright_adj_shift20;
+
+//
+// The scanline indices, checked before anything is indexed by them.
+//
+// newedges[] and removeedges[] hold one pointer per scanline. v and v2 come
+// from ceil() of the clamped projection, so with the clamps above they are
+// already in range -- ceilv0 and r_ceilv1 land in [vrect.y, vrectbottom], and
+// the side that would put v at vrectbottom cannot arise. This is the check
+// that makes that reasoning unnecessary: whatever a map does to the arithmetic,
+// the write stays inside the arrays. A dropped edge is a seam on one frame.
+//
+// It tests v and v2 rather than ceilv0 and r_ceilv1 because those two are not
+// the indices: ceilv0 legitimately reaches vrectbottom, where it becomes
+// v2 = vrectbottom - 1. Checking them instead dropped real edges and changed
+// the picture.
+//
+	if (v < 0 || v >= MAXHEIGHT || v2 < 0 || v2 >= MAXHEIGHT)
+	{
+		edge_p--;			// hand the edge back
+		r_outofedges++;
+		return;
+	}
 
 //
 // sort the edge in normally
