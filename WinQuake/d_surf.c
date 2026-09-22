@@ -26,6 +26,9 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 float           surfscale;
 qboolean        r_cache_thrash;         // set if surface cache is thrashing
 
+// so that thrashing is reported once a map rather than once a block
+qboolean        r_reportedthrash;
+
 int                                     sc_size;
 surfcache_t                     *sc_rover, *sc_base;
 
@@ -42,12 +45,30 @@ int     D_SurfaceCacheForRes (int width, int height)
 		return size;
 	}
 	
-	size = SURFCACHE_SIZE_AT_320X200;
+//
+// The surface cache holds each visible surface's texture with its lighting
+// already applied. When a frame needs more of them than fit, the allocator
+// wraps onto blocks it built earlier in the same frame and sets
+// r_cache_thrash: every one of those has to be rebuilt, every frame, for as
+// long as you stand there. That is the flickering RAM icon (SCR_DrawRam) and
+// it is expensive enough to be the stall, not a symptom of it.
+//
+// id's figure was 600 KB plus 3 bytes a pixel -- 1.8 MB at 800x600, which was
+// generous in 1996 and is nothing now. A re-release map has far more surface
+// in view and far more texture on each one, and thrashed it constantly.
+//
+// 8 MB plus 16 bytes a pixel, capped: 14 MB at 800x600, 40 MB at 1920x1080.
+// The cap is there because this comes out of the same heap as the map and the
+// frame pools. -surfcachesize <kb> overrides the lot, as it always did.
+//
+	size = 8*1024*1024;
 
 	pix = width*height;
 	if (pix > 64000)
-		size += (pix-64000)*3;
-		
+		size += (pix-64000)*16;
+
+	if (size > MAX_SURFCACHE)
+		size = MAX_SURFCACHE;
 
 	return size;
 }
@@ -82,6 +103,8 @@ D_InitCaches
 */
 void D_InitCaches (void *buffer, int size)
 {
+	r_reportedthrash = false;
+
 
 	if (!msg_suppress_1)
 		Con_Printf ("%ik surface cache\n", size/1024);
@@ -120,6 +143,9 @@ void D_FlushCaches (void)
 	sc_base->next = NULL;
 	sc_base->owner = NULL;
 	sc_base->size = sc_size;
+
+// D_FlushCaches runs on every map load, which is where "once a map" comes from
+	r_reportedthrash = false;
 }
 
 /*
@@ -197,7 +223,26 @@ surfcache_t     *D_SCAlloc (int width, int size)
 	if (d_roverwrapped)
 	{
 		if (wrapped_this_time || (sc_rover >= d_initial_rover))
+		{
 			r_cache_thrash = true;
+
+		//
+		// Thrashing means the frame needed more lit surface than the cache
+		// holds, so blocks built earlier in this same frame were thrown away
+		// and will be rebuilt next frame, and the one after. It is expensive
+		// -- it is the picture stalling -- and the only sign of it was the RAM
+		// icon in the corner, which is off whenever scr_showram is.
+		//
+			if (!r_reportedthrash)
+			{
+				r_reportedthrash = true;
+				Con_Printf ("\nThe surface cache (%d KB) is too small for this "
+							"map and is being\nrebuilt every frame, which is "
+							"slow. -surfcachesize <kb> on the command\nline "
+							"raises it; a lower resolution also needs less.\n",
+							sc_size / 1024);
+			}
+		}
 	}
 	else if (wrapped_this_time)
 	{       

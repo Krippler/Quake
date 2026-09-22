@@ -5,6 +5,53 @@ top section's heading is what the release workflow reads: `## [X.Y.Z] — DATE`
 on the default branch publishes that version, `## [Unreleased]` publishes only
 `edge`.
 
+## [Unreleased]
+
+### Fixed
+
+- **The flickering RAM icon was the surface cache thrashing, and it was the
+  stall.** `SCR_DrawRam` draws that icon in the top left whenever
+  `r_cache_thrash` is set, which means a frame needed more lit surface than the
+  cache holds — so blocks built earlier in the *same frame* were thrown away and
+  have to be rebuilt, every frame, for as long as you stand there.
+
+  id sized it at 600 KB plus 3 bytes a pixel: 1818 KB at 800x600, exactly what
+  the log prints. That was generous in 1996. It is 8 MB plus 16 bytes a pixel
+  now, capped at 48 MB — 14 MB at 800x600, 40 MB at 1920x1080 — and it is
+  reported in words once per map, because the icon is off whenever
+  `scr_showram` is and means nothing to anyone who has not read `d_surf.c`.
+  `-surfcachesize <kb>` still overrides it.
+
+- **The bmodel clipping buffers were still too small.** 1.6.1 raised them to
+  8192 and 16384 and the machine campaigns still exceeded them, so a door or
+  lift was still going undrawn. They are 65536 and 131072, and no longer on the
+  stack: `R_DrawSolidClippedSubmodelPolygons` is called once per entity and is
+  not recursive, so one static pair serves it — 786 KB and 3 MB of bss instead
+  of a 4 MB stack frame.
+
+- **Sounds from entity 4096 and above were attributed to the wrong entity —
+  a regression from raising `MAX_EDICTS` in 1.6.0.** `SV_StartSound` packs the
+  entity number and channel into one short as `(ent << 3) | channel`, and
+  `MSG_ReadShort` sign-extends. At id's 600 edicts the largest value was 4800
+  and it never mattered; at 8192 an entity at 4096 or above sets the top bit and
+  comes back negative. The field is 16 unsigned bits — the wire format is
+  unchanged, only how the client reads it. The bounds check below it was `>`
+  where it should have been `>=`.
+
+- **Ambient sounds ran out of channels.** `MAX_CHANNELS` was 128, eight of them
+  dynamic, leaving 118 for every fan, hum and dripping pipe in the map. Past it
+  `S_StaticSound` drops the sound and printed `total_channels == MAX_CHANNELS`
+  — a line naming a constant nobody outside the engine has heard of, once per
+  dropped sound. Now 1024, said once per map and in words.
+
+### Added
+
+- **"Illegible server message" now says what it choked on.** It means the
+  reader is no longer on a message boundary, and on its own it names neither
+  the opcode it found nor where. It now prints the opcode, the byte offset, the
+  message size, and the last opcode that parsed cleanly — which is usually the
+  one whose handler read the wrong number of bytes.
+
 ## [1.6.1] — 2026-09-22
 
 ### Fixed

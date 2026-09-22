@@ -34,6 +34,10 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 
 #define SURFCACHE_SIZE_AT_320X200	600*1024
 
+// Ceiling on what D_SurfaceCacheForRes will ask for; it shares a heap with
+// the map and the frame pools. See the comment there.
+#define MAX_SURFCACHE				48*1024*1024
+
 typedef struct surfcache_s
 {
 	struct surfcache_s	*next;

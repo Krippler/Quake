@@ -120,13 +120,21 @@ void CL_ParseStartSoundPacket(void)
 	else
 		attenuation = DEFAULT_SOUND_PACKET_ATTENUATION;
 	
-	channel = MSG_ReadShort ();
+//
+// SV_StartSound packs the entity number and the channel into one short as
+// (ent << 3) | channel, and MSG_ReadShort sign-extends. At id's 600 edicts the
+// largest value was 4800 and it never mattered; with MAX_EDICTS at 8192 an
+// entity at 4096 or above sets the top bit, comes back negative, and the sound
+// is attributed to entity -1. The field is 16 unsigned bits and the wire format
+// does not change -- only how this end reads it.
+//
+	channel = (unsigned short)MSG_ReadShort ();
 	sound_num = MSG_ReadByte ();
 
 	ent = channel >> 3;
 	channel &= 7;
 
-	if (ent > MAX_EDICTS)
+	if (ent >= MAX_EDICTS)
 		Host_Error ("CL_ParseStartSoundPacket: ent = %i", ent);
 	
 	for (i=0 ; i<3 ; i++)
@@ -717,6 +725,9 @@ void CL_ParseStaticSound (void)
 CL_ParseServerMessage
 =====================
 */
+// the last two opcodes read, so a desync can say what preceded it
+static int	cl_lastcmd, cl_prevcmd;
+
 void CL_ParseServerMessage (void)
 {
 	int			cmd;
@@ -735,7 +746,8 @@ void CL_ParseServerMessage (void)
 // parse the message
 //
 	MSG_BeginReading ();
-	
+	cl_lastcmd = cl_prevcmd = -1;
+
 	while (1)
 	{
 		if (msg_badread)
@@ -758,12 +770,29 @@ void CL_ParseServerMessage (void)
 		}
 
 		SHOWNET(svc_strings[cmd]);
-	
+
+	// kept so that an illegible message can name the opcode before it, which
+	// is the one whose handler read the wrong number of bytes
+		cl_prevcmd = cl_lastcmd;
+		cl_lastcmd = cmd;
+
 	// other commands
 		switch (cmd)
 		{
 		default:
-			Host_Error ("CL_ParseServerMessage: Illegible server message\n");
+		//
+		// "Illegible server message" on its own says nothing useful: it means
+		// the reader is no longer on a message boundary, and the interesting
+		// part is what it found and where. The last opcode that parsed cleanly
+		// is usually the one whose handler read the wrong number of bytes.
+		//
+			Host_Error ("CL_ParseServerMessage: illegible server message\n"
+						"  opcode %d at byte %d of %d; last good was %s (%d)\n",
+						cmd, msg_readcount - 1, net_message.cursize,
+						(cl_prevcmd >= 0 && cl_prevcmd < 128
+							&& svc_strings[cl_prevcmd])
+								? svc_strings[cl_prevcmd] : "?",
+						cl_prevcmd);
 			break;
 			
 		case svc_nop:
