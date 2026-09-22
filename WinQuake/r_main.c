@@ -38,8 +38,14 @@ float		r_aliasuvscale = 1.0;
 int			r_outofsurfaces;
 int			r_outofedges;
 
+// edges R_EmitEdge refused because a scanline index came out off the screen.
+// Counted apart from r_outofedges: that one means the frame pool is too
+// small and r_maxedges is the answer, and this one never does.
+int			r_edgesoutofrange;
+
 // so that the shortage is reported once a map rather than once a frame
 qboolean	r_reportedshort;
+qboolean	r_reportedrange;
 
 qboolean	r_dowarp, r_dowarpold, r_viewchanged;
 
@@ -302,6 +308,7 @@ void R_NewMap (void)
 	r_maxedgesseen = 0;
 	r_maxsurfsseen = 0;
 	r_reportedshort = false;
+	r_reportedrange = false;
 
 	r_numallocatededges = r_maxedges.value;
 
@@ -1156,6 +1163,29 @@ SetVisibilityByPassages ();
 		Con_Printf ("Geometry is being left undrawn. Raise r_maxsurfs (now %d) "
 					"and\nr_maxedges (now %d) and restart the map.\n",
 					(int)r_maxsurfs.value, (int)r_maxedges.value);
+	}
+
+//
+// A different failure, reported separately because the fix is different.
+//
+// R_EmitEdge drops an edge whose scanline index came out off the screen. That
+// is not the pool being too small, and raising r_maxedges does nothing for it
+// -- so it was wrong to count it as a shortage, which is what the first
+// version of this did: a handful of these read as "short 4 edges" against a
+// pool of 131072, and the advice that came with it was useless.
+//
+// A few per map is a seam. Thousands means the projection is producing values
+// the scanline arrays cannot hold, which is worth knowing about.
+//
+	if (!r_reportedrange && r_edgesoutofrange)
+	{
+		r_reportedrange = true;
+
+		Con_Printf ("\n%d edge(s) landed outside the %d scanlines the renderer "
+					"keeps and\nwere dropped -- usually a seam or two, not a "
+					"missing wall. This is not\nthe edge pool; r_maxedges "
+					"does not affect it.\n",
+					r_edgesoutofrange, MAXHEIGHT);
 	}
 
 // back to high floating-point precision

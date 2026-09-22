@@ -23,6 +23,9 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 
 mnode_t	*r_pefragtopnode;
 
+// so that running out is reported once a map, not once a leaf
+qboolean	r_reportedefrags;
+
 
 //===========================================================================
 
@@ -112,7 +115,22 @@ void R_SplitEntityOnNode (mnode_t *node)
 		ef = cl.free_efrags;
 		if (!ef)
 		{
-			Con_Printf ("Too many efrags!\n");
+		//
+		// Said once a map rather than once a leaf.
+		//
+		// This is reached from R_AddEfrags as it walks the tree, so one
+		// entity in an open room can print it a dozen times and a map that
+		// is genuinely out prints it hundreds of times in a frame -- which
+		// is what it did, scrolling anything useful off the console and
+		// leaving the impression of a crash rather than a limit.
+		//
+			if (!r_reportedefrags)
+			{
+				r_reportedefrags = true;
+				Con_Printf ("\nOut of efrags (%d). Entities are being left "
+							"undrawn in some\nleaves -- a torch that vanishes "
+							"as you walk past it is this.\n", MAX_EFRAGS);
+			}
 			return;		// no free fragments...
 		}
 		cl.free_efrags = cl.free_efrags->entnext;

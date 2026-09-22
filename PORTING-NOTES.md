@@ -838,6 +838,108 @@ Reproduced by building with the pools cut to 64 and 200 — most of e1m3's
 opening room renders black with the torches hanging in the void, which is what
 the report described.
 
+### `client.h`, `quakedef.h`, `net.h`, `server.h` — the rest of the 1996 sizes
+
+The frame pools were the visible half. Four more limits sit around them, and
+they fail in four different ways:
+
+`MAX_STATIC_ENTITIES` (128) is a `Host_Error` in `CL_ParseStatic` — the map
+stops loading and you land at the console. That one at least says something.
+
+`MAX_EFRAGS` (640) is not a count of entities. `R_AddEfrags` walks the BSP and
+links the entity into every leaf it touches, one efrag each, so a single torch
+in an open doorway takes several. Out of them, `R_SplitEntityOnNode` prints and
+returns: the entity is not drawn *in that leaf*, so it appears and disappears
+depending on where you stand. The print was inside the tree walk, which is why
+one starved map produced hundreds of identical lines a frame and scrolled
+everything else away. It is one line per map now.
+
+`MAX_VISEDICTS` (256) is the quietest. The callers test it and stop adding,
+with no counter and no message — entities past the 256th are simply absent.
+
+`MAX_EDICTS` (600, and id's comment on it was "FIXME: ouch! ouch! ouch!") is a
+`Sys_Error` from `ED_Alloc`: the map does not load at all. Nothing in the
+protocol required 600 — `SV_WriteEntitiesToClient` sets `U_LONGENTITY` and
+writes a short when the number needs one, so the wire format reaches 32767.
+
+The one that cannot move is `MAX_MODELS`, and `MAX_SOUNDS` with it. Those
+indices go out as bytes, in `svc_spawnbaseline` among others. 256 is the
+format, not a buffer.
+
+Raising the statics needed the buffers under them. Every static entity is
+written into `sv.signon` during `SV_SpawnServer`, alongside a baseline for
+every entity with a model, and `sv.signon` has `allowoverflow` clear — so
+`SZ_GetSpace` calls `Sys_Error`. Going past 128 statics with an 8192-byte
+signon buffer would have replaced a clean `Host_Error` with a hard exit.
+`MAX_MSGLEN` and `NET_MAXMESSAGE` grew with it. `Datagram_SendMessage` already
+splits a reliable message into `MAX_DATAGRAM` pieces behind a 32-bit length, so
+the fragmenting did not have to change — but `Loop_SendMessage`, which is what
+single player actually uses, appends into a fixed buffer and calls `Sys_Error`
+rather than refusing when the next message will not fit. `NET_MAXMESSAGE` is
+therefore two whole messages wide, which is the worst case with one reliable
+message in flight at a time.
+
+The signon buffer is what really caps the static entities, at 14 bytes each on
+top of 16 for every baseline. `SV_SpawnServer` measures it and says so when a
+map comes close, because the alternative is `SZ_GetSpace` calling `Sys_Error`
+about a buffer the reader has no reason to have heard of.
+
+Measured cost of all of it: 25.4 MB resident to 27.6 MB.
+
+### `r_draw.c`, `r_main.c` — two failures counted as one
+
+1.5.1 added a report for a frame that did not fit. It was wrong about one
+case. `r_outofedges` was incremented both where the edge pool is genuinely
+full and in the backstop that drops an edge whose scanline index came out
+off the screen — and only the first has anything to do with `r_maxedges`.
+
+A map that dropped six edges the second way reported "short 4 edges" against
+a pool of 131072, and told the reader to raise a number that was already two
+orders of magnitude larger than the frame needed. The backstop has its own
+counter now, and its own message, which says that `r_maxedges` is not the
+answer.
+
+### `snd_dma.c` — a null dereference when there is no sound card
+
+`S_Init` calls `S_Startup`, and `S_Startup` leaves `shm` NULL if `SNDDMA_Init`
+fails. Twenty lines later:
+
+```c
+	Con_Printf ("Sound sampling rate: %i\n", shm->speed);
+```
+
+`speed` is at offset 0x20, which is exactly where the fault lands. Any machine
+that cannot open a sound device gets a SIGSEGV during startup rather than a
+silent game — and the rest of the engine was always ready for a silent game,
+since `sound_started` stays false and every entry point tests it.
+
+It survived this port because the container always provides the fifo the
+backend writes to, so the failing branch was never taken. The smoke phase
+added for visual depth runs the engine without `QUAKE_AUDIO_FIFO`, which took
+it on the first try.
+
+### `docker/entrypoint.sh` — the colours did not survive the trip
+
+The renderer draws palette indices. `vid_x.c` can hand those to an 8-bit
+PseudoColor visual with the palette in a colormap, or translate each frame
+through `st2d_8to24table` into a deeper one. The container took the first,
+because it is what the renderer was written for and costs the engine nothing.
+
+Everything downstream paid for it. A colormap belongs to a window; there is no
+window manager here, so the engine installs its own; and x11vnc then has to
+walk the window tree, read that colormap and transform the whole screen
+through it (`-8to24`) to give the browser truecolour. That is the most
+expensive thing x11vnc does here — its own manual says the mode "does hog
+resources" — and when the mapping goes stale, which it does when the window it
+belongs to is replaced, the browser gets the right picture in the wrong 256
+colours with no way back short of reconnecting.
+
+At depth 24 none of that exists. Measured at 1024x768 with the engine's own
+`timerefresh`: 430 fps at depth 8, 360 at depth 24. The engine does more work
+and x11vnc does much less, and both figures are several times what a browser
+can display. `QUAKE_X_DEPTH=8` restores the old path, and the smoke suite
+starts the engine on whichever depth the run is not using so neither rots.
+
 ---
 
 ## New files

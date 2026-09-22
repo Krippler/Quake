@@ -85,10 +85,11 @@ bounds that the 1996 format kept in a short, and both layouts are read now.
 Two things to know. The maps built for the re-release carry entity keys the
 1996 QuakeC does not define (`alpha`, `fog`) — those are reported once each and
 ignored, which is the same thing id's engine did, just not several hundred
-times. And the renderer holds one frame's worth of geometry in fixed pools,
-which are sized for these maps now; if a frame still does not fit, the engine
-says so and names the two settings to raise rather than quietly leaving walls
-out of the picture.
+times. And these maps are far larger than anything id shipped, so the fixed
+sizes the engine keeps its world in — the frame pools, the entity tables, the
+edict array — are sized for them rather than for 1996. Where one of those
+still runs out, the engine says which and what to raise, instead of quietly
+leaving walls and torches out of the picture.
 
 The other BSP2 spelling, **2PSB** (the RMQ variant), is not read; the engine
 says so by name rather than printing a number.
@@ -152,8 +153,8 @@ Unraid users: the Community Applications template is
 docker build -t quake .
 ```
 
-Or without a container, if you have an 8-bit PseudoColor X display to point it
-at — which in practice means an Xvfb:
+Or without a container, pointed at any X display at depth 8 or 24 — which in
+practice means an Xvfb:
 
 ```
 make -C WinQuake            # -> WinQuake/linux/xquake

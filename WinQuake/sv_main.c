@@ -1193,6 +1193,25 @@ void SV_SpawnServer (char *server)
 // create a baseline for more efficient communications
 	SV_CreateBaseline ();
 
+//
+// Everything the client needs before it can spawn lives in sv.signon, and
+// Host_PreSpawn_f copies the whole of it into one reliable message. Two fixed
+// buffers therefore have to hold it, and neither of them fails kindly:
+// SZ_GetSpace calls Sys_Error because sv.signon has allowoverflow clear, and
+// the client message drops the client.
+//
+// A map big enough to reach this is a map this engine cannot serve, which is
+// worth saying in those words rather than as an allocator's complaint about a
+// buffer nobody has heard of.
+//
+	if (sv.signon.cursize > (int)sizeof(sv.signon_buf) - 512
+		|| sv.signon.cursize > MAX_MSGLEN - 2048)
+		Con_Printf ("\nWarning: this map fills %d bytes of the %d-byte signon "
+					"message.\nIt has more entities and static objects than "
+					"the protocol carries\ncomfortably, and a client may fail "
+					"to spawn.\n",
+					sv.signon.cursize, (int)sizeof(sv.signon_buf));
+
 // send serverinfo to all connected clients
 	for (i=0,host_client = svs.clients ; i<svs.maxclients ; i++, host_client++)
 		if (host_client->active)

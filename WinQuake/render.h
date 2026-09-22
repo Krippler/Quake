@@ -124,6 +124,10 @@ void R_InitSky (struct texture_s *mt);	// called at level load
 void R_AddEfrags (entity_t *ent);
 void R_RemoveEfrags (entity_t *ent);
 
+// set once a map when the efrag pool runs out, so it is said once rather than
+// once per leaf; cleared in CL_ClearState where the free list is rebuilt
+extern qboolean r_reportedefrags;
+
 void R_NewMap (void);
 
 

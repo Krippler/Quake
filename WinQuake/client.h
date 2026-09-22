@@ -92,7 +92,17 @@ typedef struct
 	vec3_t	start, end;
 } beam_t;
 
-#define	MAX_EFRAGS		640
+//
+// An entity is linked into every leaf it touches, one efrag each, so this is
+// not a count of entities: a single static torch in a doorway takes several.
+// id sized it for its own maps. A re-release map has hundreds of statics and
+// ran it dry, and the failure is quiet in the worst way -- R_SplitEntityOnNode
+// prints and returns, so the entity is simply not drawn in that leaf, which is
+// a torch that disappears when you walk past it.
+//
+// 32768 of them is 1 MB.
+//
+#define	MAX_EFRAGS		32768
 
 #define	MAX_MAPSTRING	2048
 #define	MAX_DEMOS		8
@@ -270,7 +280,20 @@ extern	cvar_t	m_side;
 
 
 #define	MAX_TEMP_ENTITIES	64			// lightning bolts, etc
-#define	MAX_STATIC_ENTITIES	128			// torches, etc
+
+//
+// Torches, flames, and anything else the progs calls makestatic() on. id's 128
+// was enough for id's maps; the machine campaigns in the re-release carry
+// several hundred, and going past this was a Host_Error that dropped you to
+// the console with the map half-loaded.
+//
+// 2048 of them is 400 KB in the client, and about 28 KB of the signon message
+// they travel in -- which is the real ceiling here, not the array. Each static
+// costs 14 bytes of signon and each entity with a model costs 16 more for its
+// baseline, against the 48000 that message holds. SV_SpawnServer says so
+// plainly if a map manages to exceed it.
+//
+#define	MAX_STATIC_ENTITIES	2048
 
 extern	client_state_t	cl;
 
@@ -303,7 +326,12 @@ void CL_Disconnect (void);
 void CL_Disconnect_f (void);
 void CL_NextDemo (void);
 
-#define			MAX_VISEDICTS	256
+//
+// How many entities the renderer will accept for one frame. Over the limit the
+// caller just stops adding, so the rest go undrawn -- the same silent drop as
+// the surface and edge pools, and just as invisible. A pointer each.
+//
+#define			MAX_VISEDICTS	4096
 extern	int				cl_numvisedicts;
 extern	entity_t		*cl_visedicts[MAX_VISEDICTS];
 

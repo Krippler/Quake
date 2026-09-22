@@ -227,6 +227,22 @@ void S_Init (void)
 		shm->buffer = Hunk_AllocName(1<<16, "shmbuf");
 	}
 
+//
+// S_Startup leaves shm NULL when the device would not open, and this line read
+// through it -- a null dereference at startup on any machine without working
+// sound. It is id's, from 1996, and it survived here because the container
+// always has somewhere to write; a smoke phase that ran the engine with no
+// audio fifo found it.
+//
+// The rest of the engine already copes: sound_started is false, and every
+// entry point tests it. So say so and stop, rather than crash or pretend.
+//
+	if (!shm)
+	{
+		Con_Printf ("Sound is off: no device. The game runs silent.\n");
+		return;
+	}
+
 	Con_Printf ("Sound sampling rate: %i\n", shm->speed);
 
 	// provides a tick sound until washed clean

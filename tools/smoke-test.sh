@@ -54,12 +54,21 @@ python3 "$here/tools/make-test-data.py" "$work" >/dev/null
 # screen resize -resizescreen does at startup is something this test can see
 # happen. An X server's maximum screen size is fixed when it starts, which is
 # why the container starts Xvfb at the largest mode rather than the one in use.
-say "starting Xvfb on $disp at 800x600x8"
+# The depth the container runs at by default. 8 is the other one the engine
+# supports, and QUAKE_SMOKE_DEPTH=8 runs the whole suite through it; the
+# last phase checks that path either way, so both stay covered.
+depth="${QUAKE_SMOKE_DEPTH:-24}"
+case "$depth" in
+    8|24) ;;
+    *) die "QUAKE_SMOKE_DEPTH: $depth is not 8 or 24" ;;
+esac
+
+say "starting Xvfb on $disp at 800x600x$depth"
 # -noreset, as the container's entrypoint passes: without it Xvfb resets the
 # server when the last client disconnects, and the second phase below -- which
 # connects after the first engine has exited -- lands in the middle of that
 # and cannot open the display at all.
-Xvfb "$disp" -screen 0 800x600x8 -nolisten tcp -noreset >"$work/xvfb.log" 2>&1 &
+Xvfb "$disp" -screen 0 "800x600x$depth" -nolisten tcp -noreset >"$work/xvfb.log" 2>&1 &
 xvfb_pid=$!
 
 cleanup() {
@@ -663,4 +672,48 @@ say "a stored path rather than a directory name was refused"
 
 rm -f "$work/nextgame"
 
-say "PASSED (console, a real map, and game directories)"
+# ---------------------------------------------------- phase four: the other depth
+#
+# The engine has two ways to reach the screen: write palette indices straight
+# into an 8-bit PseudoColor visual, or translate every frame through a table
+# into a deeper one. The container picks the second, which is why the suite
+# above runs at depth 24 -- but the first is still there, still reachable with
+# QUAKE_X_DEPTH=8, and nothing else exercises it.
+#
+# A whole second pass would double the run, so this is the cheap half: a
+# separate X server at the depth the suite is not using, and a check that the
+# engine gets as far as drawing the console on it.
+#
+other_depth=8
+[ "$depth" = "8" ] && other_depth=24
+say "phase four: depth $other_depth, the path the rest of this run did not take"
+
+odisp=":$(( ${disp#:} + 1 ))"
+Xvfb "$odisp" -screen 0 640x480x$other_depth -nolisten tcp -noreset \
+    >"$work/xvfb-other.log" 2>&1 &
+oxvfb_pid=$!
+i=0
+while [ ! -e "/tmp/.X11-unix/X${odisp#:}" ]; do
+    i=$((i + 1))
+    [ "$i" -gt 100 ] && die "Xvfb at depth $other_depth did not start"
+    sleep 0.1
+done
+
+DISPLAY="$odisp" "$engine" -basedir "$work" -width 640 -height 480 \
+    >"$work/quake-other.log" 2>&1 &
+game_pid=$!
+sleep 8
+if ! kill -0 "$game_pid" 2>/dev/null; then
+    kill "$oxvfb_pid" 2>/dev/null || true
+    die "the engine exited at depth $other_depth; see $work/quake-other.log"
+fi
+kill -TERM "$game_pid" 2>/dev/null || true
+wait "$game_pid" 2>/dev/null || true
+game_pid=""
+kill "$oxvfb_pid" 2>/dev/null || true
+
+grep -q "Console initialized" "$work/quake-other.log" \
+    || die "the engine did not reach the console at depth $other_depth"
+say "the engine reached the console at depth $other_depth too"
+
+say "PASSED (console, a real map, game directories, and both visual depths)"

@@ -28,7 +28,15 @@ struct qsockaddr
 
 #define	NET_NAMELEN			64
 
-#define NET_MAXMESSAGE		8192
+// Two full MAX_MSGLEN messages and their headers, because that is what the
+// loopback driver can be holding: Loop_SendMessage appends into this buffer
+// and calls Sys_Error rather than refusing if the next message will not fit.
+// One reliable message is in flight at a time (canSend gates it), so two is
+// the worst case. See quakedef.h for why MAX_MSGLEN grew.
+//
+// Two of these live in each qsocket_t, and the sockets come from the hunk,
+// one per client slot plus one.
+#define NET_MAXMESSAGE		131072
 #define NET_HEADERSIZE		(2 * sizeof(unsigned int))
 #define NET_DATAGRAMSIZE	(MAX_DATAGRAM + NET_HEADERSIZE)
 

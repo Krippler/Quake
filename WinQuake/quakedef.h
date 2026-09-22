@@ -103,13 +103,37 @@ void	VID_UnlockBuffer (void);
 
 #define	ON_EPSILON		0.1			// point on plane side epsilon
 
-#define	MAX_MSGLEN		8000		// max length of a reliable message
+//
+// The signon message is one reliable message, and it carries a baseline for
+// every entity with a model plus every static entity in the map. At id's sizes
+// that fits in 8000 bytes with room to spare. It does not fit for a re-release
+// map, and the failure is not a clean one: sv.signon has allowoverflow clear,
+// so SZ_GetSpace calls Sys_Error and the engine exits.
+//
+// Datagram_SendMessage already fragments a reliable message into MAX_DATAGRAM
+// pieces with a 32-bit length in the header, so nothing in the wire format
+// caps this -- only the buffers at each end, which are these two constants.
+// Both peers have to agree, which for this engine means both are this engine.
+//
+#define	MAX_MSGLEN		64000		// max length of a reliable message
 #define	MAX_DATAGRAM	1024		// max length of unreliable message
 
 //
 // per-level limits
 //
-#define	MAX_EDICTS		600			// FIXME: ouch! ouch! ouch!
+//
+// id's own comment here was "FIXME: ouch! ouch! ouch!", and 600 was tight for
+// id's maps -- ED_Alloc calls Sys_Error when it runs out, so a map with more
+// entities than this does not load at all.
+//
+// The wire format is not what limits it: an entity number goes out as a short
+// when it needs to (U_LONGENTITY), so the protocol reaches 32767. What limits
+// it is memory, and at 8192 that is cl_entities at 1.6 MB and the edicts
+// themselves at a few MB of hunk -- against a 192 MB heap.
+//
+// MAX_MODELS and MAX_SOUNDS below really are wire-format limits and stay.
+//
+#define	MAX_EDICTS		8192
 #define	MAX_LIGHTSTYLES	64
 #define	MAX_MODELS		256			// these are sent over the net as bytes
 #define	MAX_SOUNDS		256			// so they cannot be blindly increased

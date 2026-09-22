@@ -275,7 +275,9 @@ extern float		r_aliastransition, r_resfudge;
 
 extern int		r_outofsurfaces;
 extern int		r_outofedges;
+extern int		r_edgesoutofrange;
 extern qboolean	r_reportedshort;
+extern qboolean	r_reportedrange;
 
 extern mvertex_t	*r_pcurrentvertbase;
 extern int			r_maxvalidedgeoffset;
