@@ -792,11 +792,13 @@ void	VID_Init (unsigned char *palette)
 	}
 	else
 	{
-	// It still runs: st2_fixup and st3_fixup expand each frame through a
-	// lookup table built from the same palette. It costs a pass over every
-	// pixel, and the container does not need it, so say which one you got.
-		Con_Printf ("VID: depth %d visual; translating each frame from 8-bit.\n"
-					"     A depth 8 PseudoColor visual skips that.\n",
+	// st2_fixup and st3_fixup expand each frame through a lookup table built
+	// from the same palette, rebuilt whenever the palette changes -- which
+	// includes the damage flash and the underwater tint. It costs a pass over
+	// every pixel and no colormap at all, which is the trade the container
+	// wants: a colormap has to be read back out of the window by whatever is
+	// watching the screen, and that is where wrong-colour pictures came from.
+		Con_Printf ("VID: depth %d visual; translating each frame from 8-bit.\n",
 					x_visinfo->depth);
 	}
 

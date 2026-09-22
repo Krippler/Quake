@@ -517,6 +517,7 @@ r_refdef.viewangles[2]=    0;
 	r_amodels_drawn = 0;
 	r_outofsurfaces = 0;
 	r_outofedges = 0;
+	r_edgesoutofrange = 0;
 
 	D_SetupFrame ();
 }

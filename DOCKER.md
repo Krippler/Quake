@@ -242,7 +242,8 @@ starting stop the container rather than loop.
 
 | | | |
 | --- | --- | --- |
-| `QUAKE_VNC_8TO24` | `1` | `0` sends the picture as colour-mapped depth 8: 64 colours in a browser, not 256. A diagnostic, not a way to play |
+| `QUAKE_X_DEPTH` | `24` | Bit depth of the X screen. `8` uses the colour-mapped visual the renderer was written for: slightly cheaper in the engine, but the palette then has to survive a trip through x11vnc, which is where wrong-colour pictures came from |
+| `QUAKE_VNC_8TO24` | `1` | Only read at `QUAKE_X_DEPTH=8`. `0` sends the picture as colour-mapped depth 8: 64 colours in a browser, not 256. A diagnostic, not a way to play |
 | `QUAKE_VNC_WAIT` | `5` | x11vnc poll interval, ms |
 | `QUAKE_VNC_DEFER` | `5` | x11vnc update defer, ms |
 | `QUAKE_VNC_ARGS` | | Extra x11vnc options. Each must start with a dash, and the container checks — x11vnc answers an option it does not recognise by exiting, which leaves the game running and the browser saying "connection lost" with nothing to explain it |
@@ -480,6 +481,10 @@ processes exited. The container notices within a second and prints the reason
 from that process's own log. The usual cause is a `QUAKE_VNC_ARGS` value that
 x11vnc did not recognise.
 
-**Colours are wrong in a native VNC client.** Use the browser, or accept 64
-colours. The engine's palette is a private X colormap; x11vnc's `-8to24` reads
-it and presents truecolour, which is what the browser gets.
+**The whole picture is in the wrong colours.** Shapes right, palette wrong —
+magenta and teal where the walls should be brown. This was the 8-bit path: the
+engine's palette lived in a private X colormap, x11vnc read that colormap to
+build the truecolour picture the browser gets, and when the window it belonged
+to was replaced the mapping went stale with no way back short of reconnecting.
+The screen is depth 24 by default now, so there is no colormap in the path at
+all. If you have set `QUAKE_X_DEPTH=8`, this is the cost of it; unset it.

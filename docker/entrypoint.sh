@@ -603,14 +603,39 @@ config_size "$@"
 ##############################################################################
 # The display.
 #
-# Quake's software renderer only ever learned to talk to an 8-bit PseudoColor
-# visual -- it writes palette indices and uploads a colormap -- and no current
-# X server offers one. Xvfb still does, which is the whole reason the picture
-# goes through it rather than through something newer.
+# Quake's software renderer draws palette indices, so it needs either an 8-bit
+# PseudoColor visual with a writable colormap, or a deeper visual it can
+# translate into on the way out. It can do both; what differs is where the
+# palette lives.
+#
+# It used to run at depth 8, because that is what the renderer was written for
+# and it costs the engine nothing. The trouble is everything downstream. A
+# colormap belongs to a window, nothing here installs it but the engine itself,
+# and x11vnc has to find it, read it and transform the whole screen through it
+# (-8to24) for every client -- which its own manual says "does hog resources".
+# When that mapping goes stale, and it does when the window it belongs to is
+# replaced, the browser gets the right picture in the wrong 256 colours and
+# does not recover. That is the magenta-and-teal failure: not the game drawing
+# wrongly, the colours it drew with going missing in transit.
+#
+# At depth 24 there is no colormap anywhere. The engine translates each frame
+# through a table it rebuilds whenever the palette changes -- including the
+# damage flash and the underwater tint, which are palette changes -- and
+# x11vnc serves the screen as it finds it. Measured at 1024x768: 430 fps at
+# depth 8 against 360 at depth 24, and x11vnc stops doing its most expensive
+# piece of work. Both numbers are several times what a browser can show.
+#
+# QUAKE_X_DEPTH=8 puts it back, colormap and all.
 ##############################################################################
-log "starting Xvfb on $DISP at ${MAX_WIDTH}x${MAX_HEIGHT}x8, the largest mode the"
-log "  renderer can draw; the engine brings the screen down to ${WIDTH}x${HEIGHT}"
-Xvfb "$DISP" -screen 0 "${MAX_WIDTH}x${MAX_HEIGHT}x8" -nolisten tcp -noreset \
+X_DEPTH="${QUAKE_X_DEPTH:-24}"
+case "$X_DEPTH" in
+    8|24) ;;
+    *) die "QUAKE_X_DEPTH: '$X_DEPTH' is not 8 or 24" ;;
+esac
+
+log "starting Xvfb on $DISP at ${MAX_WIDTH}x${MAX_HEIGHT}x${X_DEPTH}, the largest mode"
+log "  the renderer can draw; the engine brings the screen down to ${WIDTH}x${HEIGHT}"
+Xvfb "$DISP" -screen 0 "${MAX_WIDTH}x${MAX_HEIGHT}x${X_DEPTH}" -nolisten tcp -noreset \
      >"$STATE/xvfb.log" 2>&1 &
 XVFB_PID=$!
 
@@ -639,17 +664,23 @@ else
 fi
 
 #
-# -8to24 is how a depth 8 display is presented as truecolor.
+# -8to24 is how a depth 8 display is presented as truecolor, and it only means
+# anything at depth 8.
 #
-# The engine creates its own colormap and installs it, because there is no
-# window manager here to do it -- but noVNC cannot use a colour map at all, and
-# at depth 8 it asks for two bits per channel, which is 64 colours out of
-# Quake's 256. -8to24 walks the window tree, reads each window's colormap and
-# transforms the screen, which is the most expensive thing x11vnc does here;
-# its own manual says the mode "does hog resources". Turning it off is a
-# diagnostic, not a way to play.
+# There, the engine creates its own colormap and installs it because no window
+# manager will -- but noVNC cannot use a colour map at all, and at depth 8 it
+# asks for two bits per channel, which is 64 colours out of Quake's 256.
+# -8to24 walks the window tree, reads each window's colormap and transforms the
+# screen. It is the most expensive thing x11vnc does here, its own manual says
+# the mode "does hog resources", and a window it read once and cannot re-read
+# is where the wrong-colours failure comes from.
 #
-if [ "${QUAKE_VNC_8TO24:-1}" = "0" ]; then
+# At depth 24 there is nothing to transform: the screen already carries real
+# colours, so the option is left off and the work does not happen.
+#
+if [ "$X_DEPTH" = "24" ]; then
+    vnc_8to24=""
+elif [ "${QUAKE_VNC_8TO24:-1}" = "0" ]; then
     log "  -8to24 off by request: the picture will show 64 colours, not 256"
     vnc_8to24=""
 else

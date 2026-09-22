@@ -68,7 +68,7 @@ typedef struct
 	byte		reliable_datagram_buf[MAX_DATAGRAM];
 
 	sizebuf_t	signon;
-	byte		signon_buf[8192];
+	byte		signon_buf[48000];	// baselines and statics; see MAX_MSGLEN
 } server_t;
 
 

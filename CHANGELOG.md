@@ -5,6 +5,95 @@ top section's heading is what the release workflow reads: `## [X.Y.Z] — DATE`
 on the default branch publishes that version, `## [Unreleased]` publishes only
 `edge`.
 
+## [1.6.0] — 2026-09-22
+
+### Fixed
+
+- **The machine campaigns hit four more limits from 1996, and three of them
+  were silent.** Reported against 1.5.1 as errors and wrong colours on MG1,
+  and missing geometry on MG3.
+
+  - **Static entities.** `MAX_STATIC_ENTITIES` was 128 — torches, flames,
+    anything the progs calls `makestatic()` on. The machine maps carry several
+    hundred, and going over it was a `Host_Error` that dropped you to the
+    console with the map half-loaded. Now 2048.
+
+  - **Efrags.** `MAX_EFRAGS` was 640. An entity is linked into every leaf it
+    touches, one efrag each, so this is not a count of entities: one static
+    torch in a doorway takes several. Out of them, `R_SplitEntityOnNode`
+    printed and returned, so the entity was not drawn in that leaf — a torch
+    that vanishes as you walk past it. And it printed *per leaf*, which is
+    where the flood of identical lines came from. Now 32768, and said once per
+    map.
+
+  - **Visible entities.** `MAX_VISEDICTS` was 256. Past it the renderer simply
+    stopped accepting entities for the frame, with nothing said — the same
+    silent drop as the surface and edge pools in 1.5.1, and just as invisible.
+    Now 4096.
+
+  - **Edicts.** `MAX_EDICTS` was 600, with id's own comment reading "FIXME:
+    ouch! ouch! ouch!". `ED_Alloc` calls `Sys_Error` when it runs out, so a map
+    with more entities than that does not load at all. The wire format was
+    never the limit — an entity number goes out as a short when it needs to —
+    so it is 8192 now.
+
+  Static entities travel in the signon message, so raising the first of these
+  without the buffers under it would have turned a clean `Host_Error` into a
+  `Sys_Error` from `SZ_GetSpace`. The signon buffer is 48000 bytes and
+  `MAX_MSGLEN` 64000 to carry it; `NET_MAXMESSAGE` is 131072, which is two of
+  those, because `Loop_SendMessage` appends into that buffer and calls
+  `Sys_Error` rather than refusing when the next message will not fit.
+  `Datagram_SendMessage` already fragments a reliable message, so nothing in
+  the protocol had to change. All of it together costs 2.1 MB resident,
+  measured at 25.4 MB to 27.6 MB.
+
+  The signon message is the real ceiling on static entities — 14 bytes each,
+  plus 16 per entity with a model — which is why that one is 2048 rather than
+  larger. `SV_SpawnServer` now says so in those words if a map comes close,
+  instead of leaving it to an allocator complaining about a buffer nobody has
+  heard of.
+
+  `MAX_MODELS` and `MAX_SOUNDS` stay at 256. Those really are wire-format
+  limits — the indices go out as bytes.
+
+- **The engine crashed at startup on a machine with no sound.** `S_Startup`
+  leaves `shm` NULL when the device will not open, and the next line in
+  `S_Init` read `shm->speed` through it — a null dereference, from 1996, in
+  every build of this engine including 1.5.1. It never showed here because the
+  container always has somewhere to write audio; a new smoke phase that runs
+  the engine with no audio fifo found it. It now says sound is off and plays
+  silent, which is what the rest of the engine was already prepared for.
+
+- **"Short 4 edges" against a pool of 131072.** The shortage report added in
+  1.5.1 counted two different failures as one. Edges dropped because the frame
+  pool was full share a counter with edges dropped because a scanline index
+  came out off the screen, and only the first is what `r_maxedges` controls —
+  so a handful of the second read as a pool shortage and the advice that came
+  with it was useless. They are counted and reported separately now, and the
+  second says plainly that `r_maxedges` does not affect it.
+
+### Changed
+
+- **The X screen is depth 24, not depth 8.** The software renderer draws
+  palette indices, and it can either write them into an 8-bit colour-mapped
+  visual or translate each frame into a deeper one. It was doing the first.
+
+  That put the palette in a private X colormap, which x11vnc then had to find,
+  read, and transform the whole screen through (`-8to24`) for every client —
+  the most expensive thing it did here, and a mode its own manual says "does
+  hog resources". When that mapping went stale, which happens when the window
+  it belongs to is replaced, the browser got the right picture in the wrong
+  256 colours and did not recover. That is the magenta-and-teal screen: not
+  the game drawing wrongly, the colours it drew with going missing in transit.
+
+  At depth 24 there is no colormap anywhere in the path. Measured at 1024x768:
+  430 fps at depth 8 against 360 at depth 24, and x11vnc stops doing its most
+  expensive piece of work — both numbers several times what a browser can
+  show. `QUAKE_X_DEPTH=8` puts the old path back.
+
+  The smoke suite runs at depth 24 now, with a phase that starts the engine on
+  the other depth so both stay covered.
+
 ## [1.5.1] — 2026-09-22
 
 ### Fixed

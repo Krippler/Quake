@@ -267,7 +267,7 @@ void R_EmitEdge (mvertex_t *pv0, mvertex_t *pv1)
 	if (v < 0 || v >= MAXHEIGHT || v2 < 0 || v2 >= MAXHEIGHT)
 	{
 		edge_p--;			// hand the edge back
-		r_outofedges++;
+		r_edgesoutofrange++;
 		return;
 	}
 
