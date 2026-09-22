@@ -948,6 +948,20 @@ thing that gets blamed on the map. 65536 is the default and also a clamp, with
 a line printed if it is exceeded — necessary because the shortage message
 itself tells the reader to raise `r_maxsurfs`.
 
+### `r_main.c` — a `fog` command that draws no fog
+
+Every re-release map sets fog through the progs on every level load, and this
+engine has no such command, so every level load printed `Unknown command
+"fog"`. The map is not at fault: fog arrived with GLQuake, and the software
+renderer writes palette indices into an 8-bit buffer, so there is nowhere to
+put a per-distance blend short of rebuilding the colormap every frame.
+
+The command exists now and takes what it is given. It keeps the values, so
+`fog` with no arguments reports them the way the engines that do render it
+report them, and says there that nothing is drawn from them. Reporting an
+error once per level for a feature the engine was never going to have is worse
+than silence; saying nothing at all, when asked directly, would be worse again.
+
 ### `d_surf.c` — the icon in the corner was the whole story
 
 `SCR_DrawRam` draws `scr_ram` at the top left of the view whenever

@@ -5,6 +5,30 @@ top section's heading is what the release workflow reads: `## [X.Y.Z] — DATE`
 on the default branch publishes that version, `## [Unreleased]` publishes only
 `edge`.
 
+## [1.6.3] — 2026-09-22
+
+### Added
+
+- **A `fog` command, so the re-release maps stop reporting an error for
+  something that is not wrong.** Every one of them sets fog through the progs on
+  every level load, and this engine has none, so every level load printed
+  `Unknown command "fog"`.
+
+  Fog arrived with GLQuake. A renderer that writes palette indices into an
+  8-bit buffer has nowhere to put it — the blend would have to happen in the
+  colormap, per distance, per frame. So the command exists, takes the arguments
+  it is given, and keeps them: `fog` with no arguments reports the values and
+  says once that nothing is drawn from them. An error for a thing the engine was
+  never going to do is worse than silence.
+
+### Fixed
+
+- **`-nosound` printed `Unknown command "volume"` and then lost the setting.**
+  The sound cvars were registered after the `-nosound` early return, but
+  `config.cfg` sets `volume` and `bgmvolume` whether or not there is sound — so
+  turning sound off for one run silently reset them for the next. They are
+  registered before the return now.
+
 ## [1.6.2] — 2026-09-22
 
 ### Fixed

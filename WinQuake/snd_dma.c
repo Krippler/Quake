@@ -172,18 +172,14 @@ void S_Init (void)
 
 	Con_Printf("\nSound Initialization\n");
 
-	if (COM_CheckParm("-nosound"))
-		return;
-
-	if (COM_CheckParm("-simsound"))
-		fakedma = true;
-
-	Cmd_AddCommand("play", S_Play);
-	Cmd_AddCommand("playvol", S_PlayVol);
-	Cmd_AddCommand("stopsound", S_StopAllSoundsC);
-	Cmd_AddCommand("soundlist", S_SoundList);
-	Cmd_AddCommand("soundinfo", S_SoundInfo_f);
-
+//
+// The cvars are registered before -nosound is honoured, not after.
+//
+// config.cfg sets volume and bgmvolume like any other setting, and it is
+// exec'd whether or not there is sound. Registering these only on the sound
+// path meant -nosound printed Unknown command "volume" and then lost the
+// setting, so turning sound off for one run silently reset it for the next.
+//
 	Cvar_RegisterVariable(&nosound);
 	Cvar_RegisterVariable(&volume);
 	Cvar_RegisterVariable(&precache);
@@ -195,6 +191,18 @@ void S_Init (void)
 	Cvar_RegisterVariable(&snd_noextraupdate);
 	Cvar_RegisterVariable(&snd_show);
 	Cvar_RegisterVariable(&_snd_mixahead);
+
+	if (COM_CheckParm("-nosound"))
+		return;
+
+	if (COM_CheckParm("-simsound"))
+		fakedma = true;
+
+	Cmd_AddCommand("play", S_Play);
+	Cmd_AddCommand("playvol", S_PlayVol);
+	Cmd_AddCommand("stopsound", S_StopAllSoundsC);
+	Cmd_AddCommand("soundlist", S_SoundList);
+	Cmd_AddCommand("soundinfo", S_SoundInfo_f);
 
 	if (host_parms.memsize < 0x800000)
 	{
