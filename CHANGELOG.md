@@ -5,6 +5,40 @@ top section's heading is what the release workflow reads: `## [X.Y.Z] — DATE`
 on the default branch publishes that version, `## [Unreleased]` publishes only
 `edge`.
 
+## [Unreleased]
+
+### Fixed
+
+- **Half a level could be missing from the view, silently.** The renderer holds
+  one frame's worth of geometry in two fixed pools, and id sized them for
+  320x200 and for id's own maps: 800 surfaces and 2400 edges, which the whole
+  shareware episode peaks at 458 and 1162 of. Past the limit `R_RenderFace` and
+  `R_RenderBmodelFace` stop emitting and the geometry is simply not drawn.
+
+  A map built for the Quake re-release has far more in view at once than
+  anything from 1996, so the machine campaigns ran the pools dry and walls went
+  missing. The defaults are 32768 surfaces and 131072 edges now, which moves
+  them off the stack and onto the hunk — about 10 MB, measured as 15.7 MB to
+  25.7 MB resident. The heap they come from went from 64 MB to 192 MB; that is
+  one malloc whose untouched pages are never resident, so the virtual size grows
+  and the footprint does not.
+
+- **And it said nothing while doing it.** The two counters that notice a short
+  frame were behind `r_reportsurfout` and `r_reportedgeout`, both off by
+  default, so the only symptom was geometry missing from the picture with
+  nothing anywhere to connect it to a limit. It is reported once per map now,
+  with the current values and the names to raise:
+
+  ```
+  This frame did not fit: short 137 surface(s) and roughly 0 edge(s).
+  Geometry is being left undrawn. Raise r_maxsurfs (now 64) and
+  r_maxedges (now 200) and restart the map.
+  ```
+
+  Reproduced by building an engine with the pools cut to 64 and 200 and
+  rendering e1m3: most of the room is black, torches hanging in the void. The
+  same view with the new defaults draws the room complete.
+
 ## [1.5.0] — 2026-09-21
 
 ### Added

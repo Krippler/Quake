@@ -712,9 +712,15 @@ int main (int c, char **v)
 // model, edict and surface caches is twice the width it was, and the hunk is
 // where all of them live. The high end of the same hunk holds the z-buffer
 // and the surface cache, which at 1920x1200 are 12 MB between them where at
-// 320x200 they were under a megabyte. 64 MB is still small enough to be
-// uninteresting; -mem <megabytes> overrides it either way.
-	parms.memsize = 64*1024*1024;
+// 320x200 they were under a megabyte.
+//
+// 64 MB covered that until BSP2. A map built for the Quake re-release is far
+// larger than anything from 1996, and the render pools that hold a frame of it
+// grew to match -- about 10 MB of surfaces and edges now. Nothing here is
+// touched until it is used: the block is one malloc, and Memory_Init only
+// records where it starts, so the pages a small map never reaches are never
+// resident. -mem <megabytes> overrides it either way.
+	parms.memsize = 192*1024*1024;
 
 	j = COM_CheckParm("-mem");
 	if (j && j < com_argc-1)

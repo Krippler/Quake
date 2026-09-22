@@ -38,6 +38,9 @@ float		r_aliasuvscale = 1.0;
 int			r_outofsurfaces;
 int			r_outofedges;
 
+// so that the shortage is reported once a map rather than once a frame
+qboolean	r_reportedshort;
+
 qboolean	r_dowarp, r_dowarpold, r_viewchanged;
 
 int			numbtofpolys;
@@ -214,8 +217,28 @@ void R_Init (void)
 	Cvar_RegisterVariable (&r_aliastransbase);
 	Cvar_RegisterVariable (&r_aliastransadj);
 
-	Cvar_SetValue ("r_maxedges", (float)NUMSTACKEDGES);
-	Cvar_SetValue ("r_maxsurfs", (float)NUMSTACKSURFACES);
+//
+// How much of a frame the renderer can hold at once.
+//
+// id sized these for 320x200 and for its own maps: 800 surfaces and 2400
+// edges, which the shareware episode peaks at 458 and 1162 of. The pools are
+// per frame, not per map, so what matters is how much is visible at once --
+// and a map built for the Quake re-release has far more of that in view than
+// anything from 1996. Past the limit R_RenderFace and R_RenderBmodelFace stop
+// emitting, so the geometry is simply not drawn, which is what "half the level
+// is missing" looks like.
+//
+// Raised to cover those. The arrays move off the stack and onto the hunk above
+// NUMSTACKSURFACES and NUMSTACKEDGES, which is what those two constants are
+// for; this costs about 2.8 MB of surfaces and 7.3 MB of edges, against a heap
+// that is now large enough for the maps that need them. r_maxsurfs and
+// r_maxedges still set it for anyone who wants it smaller.
+//
+#define	DEFAULT_MAXSURFS	32768
+#define	DEFAULT_MAXEDGES	131072
+
+	Cvar_SetValue ("r_maxedges", (float)DEFAULT_MAXEDGES);
+	Cvar_SetValue ("r_maxsurfs", (float)DEFAULT_MAXSURFS);
 
 	view_clipplanes[0].leftedge = true;
 	view_clipplanes[1].rightedge = true;
@@ -278,6 +301,7 @@ void R_NewMap (void)
 
 	r_maxedgesseen = 0;
 	r_maxsurfsseen = 0;
+	r_reportedshort = false;
 
 	r_numallocatededges = r_maxedges.value;
 
@@ -1113,6 +1137,26 @@ SetVisibilityByPassages ();
 
 	if (r_reportedgeout.value && r_outofedges)
 		Con_Printf ("Short roughly %d edges\n", r_outofedges * 2 / 3);
+
+//
+// Running short is not a detail to leave to a cvar nobody sets.
+//
+// The two reports above are off by default, so a frame that could not hold all
+// its geometry dropped it and said nothing -- the only symptom was walls
+// missing from the view, with nothing anywhere to connect that to a limit.
+// Said once per map, with the name of the thing to raise.
+//
+	if (!r_reportedshort && (r_outofsurfaces || r_outofedges))
+	{
+		r_reportedshort = true;
+
+		Con_Printf ("\nThis frame did not fit: short %d surface(s) and "
+					"roughly %d edge(s).\n", r_outofsurfaces,
+					r_outofedges * 2 / 3);
+		Con_Printf ("Geometry is being left undrawn. Raise r_maxsurfs (now %d) "
+					"and\nr_maxedges (now %d) and restart the map.\n",
+					(int)r_maxsurfs.value, (int)r_maxedges.value);
+	}
 
 // back to high floating-point precision
 	Sys_HighFPPrecision ();

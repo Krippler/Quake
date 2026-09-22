@@ -85,9 +85,10 @@ bounds that the 1996 format kept in a short, and both layouts are read now.
 Two things to know. The maps built for the re-release carry entity keys the
 1996 QuakeC does not define (`alpha`, `fog`) — those are reported once each and
 ignored, which is the same thing id's engine did, just not several hundred
-times. And the re-release campaigns are far larger than anything from 1996, so
-where they exceed what the software renderer keeps in fixed pools the result is
-dropped geometry rather than a clean failure.
+times. And the renderer holds one frame's worth of geometry in fixed pools,
+which are sized for these maps now; if a frame still does not fit, the engine
+says so and names the two settings to raise rather than quietly leaving walls
+out of the picture.
 
 The other BSP2 spelling, **2PSB** (the RMQ variant), is not read; the engine
 says so by name rather than printing a number.
