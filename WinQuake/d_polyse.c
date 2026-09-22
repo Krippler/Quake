@@ -168,6 +168,11 @@ void D_PolysetDrawFinalVerts (finalvert_t *fv, int numverts)
 				*zbuf = z;
 				pix = skintable[fv->v[3]>>16][fv->v[2]>>16];
 				pix = ((byte *)acolormap)[pix + (fv->v[4] & 0xFF00) ];
+			// the lone vertices a thin triangle leaves behind, fogged with
+			// the same table as the spans around them
+				if (r_fogenabled)
+					pix = r_fogmap[R_FOGLEVEL(z > 0 ? 32768.0 / z
+													: FOG_DIST_ENTRIES * FOG_DIST_UNIT)][pix];
 				d_viewbuffer[d_scantable[fv->v[1]] + fv->v[0]] = pix;
 			}
 		}
@@ -377,6 +382,11 @@ split:
 		
 		*zbuf = z;
 		pix = d_pcolormap[skintable[new[3]>>16][new[2]>>16]];
+	// the subdivided path, used for models close enough to be drawn a point
+	// at a time; same table as the spans
+		if (r_fogenabled)
+			pix = r_fogmap[R_FOGLEVEL(z > 0 ? 32768.0 / z
+											: FOG_DIST_ENTRIES * FOG_DIST_UNIT)][pix];
 		d_viewbuffer[d_scantable[new[1]] + new[0]] = pix;
 	}
 
@@ -620,6 +630,7 @@ void D_PolysetDrawSpans8 (spanpackage_t *pspanpackage)
 	int		llight;
 	int		lzi;
 	short	*lpz;
+	byte	*lfogrow;
 
 	do
 	{
@@ -646,11 +657,29 @@ void D_PolysetDrawSpans8 (spanpackage_t *pspanpackage)
 			llight = pspanpackage->light;
 			lzi = pspanpackage->zi;
 
+		//
+		// Fog for a model is per span rather than per pixel. The z-buffer here
+		// holds zi * 0x8000 with zi = 1/z (see D_DrawZSpans), so the distance
+		// is a division -- and a monster is small enough on screen that doing
+		// it once a span rather than 30 times across one costs nothing you can
+		// see. lfogrow stays NULL when the map has no fog.
+		//
+			lfogrow = NULL;
+			if (r_fogenabled)
+			{
+				int		zb = lzi >> 16;
+
+				lfogrow = r_fogmap[R_FOGLEVEL(zb > 0 ? 32768.0 / zb
+													 : FOG_DIST_ENTRIES * FOG_DIST_UNIT)];
+			}
+
 			do
 			{
 				if ((lzi >> 16) >= *lpz)
 				{
 					*lpdest = ((byte *)acolormap)[*lptex + (llight & 0xFF00)];
+					if (lfogrow)
+						*lpdest = lfogrow[*lpdest];
 // gel mapping					*lpdest = gelmap[*lpdest];
 					*lpz = lzi >> 16;
 				}

@@ -7,6 +7,35 @@ on the default branch publishes that version, `## [Unreleased]` publishes only
 
 ## [Unreleased]
 
+### Added
+
+- **Fog is drawn.** 1.6.3 added a `fog` command that accepted the re-release
+  maps' settings and did nothing with them. It draws them now.
+
+  Fog arrived with GLQuake, where it is a blend the hardware does per pixel
+  between the fragment's colour and the fog colour. This renderer has no
+  colours to blend — it writes palette indices, and the only way to darken or
+  tint one has always been a table saying what some other index looks like.
+  That is exactly what `gfx/colormap.lmp` is: 64 rows of "this index at this
+  light level is that index". So fog is another such table, built the same way
+  and used the same way — 32 rows, one per depth band, each saying what every
+  palette index becomes blended that far toward the fog colour.
+
+  Depth comes from the `1/z` the drawers already carry, sampled where they
+  already recompute it: every eight pixels for a world span, per span for a
+  model or a sprite, per particle. All of them go through the same table —
+  walls, water, brush models, monsters, the view weapon, sprites, particles
+  and the lone vertices the subdivided model path leaves behind — so nothing
+  stands out unfogged against a fogged scene.
+
+  **It costs nothing measurable.** Timed with the engine's own `timerefresh` at
+  1024x768, three runs each: 497/420/466 fps without fog against 480/467/408
+  with it. The table lookup disappears into memory traffic that was already
+  there. With no fog set the drawers take the same path they always did.
+
+  Index 255 maps to itself at every level, since it is the transparency index
+  in skins and sprites and a fogged monster should not grow a fogged outline.
+
 ### Fixed
 
 - **A sky texture that is not exactly 256x128 was read as garbage.** `R_InitSky`

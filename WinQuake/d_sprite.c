@@ -21,6 +21,7 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 // sprites
 
 #include "quakedef.h"
+#include "r_local.h"
 #include "d_local.h"
 
 static int		sprite_height;
@@ -36,6 +37,7 @@ D_SpriteDrawSpans
 */
 void D_SpriteDrawSpans (sspan_t *pspan)
 {
+	byte			*fogrow;
 	int			count, spancount, izistep;
 	int			izi;
 	byte		*pbase, *pdest;
@@ -158,6 +160,16 @@ void D_SpriteDrawSpans (sspan_t *pspan)
 				}
 			}
 
+		// one row for the run; izi >> 16 is the z-buffer value, zi * 0x8000
+			fogrow = NULL;
+			if (r_fogenabled)
+			{
+				int		zb = izi >> 16;
+
+				fogrow = r_fogmap[R_FOGLEVEL(zb > 0 ? 32768.0 / zb
+													: FOG_DIST_ENTRIES * FOG_DIST_UNIT)];
+			}
+
 			do
 			{
 				btemp = *(pbase + (s >> 16) + (t >> 16) * cachewidth);
@@ -166,7 +178,7 @@ void D_SpriteDrawSpans (sspan_t *pspan)
 					if (*pz <= (izi >> 16))
 					{
 						*pz = izi >> 16;
-						*pdest = btemp;
+						*pdest = fogrow ? fogrow[btemp] : btemp;
 					}
 				}
 

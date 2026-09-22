@@ -280,6 +280,32 @@ extern qboolean	r_reportedshort;
 extern qboolean	r_reportedrange;
 extern qboolean	r_reportedbmodel;
 
+//
+// Fog. FOG_LEVELS rows of "this palette index, blended this far toward the fog
+// colour, looks like that one" -- the same shape as gfx/colormap.lmp, and used
+// the same way. r_fogdistmap turns a world distance into a row so the span
+// drawers do not call exp().
+//
+#define	FOG_LEVELS			32
+#define	FOG_DIST_UNIT		8		// world units per r_fogdistmap entry
+#define	FOG_DIST_ENTRIES	512		// so 4096 units before it saturates
+
+extern qboolean	r_fogenabled;
+extern byte		r_fogmap[FOG_LEVELS][256];
+extern byte		r_fogdistmap[FOG_DIST_ENTRIES];
+
+void R_BuildFogMap (void);
+void R_FogClear (void);
+
+//
+// Depth to fog row. d is in world units. Written here so the drawers all agree
+// and so it stays one shift and two loads in the loop.
+//
+#define	R_FOGLEVEL(d)	r_fogdistmap[((d) < 0) ? 0 : \
+							(((int)((d) * (1.0/FOG_DIST_UNIT)) >= FOG_DIST_ENTRIES) \
+								? FOG_DIST_ENTRIES-1 \
+								: (int)((d) * (1.0/FOG_DIST_UNIT)))]
+
 extern mvertex_t	*r_pcurrentvertbase;
 extern int			r_maxvalidedgeoffset;
 

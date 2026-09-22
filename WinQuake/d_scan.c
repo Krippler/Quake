@@ -97,6 +97,9 @@ void D_WarpScreen (void)
 D_DrawTurbulent8Span
 =============
 */
+// set by Turbulent8 for each run, NULL when the map has no fog
+byte	*r_turb_fogrow;
+
 void D_DrawTurbulent8Span (void)
 {
 	int		sturb, tturb;
@@ -105,7 +108,11 @@ void D_DrawTurbulent8Span (void)
 	{
 		sturb = ((r_turb_s + r_turb_turb[(r_turb_t>>16)&(CYCLE-1)])>>16)&63;
 		tturb = ((r_turb_t + r_turb_turb[(r_turb_s>>16)&(CYCLE-1)])>>16)&63;
-		*r_turb_pdest++ = *(r_turb_pbase + (tturb<<6) + sturb);
+		if (r_turb_fogrow)
+			*r_turb_pdest++ =
+					r_turb_fogrow[*(r_turb_pbase + (tturb<<6) + sturb)];
+		else
+			*r_turb_pdest++ = *(r_turb_pbase + (tturb<<6) + sturb);
 		r_turb_s += r_turb_sstep;
 		r_turb_t += r_turb_tstep;
 	} while (--r_turb_spancount > 0);
@@ -235,6 +242,13 @@ void Turbulent8 (espan_t *pspan)
 
 			r_turb_s = r_turb_s & ((CYCLE<<16)-1);
 			r_turb_t = r_turb_t & ((CYCLE<<16)-1);
+
+		// water fogs like any other surface; z is the depth at the far end of
+		// this run, as in D_DrawSpans8
+			if (r_fogenabled)
+				r_turb_fogrow = r_fogmap[R_FOGLEVEL(z * (1.0/0x10000))];
+			else
+				r_turb_fogrow = NULL;
 
 			D_DrawTurbulent8Span ();
 
@@ -367,12 +381,38 @@ void D_DrawSpans8 (espan_t *pspan)
 				}
 			}
 
-			do
+		//
+		// z here is the depth at the far end of this eight-pixel run, already
+		// divided out for the texture step above -- so fog costs one table
+		// lookup per run rather than any arithmetic of its own. Eight pixels
+		// of wall is a few world units at any distance fog is visible over.
+		//
+		// The branch is per run, not per pixel, and predicts perfectly: fog is
+		// either on for the whole frame or off for it.
+		//
+			if (r_fogenabled)
 			{
-				*pdest++ = *(pbase + (s >> 16) + (t >> 16) * cachewidth);
-				s += sstep;
-				t += tstep;
-			} while (--spancount > 0);
+				byte	*fogrow;
+
+				fogrow = r_fogmap[R_FOGLEVEL(z * (1.0/0x10000))];
+
+				do
+				{
+					*pdest++ = fogrow[*(pbase + (s >> 16) +
+										(t >> 16) * cachewidth)];
+					s += sstep;
+					t += tstep;
+				} while (--spancount > 0);
+			}
+			else
+			{
+				do
+				{
+					*pdest++ = *(pbase + (s >> 16) + (t >> 16) * cachewidth);
+					s += sstep;
+					t += tstep;
+				} while (--spancount > 0);
+			}
 
 			s = snext;
 			t = tnext;
