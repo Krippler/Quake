@@ -5,6 +5,30 @@ top section's heading is what the release workflow reads: `## [X.Y.Z] — DATE`
 on the default branch publishes that version, `## [Unreleased]` publishes only
 `edge`.
 
+## [Unreleased]
+
+### Fixed
+
+- **A grate showed its holes up close and went solid at a distance.** 1.8.1
+  made index 255 see-through, but only the first mip level of a fence texture
+  has any. The smaller levels were built by the texture tool, which averages
+  each block of texels into one colour and has no idea 255 means "not here" —
+  so in them the holes are filled with a blend of the bars and 255's pink,
+  which comes out a flat tan. The renderer switches to those levels as a
+  surface gets farther away or more oblique, so a grate snapped between
+  see-through and a solid sheet as you walked toward it or turned.
+
+  Those levels are now rebuilt from the first one as the map loads. Each texel
+  of a smaller level is a hole if more than half the block it covers is, and
+  otherwise takes the most common solid colour in that block — a colour
+  already in the texture, so fullbright texels stay fullbright and nothing
+  needs a palette search.
+
+  Measured with a fence whose holes are only in its first level, the way the
+  tools leave them, counting pixels that show what is behind it: forcing the
+  second-smallest level with `d_mipcap 2` gave 1082 before and 30972 after,
+  against 31746 at full detail. Only fence textures are touched.
+
 ## [1.8.1] — 2026-09-22
 
 ### Fixed

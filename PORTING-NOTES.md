@@ -995,6 +995,16 @@ Measured with a common shareware wall texture turned into a fence, so about a
 third of the view is masked, at 1024x768: 507/552/543 fps without the pass
 against 465/477/429 with it. A frame containing no fence never enters it.
 
+The first release of this missed something the test could not show. The test
+fence had holes punched into all four mip levels by hand; a real one has them
+only in the first. Texture tools build the smaller levels by averaging, which
+turns a hole into a tan blend of bar and pink, so in the maps a grate went
+solid as soon as it was far or oblique enough to drop a level.
+`Mod_RebuildFenceMips` rebuilds those levels at load from level 0: a texel is
+a hole if more than half its block is, otherwise the block's most common solid
+colour. The test that should have caught it is `d_mipcap 2`, which forces the
+smaller levels everywhere.
+
 What this does not get you is partial transparency. An 8-bit palette has no
 alpha; there is one index that means "not here" and no index that means "half
 here". A texel is a hole or it is opaque.
