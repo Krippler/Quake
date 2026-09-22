@@ -829,6 +829,29 @@ void ED_ResetUnknownFields (void)
 	ed_suppressed = 0;
 }
 
+//
+// Keys this engine recognises but cannot honour, which is a different thing
+// from a key it has never heard of. Saying "not a field" about a skybox tells
+// the reader nothing; saying the map asked for one and this renderer has no
+// skyboxes tells them exactly what they are looking at.
+//
+static struct
+{
+	char	*name;
+	char	*why;
+} ed_knownunsupported[] =
+{
+	{"sky",			"a skybox, which this renderer has none of -- the map's "
+					"own sky texture is\ndrawn instead"},
+	{"skyname",		"a skybox, which this renderer has none of -- the map's "
+					"own sky texture is\ndrawn instead"},
+	{"skybox",		"a skybox, which this renderer has none of -- the map's "
+					"own sky texture is\ndrawn instead"},
+	{"skyfog",		"fog over the sky, which is not drawn; the sky is left "
+					"unfogged"},
+	{NULL, NULL}
+};
+
 void ED_ReportUnknownField (char *keyname)
 {
 	int		i;
@@ -837,6 +860,16 @@ void ED_ReportUnknownField (char *keyname)
 		if (!Q_strcmp (ed_reported[i], keyname))
 		{
 			ed_suppressed++;
+			return;
+		}
+
+	for (i = 0; ed_knownunsupported[i].name; i++)
+		if (!Q_strcmp (ed_knownunsupported[i].name, keyname))
+		{
+			if (ed_numreported < MAX_REPORTED_FIELDS)
+				strcpy (ed_reported[ed_numreported++], keyname);
+
+			Con_Printf ("\nThis map asks for %s.\n", ed_knownunsupported[i].why);
 			return;
 		}
 

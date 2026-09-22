@@ -5,6 +5,29 @@ top section's heading is what the release workflow reads: `## [X.Y.Z] — DATE`
 on the default branch publishes that version, `## [Unreleased]` publishes only
 `edge`.
 
+## [Unreleased]
+
+### Added
+
+- **A map asking for a skybox now says so.** The re-release maps set a `sky`
+  key on worldspawn naming a six-sided skybox, which arrived with GLQuake and
+  which this renderer has none of. It was being reported as `'sky' is not a
+  field` — true, and useless. It now says what was asked for and what is drawn
+  instead:
+
+  ```
+  This map asks for a skybox, which this renderer has none of -- the map's own
+  sky texture is drawn instead.
+  ```
+
+  `skyname`, `skybox` and `skyfog` are recognised the same way. A key the
+  engine understands but cannot honour is a different thing from one it has
+  never heard of, and worth different words.
+
+- **`developer 1` reports the sky texture and its size** as a map loads —
+  `Sky "sky4" is 512x256; layers resampled from 256x256 to 128x128.` When a sky
+  looks wrong there was no way to ask which one it was. Silent by default.
+
 ## [1.7.1] — 2026-09-22
 
 ### Fixed

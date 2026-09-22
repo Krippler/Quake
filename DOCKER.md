@@ -92,6 +92,9 @@ What to expect:
   progs reads back what it wrote.
 - `scr_usekfont` is the re-release's scalable font and is not implemented; the
   one "Unknown command" line at startup is accurate.
+- Skyboxes are not drawn. The maps name one on worldspawn; the engine says so
+  once per map and draws the map's own sky texture instead. `developer 1` also
+  reports which sky texture that is and its size.
 - `fog` is drawn, on the curve the re-release maps were authored against
   (FitzQuake's: `1 - exp(-((density/64) * d)^2)`). `fog` with no arguments
   reports the current values and whether it is drawing. It is approximate by
