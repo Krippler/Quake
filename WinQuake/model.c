@@ -497,6 +497,72 @@ byte	*mod_base;
 
 /*
 =================
+Mod_RebuildFenceMips
+
+A fence texture's holes are palette index 255 -- in its first mip level.
+The levels below that were built by the texture tool, which averages each
+block of texels into one colour and has no idea 255 means "not here". So the
+holes are gone from them: filled with a blend of the bars and index 255's
+pink, which comes out a flat tan. The renderer switches to those levels as a
+surface gets farther away or more oblique, so a grate showed its holes up
+close and snapped to a solid sheet at a distance.
+
+So they are rebuilt here, from level 0, in a way that knows about holes.
+Each texel of a smaller level covers a square block of level 0: it is a hole
+if more than half of that block is, and otherwise it takes the most common
+of the block's solid colours. Picking a colour that is already there, rather
+than averaging, keeps fullbright texels fullbright and ordinary ones
+ordinary, and needs no palette search.
+=================
+*/
+static void Mod_RebuildFenceMips (texture_t *tx)
+{
+	byte	*src, *dst;
+	int		level, x, y, bx, by, step, w, h, holes, total, i, best;
+	int		counts[256];
+
+	src = (byte *)tx + tx->offsets[0];
+
+	for (level=1 ; level<MIPLEVELS ; level++)
+	{
+		step = 1 << level;
+		w = tx->width >> level;
+		h = tx->height >> level;
+		dst = (byte *)tx + tx->offsets[level];
+		total = step * step;
+
+		for (y=0 ; y<h ; y++)
+		{
+			for (x=0 ; x<w ; x++)
+			{
+				memset (counts, 0, sizeof(counts));
+
+				for (by=0 ; by<step ; by++)
+					for (bx=0 ; bx<step ; bx++)
+						counts[src[(y*step + by) * tx->width + x*step + bx]]++;
+
+				holes = counts[255];
+
+				if (holes * 2 > total)
+				{
+					dst[y*w + x] = 255;
+					continue;
+				}
+
+				best = 0;
+				for (i=1 ; i<255 ; i++)
+					if (counts[i] > counts[best])
+						best = i;
+
+				dst[y*w + x] = best;
+			}
+		}
+	}
+}
+
+
+/*
+=================
 Mod_LoadTextures
 =================
 */
@@ -548,6 +614,9 @@ void Mod_LoadTextures (lump_t *l)
 		
 		if (!Q_strncmp(mt->name,"sky",3))	
 			R_InitSky (tx);
+
+		if (tx->name[0] == '{')
+			Mod_RebuildFenceMips (tx);
 	}
 
 //
