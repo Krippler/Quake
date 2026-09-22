@@ -92,12 +92,16 @@ What to expect:
   progs reads back what it wrote.
 - `scr_usekfont` is the re-release's scalable font and is not implemented; the
   one "Unknown command" line at startup is accurate.
+- Skyboxes are not drawn. The maps name one on worldspawn; the engine says so
+  once per map and draws the map's own sky texture instead. `developer 1` also
+  reports which sky texture that is and its size.
 - `fog` is drawn, on the curve the re-release maps were authored against
   (FitzQuake's: `1 - exp(-((density/64) * d)^2)`). `fog` with no arguments
   reports the current values and whether it is drawing. It is approximate by
   construction — a palette blend table sampled every eight pixels — and
   measures as costing nothing. `r_fogscale` multiplies the density a map sets,
-  if it comes out thicker or thinner than it should.
+  if it comes out thicker or thinner than it should — it is on the Options menu
+  as **Fog thickness**, so you can turn it while looking at the fog.
 - The re-release campaigns are much larger than anything from 1996, and the
   renderer holds one frame's worth of geometry in fixed pools. Those are sized
   for the re-release now — 65536 surfaces and 131072 edges, against id's 800 and

@@ -972,7 +972,9 @@ The lesson worth keeping is that "implement fog" and "implement *this* fog" are
 different jobs, and the screenshot that proves the first says nothing about the
 second. `r_fogscale` exists because the correction is still inferred from
 another engine's source rather than measured against the maps, and a number
-that can be turned at runtime is worth more than a claim that it is right.
+that can be turned at runtime is worth more than a claim that it is right. It
+is on the Options menu as **Fog thickness** for the same reason: judging a haze
+means looking at it, and a console command makes you stop looking to type.
 
 ### `r_fog.c` (new) — fog without anything to blend with
 
@@ -1009,6 +1011,26 @@ closest match to some fogged brown and punch holes in things.
 Measured with `timerefresh` at 1024x768, three runs each: 497/420/466 fps
 without fog, 480/467/408 with. There is no cost to find, which is what you
 would expect of a renderer this memory-bound.
+
+### `pr_edict.c` — a key you cannot honour is not a key you do not know
+
+Every key in a map's entity lump that the progs does not define gets reported
+as "not a field". For a mod wanting some field this engine has never heard of,
+that is the right answer.
+
+It is the wrong answer for `sky`. The re-release maps set it on worldspawn to
+name a six-sided skybox -- a GLQuake feature this renderer does not have -- and
+"'sky' is not a field" tells the reader nothing about why their sky looks
+wrong. The same goes for `skyname`, `skybox` and `skyfog`.
+
+Those four are now named explicitly, with what was asked for and what is drawn
+instead. The general lesson is that "unknown" covers two different situations
+and only one of them is genuinely unknown; the other is a decision this port
+has made, and a reader deserves to be told which.
+
+Alongside it, `developer 1` reports the sky texture and its dimensions at load.
+When a sky looks wrong the first question is which texture it is and how big,
+and before this there was no way to ask.
 
 ### `r_sky.c` — a sky texture is not always 256x128
 

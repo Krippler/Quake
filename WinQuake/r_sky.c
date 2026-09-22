@@ -125,6 +125,13 @@ void R_InitSky (texture_t *mt)
 		}
 	}
 
+//
+// Under developer 1, because "which sky is this and how big is it" is the
+// first question when a sky looks wrong and there is no other way to ask it.
+//
+	Con_DPrintf ("Sky \"%s\" is %dx%d; layers resampled from %dx%d to 128x128.\n",
+				 mt->name, w, h, halfw, h);
+
 	r_skysource = newsky;
 }
 
