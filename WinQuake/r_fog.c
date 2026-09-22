@@ -34,22 +34,29 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 //
 // What it is not is per-pixel. Depth comes from the 1/z the span drawers
 // already carry and is sampled where they already recompute it -- every eight
-// pixels for a world span, per pixel for an alias model, since the model
-// drawer carries z for the z-buffer anyway. Eight pixels of a wall is a few
-// world units at the distances fog is visible over, and banding at that scale
-// is below what the palette can express in the first place.
+// pixels for a world span, per span for a model or a sprite, per particle.
+// Eight pixels of a wall is a few world units at the distances fog is visible
+// over, and banding at that scale is below what the palette can express in the
+// first place.
 
 #include "quakedef.h"
 #include "r_local.h"
 #include "d_local.h"
 
 //
-// Set by the "fog" command in r_main.c. Density is the GL sense: the fraction
-// blended in at distance d is 1 - exp(-density * d), so 0.05 is thick enough
-// to lose a room and 0.002 is a haze on the horizon.
+// Set by the "fog" command in r_main.c, in the sense the re-release maps use:
+// see the curve in R_BuildFogMap below. A density around 0.05 is a visible
+// haze across a large room rather than anything you cannot see through.
 //
 extern float	r_fogdensity;
 extern float	r_fogcolor[3];
+
+//
+// Multiplies the density a map sets. 1 is FitzQuake's curve, which is what the
+// re-release maps were authored against; lower thins the fog, higher thickens
+// it. Archived, so a setting that suits a screen survives a restart.
+//
+cvar_t		r_fogscale = {"r_fogscale", "1", true};
 
 qboolean	r_fogenabled;			// tested in the span drawers' hot path
 byte		r_fogmap[FOG_LEVELS][256];
@@ -62,6 +69,7 @@ byte		r_fogmap[FOG_LEVELS][256];
 byte		r_fogdistmap[FOG_DIST_ENTRIES];
 
 static float	fog_builtdensity = -1;
+static float	fog_builtscale = -1;
 static float	fog_builtcolor[3];
 
 
@@ -132,6 +140,7 @@ void R_BuildFogMap (void)
 
 // nothing to do if it is the same fog we already built for
 	if (r_fogdensity == fog_builtdensity
+		&& r_fogscale.value == fog_builtscale
 		&& r_fogcolor[0] == fog_builtcolor[0]
 		&& r_fogcolor[1] == fog_builtcolor[1]
 		&& r_fogcolor[2] == fog_builtcolor[2])
@@ -170,10 +179,30 @@ void R_BuildFogMap (void)
 	for (level=0 ; level<FOG_LEVELS ; level++)
 		r_fogmap[level][255] = 255;
 
+//
+// The curve the maps were authored against.
+//
+// The re-release's fog command comes from FitzQuake, which sets
+// GL_FOG_DENSITY to density/64 and GL_FOG_MODE to GL_EXP2 -- so the fraction
+// of fog at distance d is
+//
+//		1 - exp(-((density / 64) * d)^2)
+//
+// and not the plain exp(-density * d) this had in 1.7.0. Both of those were
+// wrong at once, and they compounded: at 100 units and the density a map
+// actually sets, the old curve gave 99% fog where this gives 0.6%. That is
+// why it came out opaque.
+//
+// r_fogscale is there because this is inferred from another engine's source
+// rather than measured against the maps, and a number that can be turned is
+// better than a number that has to be rebuilt.
+//
 	for (i=0 ; i<FOG_DIST_ENTRIES ; i++)
 	{
-		d = (float)i * FOG_DIST_UNIT;
-		frac = 1 - exp (-r_fogdensity * d);
+		d = (float)i * FOG_DIST_UNIT * r_fogdensity * r_fogscale.value
+				* (1.0 / 64.0);
+
+		frac = 1 - exp (-(d * d));
 
 		if (frac < 0)
 			frac = 0;
@@ -184,6 +213,7 @@ void R_BuildFogMap (void)
 	}
 
 	fog_builtdensity = r_fogdensity;
+	fog_builtscale = r_fogscale.value;
 	fog_builtcolor[0] = r_fogcolor[0];
 	fog_builtcolor[1] = r_fogcolor[1];
 	fog_builtcolor[2] = r_fogcolor[2];
@@ -204,4 +234,5 @@ void R_FogClear (void)
 	r_fogcolor[0] = r_fogcolor[1] = r_fogcolor[2] = 0.5;
 	r_fogenabled = false;
 	fog_builtdensity = -1;
+	fog_builtscale = -1;
 }

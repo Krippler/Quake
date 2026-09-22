@@ -92,10 +92,12 @@ What to expect:
   progs reads back what it wrote.
 - `scr_usekfont` is the re-release's scalable font and is not implemented; the
   one "Unknown command" line at startup is accurate.
-- `fog` is drawn. The maps set it through the progs on every level load;
-  `fog` with no arguments reports the current values and whether it is drawing.
-  It is approximate by construction — a palette blend table sampled every eight
-  pixels — and measures as costing nothing.
+- `fog` is drawn, on the curve the re-release maps were authored against
+  (FitzQuake's: `1 - exp(-((density/64) * d)^2)`). `fog` with no arguments
+  reports the current values and whether it is drawing. It is approximate by
+  construction — a palette blend table sampled every eight pixels — and
+  measures as costing nothing. `r_fogscale` multiplies the density a map sets,
+  if it comes out thicker or thinner than it should.
 - The re-release campaigns are much larger than anything from 1996, and the
   renderer holds one frame's worth of geometry in fixed pools. Those are sized
   for the re-release now — 65536 surfaces and 131072 edges, against id's 800 and
