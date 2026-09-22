@@ -92,6 +92,9 @@ What to expect:
   progs reads back what it wrote.
 - `scr_usekfont` is the re-release's scalable font and is not implemented; the
   one "Unknown command" line at startup is accurate.
+- `fog` is accepted and kept but nothing is drawn from it — the software
+  renderer has nowhere to put a per-distance blend. `fog` with no arguments
+  reports the values the map set.
 - The re-release campaigns are much larger than anything from 1996, and the
   renderer holds one frame's worth of geometry in fixed pools. Those are sized
   for the re-release now — 65536 surfaces and 131072 edges, against id's 800 and
