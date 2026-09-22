@@ -9,6 +9,13 @@ on the default branch publishes that version, `## [Unreleased]` publishes only
 
 ### Added
 
+- **Fog thickness is on the Options menu**, as a slider from 0 to 4 in steps of
+  a quarter. It is the same `r_fogscale` the console has, and it takes effect
+  on the next frame, so the fog in front of you thins or thickens as the slider
+  moves. A number you have to guess at is worth less than one you can watch,
+  and the right value here is a judgement about a screen rather than a fact
+  about the map.
+
 - **A map asking for a skybox now says so.** The re-release maps set a `sky`
   key on worldspawn naming a six-sided skybox, which arrived with GLQuake and
   which this renderer has none of. It was being reported as `'sky' is not a

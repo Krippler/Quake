@@ -1182,6 +1182,11 @@ static option_t	options[] =
 
 	{"Water warp",			o_toggle, "r_waterwarp",    0,     0,    0,    0},
 	{"Texture detail",		o_custom, NULL,             0,     0,    0,    OPT_DETAIL},
+
+// Only the re-release maps set fog at all, and how thick it should look is a
+// judgement rather than a fact: the density they set is interpreted through a
+// curve taken from another engine's source. 0 turns it off, 1 is that curve.
+	{"Fog thickness",		o_slider, "r_fogscale",     0,     4,    0.25, 0},
 };
 
 #define	OPTIONS_ITEMS	((int)(sizeof(options) / sizeof(options[0])))

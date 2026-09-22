@@ -972,7 +972,9 @@ The lesson worth keeping is that "implement fog" and "implement *this* fog" are
 different jobs, and the screenshot that proves the first says nothing about the
 second. `r_fogscale` exists because the correction is still inferred from
 another engine's source rather than measured against the maps, and a number
-that can be turned at runtime is worth more than a claim that it is right.
+that can be turned at runtime is worth more than a claim that it is right. It
+is on the Options menu as **Fog thickness** for the same reason: judging a haze
+means looking at it, and a console command makes you stop looking to type.
 
 ### `r_fog.c` (new) — fog without anything to blend with
 

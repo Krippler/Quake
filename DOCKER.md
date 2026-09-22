@@ -100,7 +100,8 @@ What to expect:
   reports the current values and whether it is drawing. It is approximate by
   construction — a palette blend table sampled every eight pixels — and
   measures as costing nothing. `r_fogscale` multiplies the density a map sets,
-  if it comes out thicker or thinner than it should.
+  if it comes out thicker or thinner than it should — it is on the Options menu
+  as **Fog thickness**, so you can turn it while looking at the fog.
 - The re-release campaigns are much larger than anything from 1996, and the
   renderer holds one frame's worth of geometry in fixed pools. Those are sized
   for the re-release now — 65536 surfaces and 131072 edges, against id's 800 and
