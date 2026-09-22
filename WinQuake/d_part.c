@@ -20,6 +20,7 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 // d_part.c: software driver module for drawing particles
 
 #include "quakedef.h"
+#include "r_local.h"
 #include "d_local.h"
 
 
@@ -54,6 +55,7 @@ D_DrawParticle
 */
 void D_DrawParticle (particle_t *pparticle)
 {
+	byte			pcolor;
 	vec3_t	local, transformed;
 	float	zi;
 	byte	*pdest;
@@ -88,6 +90,16 @@ void D_DrawParticle (particle_t *pparticle)
 	pdest = d_viewbuffer + d_scantable[v] + u;
 	izi = (int)(zi * 0x8000);
 
+//
+// One colour for the whole particle: it is at most a few pixels across, so
+// there is nothing to grade across it. izi is zi * 0x8000 with zi = 1/z, the
+// same scale the z-buffer holds.
+//
+	pcolor = pparticle->color;
+	if (r_fogenabled)
+		pcolor = r_fogmap[R_FOGLEVEL(izi > 0 ? 32768.0 / izi
+											 : FOG_DIST_ENTRIES * FOG_DIST_UNIT)][pcolor];
+
 	pix = izi >> d_pix_shift;
 
 	if (pix < d_pix_min)
@@ -105,7 +117,7 @@ void D_DrawParticle (particle_t *pparticle)
 			if (pz[0] <= izi)
 			{
 				pz[0] = izi;
-				pdest[0] = pparticle->color;
+				pdest[0] = pcolor;
 			}
 		}
 		break;
@@ -118,13 +130,13 @@ void D_DrawParticle (particle_t *pparticle)
 			if (pz[0] <= izi)
 			{
 				pz[0] = izi;
-				pdest[0] = pparticle->color;
+				pdest[0] = pcolor;
 			}
 
 			if (pz[1] <= izi)
 			{
 				pz[1] = izi;
-				pdest[1] = pparticle->color;
+				pdest[1] = pcolor;
 			}
 		}
 		break;
@@ -137,19 +149,19 @@ void D_DrawParticle (particle_t *pparticle)
 			if (pz[0] <= izi)
 			{
 				pz[0] = izi;
-				pdest[0] = pparticle->color;
+				pdest[0] = pcolor;
 			}
 
 			if (pz[1] <= izi)
 			{
 				pz[1] = izi;
-				pdest[1] = pparticle->color;
+				pdest[1] = pcolor;
 			}
 
 			if (pz[2] <= izi)
 			{
 				pz[2] = izi;
-				pdest[2] = pparticle->color;
+				pdest[2] = pcolor;
 			}
 		}
 		break;
@@ -162,25 +174,25 @@ void D_DrawParticle (particle_t *pparticle)
 			if (pz[0] <= izi)
 			{
 				pz[0] = izi;
-				pdest[0] = pparticle->color;
+				pdest[0] = pcolor;
 			}
 
 			if (pz[1] <= izi)
 			{
 				pz[1] = izi;
-				pdest[1] = pparticle->color;
+				pdest[1] = pcolor;
 			}
 
 			if (pz[2] <= izi)
 			{
 				pz[2] = izi;
-				pdest[2] = pparticle->color;
+				pdest[2] = pcolor;
 			}
 
 			if (pz[3] <= izi)
 			{
 				pz[3] = izi;
-				pdest[3] = pparticle->color;
+				pdest[3] = pcolor;
 			}
 		}
 		break;
@@ -195,7 +207,7 @@ void D_DrawParticle (particle_t *pparticle)
 				if (pz[i] <= izi)
 				{
 					pz[i] = izi;
-					pdest[i] = pparticle->color;
+					pdest[i] = pcolor;
 				}
 			}
 		}

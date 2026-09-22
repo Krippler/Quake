@@ -948,6 +948,65 @@ thing that gets blamed on the map. 65536 is the default and also a clamp, with
 a line printed if it is exceeded — necessary because the shortage message
 itself tells the reader to raise `r_maxsurfs`.
 
+### `r_fog.c` (new) — fog without anything to blend with
+
+Fog is a blend, and this renderer has nothing to blend. It writes palette
+indices into an 8-bit buffer; there is no colour at the point a pixel is
+written, only a number that stands for one.
+
+But darkening a palette index is a problem the engine already solved.
+`gfx/colormap.lmp` is 64 rows of "this index, at this light level, looks like
+that index", and every surface in the game is drawn through it. Fog is the same
+shape of table with a different question: "this index, blended this far toward
+the fog colour, looks like that index". 32 rows, built at map load by a nearest
+-colour search over the palette, and applied with one indexed byte load.
+
+Depth is the other half. Every drawer already carries `1/z` — the world spans
+for perspective correction, the model and sprite drawers for the z-buffer — and
+already recompute it at a granularity that suits them: every eight pixels for a
+world span, per span for a model, per particle. Fog is sampled at exactly those
+points, so it costs a table lookup and no arithmetic of its own. Eight pixels of
+a wall is a few world units at any distance fog is visible over, and banding at
+that scale is finer than the palette can express anyway.
+
+Every path that writes a pixel goes through it, which matters more than it
+sounds: an unfogged monster in a fogged room reads as a bug, where uniformly
+approximate fog reads as fog. That meant `D_DrawSpans8`, `Turbulent8`,
+`D_PolysetDrawSpans8`, `D_PolysetDrawFinalVerts`, `D_PolysetRecursiveTriangle`,
+`D_SpriteDrawSpans` and `D_DrawParticle` — the last three found only by looking
+at a screenshot and asking why one torch flame was still orange.
+
+Index 255 maps to itself at every level: it is the transparency index in skins
+and sprites, and a nearest-colour search would otherwise hand it back as the
+closest match to some fogged brown and punch holes in things.
+
+Measured with `timerefresh` at 1024x768, three runs each: 497/420/466 fps
+without fog, 480/467/408 with. There is no cost to find, which is what you
+would expect of a renderer this memory-bound.
+
+### `r_sky.c` — a sky texture is not always 256x128
+
+`R_InitSky` takes the sky's two layers apart with the dimensions written into
+it:
+
+```c
+	newsky[(i*256) + j + 128] = src[i*256 + j + 128];
+```
+
+`mt->width` and `mt->height` are never read. Every sky id shipped is 256x128,
+so the constants were the dimensions and this was correct for thirty years.
+
+A re-release map's sky is larger. At 512x256 that loop walks the top-left
+quarter of the image at half the real stride; at anything below 256x128 it
+reads past the end of the texture. Both give a sky made of whatever happened
+to be there.
+
+The layers are resampled from the real dimensions now, nearest neighbour --
+this is a scrolling cloud layer seen through a warp, and anything better would
+not survive the warp. Verified by running id's routine and the replacement over
+the same synthetic texture: at 256x128 they produce byte-identical buffers, and
+above it only the replacement reproduces the texture's own vertical ramp.
+
 ### `r_main.c` — a `fog` command that draws no fog
 
 Every re-release map sets fog through the progs on every level load, and this

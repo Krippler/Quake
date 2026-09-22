@@ -50,31 +50,71 @@ byte	newsky[128*256];	// newsky and topsky both pack in here, 128 bytes
 =============
 R_InitSky
 
-A sky texture is 256*128, with the right side being a masked overlay
+A sky texture is two square layers side by side: the left one drawn over the
+right one, with palette index 0 transparent. id's are all 256x128, so both
+layers are 128x128 and this routine used to read them out with 256 and 128
+written into it as constants -- it never looked at mt->width or mt->height at
+all.
+
+A re-release map's sky is not that size. At 512x256 the old code read the
+top-left quarter of the image at the wrong stride; below 256x128 it read past
+the end of the texture entirely. Either way the sky came out as garbage, which
+is what "the sky does not show correctly" is.
+
+The two destination buffers are fixed at 128 wide because the span drawers
+need a 256-byte scan, so the layers are resampled into them rather than copied.
+Nearest neighbour: this is a scrolling cloud layer seen through a warp, and
+anything better would not survive the warp.
 ==============
 */
 void R_InitSky (texture_t *mt)
 {
 	int			i, j;
+	int			w, h, halfw;
+	int			sx, sy;
 	byte		*src;
 
 	src = (byte *)mt + mt->offsets[0];
 
+	w = mt->width;
+	h = mt->height;
+	halfw = w / 2;
+
+//
+// A sky has to be two layers side by side to be a sky at all. Rather than
+// index a texture that cannot be one, say so and leave the last sky in place;
+// a stale sky is a better failure than reading off the end of the texture.
+//
+	if (w < 2 || h < 1 || halfw < 1)
+	{
+		Con_Printf ("Sky texture \"%s\" is %dx%d, which cannot hold two "
+					"layers; it is not being used.\n", mt->name, w, h);
+		return;
+	}
+
+// the right-hand layer, drawn behind
 	for (i=0 ; i<128 ; i++)
 	{
+		sy = (i * h) / 128;
 		for (j=0 ; j<128 ; j++)
 		{
-			newsky[(i*256) + j + 128] = src[i*256 + j + 128];
+			sx = (j * halfw) / 128;
+			newsky[(i*256) + j + 128] = src[sy*w + halfw + sx];
 		}
 	}
 
+// and the left-hand layer over it, where index 0 means "let the other through".
+// 131 rather than 128 because the drawer steps past the end of a scan.
 	for (i=0 ; i<128 ; i++)
 	{
+		sy = (i * h) / 128;
 		for (j=0 ; j<131 ; j++)
 		{
-			if (src[i*256 + (j & 0x7F)])
+			sx = ((j & 0x7F) * halfw) / 128;
+
+			if (src[sy*w + sx])
 			{
-				bottomsky[(i*131) + j] = src[i*256 + (j & 0x7F)];
+				bottomsky[(i*131) + j] = src[sy*w + sx];
 				bottommask[(i*131) + j] = 0;
 			}
 			else
@@ -84,7 +124,7 @@ void R_InitSky (texture_t *mt)
 			}
 		}
 	}
-	
+
 	r_skysource = newsky;
 }
 

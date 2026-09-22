@@ -187,19 +187,13 @@ void	R_InitTextures (void)
 //
 // Fog.
 //
-// Every re-release map sets it, through the progs, on every level load -- and
-// this engine has no fog, so every level load printed Unknown command "fog".
-// That is not a fault in the map: fog arrived with GLQuake, and a renderer
-// that writes palette indices into an 8-bit buffer has nowhere to put it. The
-// blend would have to happen in the colormap, per distance, per frame.
+// Every re-release map sets it through the progs on every level load, in one
+// of two forms: "fog <density>" or "fog <density> <r> <g> <b>", with the
+// colour components 0..1.
 //
-// So the command exists and takes the arguments it is given. It says once, and
-// only if asked with no arguments, that nothing is drawn from them -- a map
-// setting fog every load should not produce a line every load, and an error
-// for a thing the engine was never going to do is worse than silence.
-//
-// The values are kept so "fog" with no arguments reports them, which is what
-// the command does in the engines that do render it.
+// Density is the GL sense -- the fraction of fog colour blended in at distance
+// d is 1 - exp(-density * d) -- because that is what the maps were authored
+// against. How it is drawn without a blend unit is r_fog.c's problem.
 //
 float	r_fogdensity;
 float	r_fogcolor[3];
@@ -210,10 +204,9 @@ void R_Fog_f (void)
 
 	if (Cmd_Argc() == 1)
 	{
-		Con_Printf ("fog %g %g %g %g\n", r_fogdensity,
-					r_fogcolor[0], r_fogcolor[1], r_fogcolor[2]);
-		Con_Printf ("The software renderer does not draw fog; these are kept "
-					"and ignored.\n");
+		Con_Printf ("fog %g %g %g %g  (%s)\n", r_fogdensity,
+					r_fogcolor[0], r_fogcolor[1], r_fogcolor[2],
+					r_fogenabled ? "drawing" : "off");
 		return;
 	}
 
@@ -223,6 +216,8 @@ void R_Fog_f (void)
 	if (Cmd_Argc() >= 5)
 		for (i=0 ; i<3 ; i++)
 			r_fogcolor[i] = Q_atof (Cmd_Argv(i+2));
+
+	R_BuildFogMap ();
 }
 
 /*
@@ -375,6 +370,10 @@ void R_NewMap (void)
 	r_reportedshort = false;
 	r_reportedrange = false;
 	r_reportedbmodel = false;
+
+// a map that sets no fog must not inherit the last one's; the level's own
+// fog command, if it has one, runs after this
+	R_FogClear ();
 
 	r_numallocatededges = r_maxedges.value;
 
