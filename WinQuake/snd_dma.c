@@ -60,7 +60,9 @@ int			soundtime;		// sample PAIRS
 int   		paintedtime; 	// sample PAIRS
 
 
-#define	MAX_SFX		512
+// Slots are never given back, so this counts every distinct sound name heard
+// since the engine started, across maps: well above MAX_SOUNDS.
+#define	MAX_SFX		4096
 sfx_t		*known_sfx;		// hunk allocated [MAX_SFX]
 int			num_sfx;
 

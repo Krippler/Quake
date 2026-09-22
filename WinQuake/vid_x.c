@@ -1988,10 +1988,25 @@ void Sys_SendKeyEvents(void)
 	if (x_disp)
 	{
 		while (XPending(x_disp)) GetEvent();
+	//
+	// Take the event off the queue before handing it on, not after. Key_Event
+	// can re-enter this function: a menu key that opens a yes/no question
+	// (SCR_ModalMessage) pumps events from inside the handler until it is
+	// answered. With the tail advanced afterwards, that inner pump started on
+	// the very event being handled, drained the queue, and the outer loop then
+	// stepped the tail one past the head -- so the queue looked full and the
+	// whole ring of old key presses was replayed. Mostly empty slots and
+	// harmless keys, which is why it went unnoticed; with a stop signal
+	// pending it replayed the Return that opened the question, which opened
+	// it again, forever.
+	//
 		while (keyq_head != keyq_tail)
 		{
-			Key_Event(keyq[keyq_tail].key, keyq[keyq_tail].down);
+			int		key = keyq[keyq_tail].key;
+			int		down = keyq[keyq_tail].down;
+
 			keyq_tail = (keyq_tail + 1) & 63;
+			Key_Event (key, down);
 		}
 	}
 }

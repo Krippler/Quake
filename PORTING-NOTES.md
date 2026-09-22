@@ -948,6 +948,49 @@ thing that gets blamed on the map. 65536 is the default and also a clamp, with
 a line printed if it is exceeded — necessary because the shortage message
 itself tells the reader to raise `r_maxsurfs`.
 
+### `protocol.h`, `sv_main.c`, `cl_parse.c` — 256 was the wire, not a table
+
+`PF_precache_model: overflow` looks like a table filling up, and the obvious
+fix is to make the table bigger. It is not a table. Protocol 15 sends a model
+number as one byte in five places — an entity update, a baseline, a static
+object, the view weapon in the client data — and a sound number as one byte in
+two, so 256 is as far as the wire can count. Raising `MAX_MODELS` alone would
+have loaded the map and then drawn model 300 as model 44.
+
+FitzQuake solved this in 2009 with protocol 666, and every engine descended
+from it reads it. It is 15 plus a way to send a second byte wherever 15 sends
+one: `U_MODEL2`/`U_FRAME2` on entity updates behind an extension byte,
+`SND_LARGESOUND` on sounds, `SU_WEAPON2` and friends on the client data, and
+`svc_spawnbaseline2`/`svc_spawnstatic2`/`svc_spawnstaticsound2` for the
+load-time messages, each with a flags byte saying which numbers are shorts.
+The constants here are copied from QuakeSpasm's `protocol.h` and the write
+order from its `sv_main.c`, so demos go both ways.
+
+What is this engine's own is *when*. QuakeSpasm speaks 666 always. Here the
+server starts every map on 15 and moves to 666 only if the map needs it: the
+signon writers that run while the map spawns switch it the moment they write a
+number that does not fit, and `SV_ChooseProtocol` checks the precache counts
+once spawning is done. Both happen before any client has been told a protocol
+— precaching is refused after spawn — so the serverinfo it sends is always
+right. id's maps produce the same bytes they always did.
+
+The client had one ordering problem. 15's update handler looks the model up the
+moment it reads its number; 666's high byte is at the end of the message. The
+lookup moved to the end.
+
+### `vid_x.c` — a queue that replayed itself
+
+Found while testing the Backspace change. `Sys_SendKeyEvents` handed each queued
+key to `Key_Event` and only then stepped past it. A yes-or-no question
+(`SCR_ModalMessage`) is opened from inside a key handler and pumps the same
+queue until answered, starting on the event still being handled. Once it
+returned, the outer loop stepped the tail one past the head, the queue looked
+full, and all 64 slots of old key presses were replayed. Usually empty slots
+and harmless keys, so it went unseen; with a `docker stop` pending, it
+replayed the Return that opened the question, which opened it again, and the
+engine had to be killed. Stepping past the event before handing it on is the
+whole fix.
+
 ### `r_fence.c` (new) — a hole is not a colour, and the edge list does not know
 
 A texture named `{something` is a fence: palette index 255 is a hole. Grates,

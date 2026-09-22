@@ -21,6 +21,20 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 
 #define	PROTOCOL_VERSION	15
 
+//
+// 15 is id's protocol and what the server speaks unless a map needs more.
+// 666 is FitzQuake's, which QuakeSpasm and most engines since read: 15 with
+// every number that 15 sends as a byte given a way to carry a second byte, and
+// nothing else changed. A map with more than 256 models or sounds -- the
+// re-release's do -- cannot be described in 15 at all, so the server switches
+// to 666 for it and only for it. See PORTING-NOTES.md.
+//
+// The constants below are FitzQuake's, taken from QuakeSpasm's protocol.h, so
+// that a demo recorded here plays in those engines and theirs play here.
+//
+#define	PROTOCOL_NETQUAKE	15
+#define	PROTOCOL_FITZQUAKE	666
+
 // if the high bit of the servercmd is set, the low bits are fast update flags:
 #define	U_MOREBITS	(1<<0)
 #define	U_ORIGIN1	(1<<1)
@@ -40,6 +54,15 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 #define	U_EFFECTS	(1<<13)
 #define	U_LONGENTITY	(1<<14)
 
+// PROTOCOL_FITZQUAKE
+#define	U_EXTEND1		(1<<15)		// another byte of bits follows
+#define	U_ALPHA			(1<<16)		// 1 byte; read and ignored here
+#define	U_FRAME2		(1<<17)		// 1 byte, frame >> 8
+#define	U_MODEL2		(1<<18)		// 1 byte, modelindex >> 8
+#define	U_LERPFINISH	(1<<19)		// 1 byte; read and ignored here
+#define	U_SCALE			(1<<20)		// 1 byte; read and ignored here
+#define	U_EXTEND2		(1<<23)		// another byte of bits follows
+
 
 #define	SU_VIEWHEIGHT	(1<<0)
 #define	SU_IDEALPITCH	(1<<1)
@@ -57,10 +80,34 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 #define	SU_ARMOR		(1<<13)
 #define	SU_WEAPON		(1<<14)
 
+// PROTOCOL_FITZQUAKE: the high bytes of what 15 sends as bytes
+#define	SU_EXTEND1		(1<<15)
+#define	SU_WEAPON2		(1<<16)		// weaponmodel >> 8
+#define	SU_ARMOR2		(1<<17)
+#define	SU_AMMO2		(1<<18)
+#define	SU_SHELLS2		(1<<19)
+#define	SU_NAILS2		(1<<20)
+#define	SU_ROCKETS2		(1<<21)
+#define	SU_CELLS2		(1<<22)
+#define	SU_EXTEND2		(1<<23)
+#define	SU_WEAPONFRAME2	(1<<24)
+#define	SU_WEAPONALPHA	(1<<25)		// 1 byte; read and ignored here
+#define	SU_EXTEND3		(1<<31)
+
 // a sound with no channel is a local only sound
 #define	SND_VOLUME		(1<<0)		// a byte
 #define	SND_ATTENUATION	(1<<1)		// a byte
 #define	SND_LOOPING		(1<<2)		// a long
+
+// PROTOCOL_FITZQUAKE
+#define	SND_LARGEENTITY	(1<<3)		// entity as a short and channel as a byte
+#define	SND_LARGESOUND	(1<<4)		// sound number as a short
+
+// PROTOCOL_FITZQUAKE: flags byte of svc_spawnbaseline2 and svc_spawnstatic2
+#define	B_LARGEMODEL	(1<<0)		// modelindex is a short
+#define	B_LARGEFRAME	(1<<1)		// frame is a short
+#define	B_ALPHA			(1<<2)		// 1 byte; read and ignored here
+#define	B_SCALE			(1<<3)		// 1 byte; read and ignored here
 
 
 // defaults for clientinfo messages
@@ -129,6 +176,14 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 #define svc_sellscreen		33
 
 #define svc_cutscene		34
+
+// PROTOCOL_FITZQUAKE
+#define	svc_skybox				37	// [string] name; read and ignored here
+#define	svc_bf					40	// the bonus flash
+#define	svc_fog					41	// [byte] density [byte] r g b [short] time
+#define	svc_spawnbaseline2		42	// svc_spawnbaseline with a flags byte
+#define	svc_spawnstatic2		43	// svc_spawnstatic with a flags byte
+#define	svc_spawnstaticsound2	44	// svc_spawnstaticsound, sound as a short
 
 //
 // client to server

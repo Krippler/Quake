@@ -223,6 +223,7 @@ typedef struct
 	int			viewentity;		// cl_entitites[cl.viewentity] = player
 	int			maxclients;
 	int			gametype;
+	int			protocol;		// PROTOCOL_NETQUAKE or PROTOCOL_FITZQUAKE, from serverinfo
 
 // refresh related state
 	struct model_s	*worldmodel;	// cl_entitites[0].model

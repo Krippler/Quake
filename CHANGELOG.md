@@ -5,6 +5,56 @@ top section's heading is what the release workflow reads: `## [X.Y.Z] — DATE`
 on the default branch publishes that version, `## [Unreleased]` publishes only
 `edge`.
 
+## [1.9.0] — 2026-09-22
+
+### Fixed
+
+- **MG1's second episode stopped with `PF_precache_model: overflow`.** A map
+  can load at most 256 models and 256 sounds in id's engine, and that is not a
+  table size — protocol 15 sends a model or sound number as one byte, so 256 is
+  as far as the wire can count. `mge2m1` needs more.
+
+  The server now speaks FitzQuake's protocol 666 for a map that needs it, and
+  only then. 666 is 15 with a way to send a second byte wherever 15 sends one —
+  extra flag bits on the messages that carry a number, and three extra
+  messages for the load-time ones — and nothing else changed. It is what
+  QuakeSpasm and most engines since read, and the constants are taken from
+  QuakeSpasm's source, so a demo recorded on such a map plays there too. The
+  limits are now 2048 models and 2048 sounds, which is what QuakeSpasm allows.
+
+  Every id map, and anything else under 256, still runs on protocol 15 and
+  sends exactly the bytes it did before; the client reads both, and id's own
+  demos still play. `developer 1` says when a map switches.
+
+  Verified with e1m1 given 300 extra brush models and every door and platform
+  pointed at one numbered above 255, which pushes every monster, item and the
+  weapon in your hand past 358 as well. 400 models, protocol 666: the doors
+  draw pixel for pixel as they do in the stock map, the door opens, the ogre
+  behind it and the shotgun draw, and a demo of it records and plays back.
+  Sound numbers above 255 are handled the same way but were not exercised:
+  the test map stays at 103 sounds.
+
+- **A "yes or no" question ignored a stop signal, and replayed old key
+  presses once answered.** "Are you sure you want to start a new game?" waits
+  in a loop of its own. `docker stop` raises a flag that only the main loop
+  looks at, so with that question up the engine sat out the ten-second grace
+  period and was killed without writing `config.cfg`. It now counts as "no" and
+  the engine shuts down properly — in a tenth of a second, measured.
+
+  Finding that turned up an older bug. The X driver's key queue handed an
+  event on before stepping past it, and the question pumps that same queue
+  from inside the key handler — so once answered, the queue looked full and
+  every key press in its 64-slot ring was replayed. It now steps past first.
+  The loop also no longer spins a core at 100% while it waits.
+
+### Added
+
+- **Backspace goes back a menu level**, and closes the menu from the top one.
+  In the browser `Esc` belongs to the pointer lock, so there was no key that
+  did this. Backspace keeps its own job where it has one — the name and address
+  fields, and the key bindings screen, where it clears a binding — and answers
+  "no" to a yes-or-no question. Holding it goes back one level, not all of them.
+
 ## [1.8.2] — 2026-09-22
 
 ### Fixed

@@ -22,6 +22,11 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 #include "quakedef.h"
 #include "r_local.h"
 
+#include <signal.h>
+#include <unistd.h>
+
+extern volatile sig_atomic_t	sys_signalquit;		// vid_x.c
+
 // only the refresh window will be updated unless these variables are flagged 
 int			scr_copytop;
 int			scr_copyeverything;
@@ -758,11 +763,36 @@ int SCR_ModalMessage (char *text)
 	
 	S_ClearBuffer ();		// so dma doesn't loop current sound
 
+//
+// This waits in a loop of its own, outside Host_Frame, until a key answers it.
+//
+// Backspace answers "no", as Escape does: it is "back" everywhere else in the
+// menus, and a key that did nothing here left the dialog up with no hint why.
+//
+// A stop signal answers it too. The SIGTERM handler only raises a flag, which
+// the main loop acts on -- and the main loop is not running while this is, so
+// `docker stop` with this dialog up waited out its grace period and killed the
+// engine without writing config.cfg. Answering "no" lets the main loop see
+// the flag on its next pass and shut down properly.
+//
+// The original spun here with nothing between polls, which pins a core for
+// as long as the question is on screen. A hundredth of a second is not
+// something anyone can feel on a key press.
+//
 	do
 	{
 		key_count = -1;		// wait for a key down and up
 		Sys_SendKeyEvents ();
-	} while (key_lastpress != 'y' && key_lastpress != 'n' && key_lastpress != K_ESCAPE);
+
+		if (sys_signalquit)
+		{
+			key_lastpress = 'n';
+			break;
+		}
+
+		usleep (10000);
+	} while (key_lastpress != 'y' && key_lastpress != 'n'
+			 && key_lastpress != K_ESCAPE && key_lastpress != K_BACKSPACE);
 
 	scr_fullupdate = 0;
 	SCR_UpdateScreen ();

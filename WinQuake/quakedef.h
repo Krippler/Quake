@@ -131,12 +131,15 @@ void	VID_UnlockBuffer (void);
 // it is memory, and at 8192 that is cl_entities at 1.6 MB and the edicts
 // themselves at a few MB of hunk -- against a 192 MB heap.
 //
-// MAX_MODELS and MAX_SOUNDS below really are wire-format limits and stay.
+// MAX_MODELS and MAX_SOUNDS were wire-format limits: protocol 15 sends a model
+// or sound number as one byte. The re-release maps have more than 256 of each,
+// so the server now switches to FitzQuake's protocol 666 for such a map, which
+// can send a second byte. 2048 is what QuakeSpasm allows.
 //
 #define	MAX_EDICTS		8192
 #define	MAX_LIGHTSTYLES	64
-#define	MAX_MODELS		256			// these are sent over the net as bytes
-#define	MAX_SOUNDS		256			// so they cannot be blindly increased
+#define	MAX_MODELS		2048		// more than 256 needs PROTOCOL_FITZQUAKE
+#define	MAX_SOUNDS		2048		// likewise
 
 #define	SAVEGAME_COMMENT_LENGTH	39
 

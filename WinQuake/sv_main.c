@@ -27,7 +27,7 @@ server_t		sv;
 qboolean	sv_reportedsignon;
 server_static_t	svs;
 
-char	localmodels[MAX_MODELS][5];			// inline model names for precache
+char	localmodels[MAX_MODELS][8];			// inline model names for precache: "*2047" and a nul
 
 //============================================================================
 
@@ -135,7 +135,7 @@ void SV_StartSound (edict_t *entity, int channel, char *sample, int volume,
 	if (channel < 0 || channel > 7)
 		Sys_Error ("SV_StartSound: channel = %i", channel);
 
-	if (sv.datagram.cursize > MAX_DATAGRAM-16)
+	if (sv.datagram.cursize > MAX_DATAGRAM-21)
 		return;	
 
 // find precache number for sound
@@ -160,6 +160,18 @@ void SV_StartSound (edict_t *entity, int channel, char *sample, int volume,
 	if (attenuation != DEFAULT_SOUND_PACKET_ATTENUATION)
 		field_mask |= SND_ATTENUATION;
 
+//
+// A sound number past 255 needs its second byte, which only 666 has. The
+// server is only ever in 15 when no sound number is that high, so the return
+// is for the impossible case rather than a loss.
+//
+	if (sound_num > 255)
+	{
+		if (sv.protocol == PROTOCOL_NETQUAKE)
+			return;
+		field_mask |= SND_LARGESOUND;
+	}
+
 // directed messages go only to the entity the are targeted on
 	MSG_WriteByte (&sv.datagram, svc_sound);
 	MSG_WriteByte (&sv.datagram, field_mask);
@@ -168,7 +180,10 @@ void SV_StartSound (edict_t *entity, int channel, char *sample, int volume,
 	if (field_mask & SND_ATTENUATION)
 		MSG_WriteByte (&sv.datagram, attenuation*64);
 	MSG_WriteShort (&sv.datagram, channel);
-	MSG_WriteByte (&sv.datagram, sound_num);
+	if (field_mask & SND_LARGESOUND)
+		MSG_WriteShort (&sv.datagram, sound_num);
+	else
+		MSG_WriteByte (&sv.datagram, sound_num);
 	for (i=0 ; i<3 ; i++)
 		MSG_WriteCoord (&sv.datagram, entity->v.origin[i]+0.5*(entity->v.mins[i]+entity->v.maxs[i]));
 }           
@@ -199,7 +214,7 @@ void SV_SendServerinfo (client_t *client)
 	MSG_WriteString (&client->message,message);
 
 	MSG_WriteByte (&client->message, svc_serverinfo);
-	MSG_WriteLong (&client->message, PROTOCOL_VERSION);
+	MSG_WriteLong (&client->message, sv.protocol);
 	MSG_WriteByte (&client->message, svs.maxclients);
 
 	if (!coop.value && deathmatch.value)
@@ -465,7 +480,7 @@ void SV_WriteEntitiesToClient (edict_t	*clent, sizebuf_t *msg)
 				continue;		// not visible
 		}
 
-		if (msg->maxsize - msg->cursize < 16)
+		if (msg->maxsize - msg->cursize < 20)	// 16, plus 666's extras
 		{
 			Con_Printf ("packet overflow\n");
 			return;
@@ -508,6 +523,20 @@ void SV_WriteEntitiesToClient (edict_t	*clent, sizebuf_t *msg)
 		if (ent->baseline.modelindex != ent->v.modelindex)
 			bits |= U_MODEL;
 
+	//
+	// 666: a model or frame number past 255 carries its high byte after the
+	// rest. In 15 it is truncated, as it always was.
+	//
+		if (sv.protocol == PROTOCOL_FITZQUAKE)
+		{
+			if ((bits & U_FRAME) && ((int)ent->v.frame & 0xFF00))
+				bits |= U_FRAME2;
+			if ((bits & U_MODEL) && ((int)ent->v.modelindex & 0xFF00))
+				bits |= U_MODEL2;
+			if (bits >= 65536)
+				bits |= U_EXTEND1;
+		}
+
 		if (e >= 256)
 			bits |= U_LONGENTITY;
 			
@@ -521,6 +550,8 @@ void SV_WriteEntitiesToClient (edict_t	*clent, sizebuf_t *msg)
 		
 		if (bits & U_MOREBITS)
 			MSG_WriteByte (msg, bits>>8);
+		if (bits & U_EXTEND1)
+			MSG_WriteByte (msg, bits>>16);
 		if (bits & U_LONGENTITY)
 			MSG_WriteShort (msg,e);
 		else
@@ -548,6 +579,10 @@ void SV_WriteEntitiesToClient (edict_t	*clent, sizebuf_t *msg)
 			MSG_WriteCoord (msg, ent->v.origin[2]);
 		if (bits & U_ANGLE3)
 			MSG_WriteAngle(msg, ent->v.angles[2]);
+		if (bits & U_FRAME2)
+			MSG_WriteByte (msg, (int)ent->v.frame >> 8);
+		if (bits & U_MODEL2)
+			MSG_WriteByte (msg, (int)ent->v.modelindex >> 8);
 	}
 }
 
@@ -662,10 +697,43 @@ void SV_WriteClientdataToMessage (edict_t *ent, sizebuf_t *msg)
 //	if (ent->v.weapon)
 		bits |= SU_WEAPON;
 
+//
+// 666: the high byte of anything 15 sends as one byte. The view weapon's model
+// is the one that matters -- in a map with more than 256 models it is often
+// past 255 -- but the counters go the same way for free.
+//
+	if (sv.protocol == PROTOCOL_FITZQUAKE)
+	{
+		if ((bits & SU_WEAPON) && (SV_ModelIndex(pr_strings+ent->v.weaponmodel) & 0xFF00))
+			bits |= SU_WEAPON2;
+		if ((int)ent->v.armorvalue & 0xFF00)
+			bits |= SU_ARMOR2;
+		if ((int)ent->v.currentammo & 0xFF00)
+			bits |= SU_AMMO2;
+		if ((int)ent->v.ammo_shells & 0xFF00)
+			bits |= SU_SHELLS2;
+		if ((int)ent->v.ammo_nails & 0xFF00)
+			bits |= SU_NAILS2;
+		if ((int)ent->v.ammo_rockets & 0xFF00)
+			bits |= SU_ROCKETS2;
+		if ((int)ent->v.ammo_cells & 0xFF00)
+			bits |= SU_CELLS2;
+		if ((bits & SU_WEAPONFRAME) && ((int)ent->v.weaponframe & 0xFF00))
+			bits |= SU_WEAPONFRAME2;
+		if (bits >= 65536)
+			bits |= SU_EXTEND1;
+		if (bits >= 16777216)
+			bits |= SU_EXTEND2;
+	}
+
 // send the data
 
 	MSG_WriteByte (msg, svc_clientdata);
 	MSG_WriteShort (msg, bits);
+	if (bits & SU_EXTEND1)
+		MSG_WriteByte (msg, bits>>16);
+	if (bits & SU_EXTEND2)
+		MSG_WriteByte (msg, bits>>24);
 
 	if (bits & SU_VIEWHEIGHT)
 		MSG_WriteChar (msg, ent->v.view_ofs[2]);
@@ -713,6 +781,23 @@ void SV_WriteClientdataToMessage (edict_t *ent, sizebuf_t *msg)
 			}
 		}
 	}
+
+	if (bits & SU_WEAPON2)
+		MSG_WriteByte (msg, SV_ModelIndex(pr_strings+ent->v.weaponmodel) >> 8);
+	if (bits & SU_ARMOR2)
+		MSG_WriteByte (msg, (int)ent->v.armorvalue >> 8);
+	if (bits & SU_AMMO2)
+		MSG_WriteByte (msg, (int)ent->v.currentammo >> 8);
+	if (bits & SU_SHELLS2)
+		MSG_WriteByte (msg, (int)ent->v.ammo_shells >> 8);
+	if (bits & SU_NAILS2)
+		MSG_WriteByte (msg, (int)ent->v.ammo_nails >> 8);
+	if (bits & SU_ROCKETS2)
+		MSG_WriteByte (msg, (int)ent->v.ammo_rockets >> 8);
+	if (bits & SU_CELLS2)
+		MSG_WriteByte (msg, (int)ent->v.ammo_cells >> 8);
+	if (bits & SU_WEAPONFRAME2)
+		MSG_WriteByte (msg, (int)ent->v.weaponframe >> 8);
 }
 
 /*
@@ -921,13 +1006,40 @@ int SV_ModelIndex (char *name)
 
 /*
 ================
-SV_CreateBaseline
+SV_ChooseProtocol
 
+Protocol 15 sends a model or sound number as one byte. A map that precaches
+more than 256 of either cannot be described in it, so it gets FitzQuake's 666.
+Nothing can be precached once the map has spawned, which is why this runs
+then and only then, and nothing has been sent to a client yet.
+================
+*/
+void SV_ChooseProtocol (void)
+{
+	int		nummodels, numsounds;
+
+	for (nummodels=1 ; nummodels<MAX_MODELS && sv.model_precache[nummodels] ; nummodels++)
+		;
+	for (numsounds=1 ; numsounds<MAX_SOUNDS && sv.sound_precache[numsounds] ; numsounds++)
+		;
+
+	if (nummodels > 256 || numsounds > 256)
+		sv.protocol = PROTOCOL_FITZQUAKE;
+
+	if (sv.protocol != PROTOCOL_NETQUAKE)
+		Con_DPrintf ("%d models and %d sounds: using protocol %d\n",
+					 nummodels - 1, numsounds - 1, sv.protocol);
+}
+
+
+/*
+================
+SV_CreateBaseline
 ================
 */
 void SV_CreateBaseline (void)
 {
-	int			i;
+	int			i, bits;
 	edict_t			*svent;
 	int				entnum;	
 		
@@ -979,11 +1091,39 @@ void SV_CreateBaseline (void)
 			break;
 		}
 
-		MSG_WriteByte (&sv.signon,svc_spawnbaseline);		
-		MSG_WriteShort (&sv.signon,entnum);
+	//
+	// A model or frame number past 255 goes as svc_spawnbaseline2 with a flags
+	// byte saying which of them is a short. That exists only in 666, so it
+	// moves the map to 666; nothing has been sent to a client yet.
+	//
+		bits = 0;
+		if (svent->baseline.modelindex & 0xFF00)
+			bits |= B_LARGEMODEL;
+		if (svent->baseline.frame & 0xFF00)
+			bits |= B_LARGEFRAME;
+		if (bits)
+			sv.protocol = PROTOCOL_FITZQUAKE;
 
-		MSG_WriteByte (&sv.signon, svent->baseline.modelindex);
-		MSG_WriteByte (&sv.signon, svent->baseline.frame);
+		if (bits)
+		{
+			MSG_WriteByte (&sv.signon, svc_spawnbaseline2);
+			MSG_WriteShort (&sv.signon, entnum);
+			MSG_WriteByte (&sv.signon, bits);
+		}
+		else
+		{
+			MSG_WriteByte (&sv.signon,svc_spawnbaseline);		
+			MSG_WriteShort (&sv.signon,entnum);
+		}
+
+		if (bits & B_LARGEMODEL)
+			MSG_WriteShort (&sv.signon, svent->baseline.modelindex);
+		else
+			MSG_WriteByte (&sv.signon, svent->baseline.modelindex);
+		if (bits & B_LARGEFRAME)
+			MSG_WriteShort (&sv.signon, svent->baseline.frame);
+		else
+			MSG_WriteByte (&sv.signon, svent->baseline.frame);
 		MSG_WriteByte (&sv.signon, svent->baseline.colormap);
 		MSG_WriteByte (&sv.signon, svent->baseline.skin);
 		for (i=0 ; i<3 ; i++)
@@ -1144,6 +1284,14 @@ void SV_SpawnServer (char *server)
 	sv.state = ss_loading;
 	sv.paused = false;
 
+//
+// id's protocol until something in this map needs more. The signon writers
+// below (statics, ambient sounds) switch it to 666 themselves if a number they
+// write does not fit a byte; SV_ChooseProtocol checks the precache counts once
+// the map has spawned.
+//
+	sv.protocol = PROTOCOL_NETQUAKE;
+
 	sv.time = 1.0;
 	
 	strcpy (sv.name, server);
@@ -1200,6 +1348,8 @@ void SV_SpawnServer (char *server)
 	pr_global_struct->serverflags = svs.serverflags;
 	
 	ED_LoadFromFile (sv.worldmodel->entities);
+
+	SV_ChooseProtocol ();
 
 	sv.active = true;
 

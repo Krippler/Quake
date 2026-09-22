@@ -3735,8 +3735,52 @@ void M_Draw (void)
 }
 
 
+//
+// Backspace goes back a menu level, the way Escape does, and closes the menu
+// from the top one. It is the key a browser, a phone keyboard and most other
+// software use for "back", and Escape is a stretch away or, in a browser in
+// fullscreen, taken by the browser itself to leave fullscreen.
+//
+// Except where Backspace already has a job. These are the places it does, and
+// they keep it: the text fields (your name, the server address, a modem
+// string), and the key bindings screen, where it clears the highlighted
+// binding. Escape still goes back from all of them.
+//
+static qboolean M_BackspaceEdits (void)
+{
+	switch (m_state)
+	{
+	case m_keys:
+		return true;
+	case m_setup:
+		return setup_cursor == 0 || setup_cursor == 1;
+	case m_serialconfig:
+		return serialConfig_cursor == 4;
+	case m_modemconfig:
+		return modemConfig_cursor == 1 || modemConfig_cursor == 2;
+	case m_lanconfig:
+		return lanConfig_cursor == 0 || lanConfig_cursor == 2;
+	default:
+		return false;
+	}
+}
+
 void M_Keydown (int key)
 {
+	if (key == K_BACKSPACE && !M_BackspaceEdits ())
+	{
+	//
+	// Backspace auto-repeats, where every other key's repeats are dropped
+	// before they get here, so that holding it deletes a line of text. As
+	// "back", a held key would empty the whole menu stack in a blink: one
+	// level per press.
+	//
+		if (key_repeats[K_BACKSPACE] > 1)
+			return;
+
+		key = K_ESCAPE;
+	}
+
 	switch (m_state)
 	{
 	case m_none:

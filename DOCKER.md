@@ -90,6 +90,9 @@ What to expect:
 - A cvar the re-release progs sets but this engine does not define — `campaign`
   is the one you will see — is created on demand rather than refused, so the
   progs reads back what it wrote.
+- A map with more than 256 models or sounds — MG1 has several — is played over
+  FitzQuake's protocol 666, which can count past a byte; everything else stays
+  on id's protocol 15. It is decided per map, and `developer 1` says when.
 - `scr_usekfont` is the re-release's scalable font and is not implemented; the
   one "Unknown command" line at startup is accurate.
 - Masked ("fence") textures — the ones named `{something`, used for grates,
@@ -323,6 +326,11 @@ and there is no asking for it back outside a secure context, and `Esc` is
 Quake's own menu key; the button sends one to the engine and hands the picture
 straight back, so the game returns with its menu already up. A controller's
 **B** does the same thing without leaving the game at all.
+
+Inside the menu, **Backspace** goes back a level and closes it from the top,
+the way `Esc` does in id's engine — `Esc` being the browser's here. It still
+deletes in the name and address fields, still clears a binding on the controls
+screen, and answers "no" to a yes-or-no question.
 
 The `` ` `` key opens the console, and passes through untouched — which is why
 the menu is on a button rather than moved onto `` ` ``. The console is how you
