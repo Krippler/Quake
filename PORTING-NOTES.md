@@ -948,6 +948,29 @@ thing that gets blamed on the map. 65536 is the default and also a clamp, with
 a line printed if it is exceeded — necessary because the shortage message
 itself tells the reader to raise `r_maxsurfs`.
 
+### `r_sky.c` — a sky texture is not always 256x128
+
+`R_InitSky` takes the sky's two layers apart with the dimensions written into
+it:
+
+```c
+	newsky[(i*256) + j + 128] = src[i*256 + j + 128];
+```
+
+`mt->width` and `mt->height` are never read. Every sky id shipped is 256x128,
+so the constants were the dimensions and this was correct for thirty years.
+
+A re-release map's sky is larger. At 512x256 that loop walks the top-left
+quarter of the image at half the real stride; at anything below 256x128 it
+reads past the end of the texture. Both give a sky made of whatever happened
+to be there.
+
+The layers are resampled from the real dimensions now, nearest neighbour --
+this is a scrolling cloud layer seen through a warp, and anything better would
+not survive the warp. Verified by running id's routine and the replacement over
+the same synthetic texture: at 256x128 they produce byte-identical buffers, and
+above it only the replacement reproduces the texture's own vertical ramp.
+
 ### `r_main.c` — a `fog` command that draws no fog
 
 Every re-release map sets fog through the progs on every level load, and this

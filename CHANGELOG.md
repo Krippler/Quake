@@ -5,6 +5,31 @@ top section's heading is what the release workflow reads: `## [X.Y.Z] — DATE`
 on the default branch publishes that version, `## [Unreleased]` publishes only
 `edge`.
 
+## [Unreleased]
+
+### Fixed
+
+- **A sky texture that is not exactly 256x128 was read as garbage.** `R_InitSky`
+  splits the sky into its two layers with `256` and `128` written into it as
+  constants — it never looked at `mt->width` or `mt->height` at all. Every sky
+  id shipped is 256x128, so this held for thirty years.
+
+  A re-release map's sky is bigger. At 512x256 the old code read the top-left
+  quarter of the image at the wrong stride; below 256x128 it read past the end
+  of the texture entirely. The layers are resampled from the texture's real
+  dimensions now.
+
+  Measured against a synthetic sky carrying a known vertical ramp, comparing
+  the old routine and the new one over the same texture:
+
+  | sky texture | id's loader | fixed | the texture's actual range |
+  | --- | --- | --- | --- |
+  | 256x128 | 16..79 | 16..79 | 16..79 — buffers byte-identical |
+  | 512x256 | 104..31 | 16..79 | 16..79 |
+  | 1024x512 | 102..19 | 16..79 | 16..79 |
+
+  At id's size the two agree exactly, so nothing changes for the original game.
+
 ## [1.6.3] — 2026-09-22
 
 ### Added
