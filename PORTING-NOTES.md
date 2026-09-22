@@ -948,6 +948,32 @@ thing that gets blamed on the map. 65536 is the default and also a clamp, with
 a line printed if it is exceeded — necessary because the shortage message
 itself tells the reader to raise `r_maxsurfs`.
 
+### `r_fog.c` — the curve, which was guessed once and wrong
+
+Getting fog onto the screen was the easy half. The half that matters to
+anyone looking at it is how much fog there is at a given distance, and that is
+not a free choice: the maps were authored against a particular curve, and
+anything else is either invisible or opaque.
+
+The first attempt used `1 - exp(-density * d)` on the grounds that this is what
+`GL_EXP` fog does. It is, but it is not what the re-release does. That engine's
+`fog` command comes from FitzQuake, which sets `GL_FOG_DENSITY` to `density/64`
+and `GL_FOG_MODE` to `GL_EXP2` — so the fraction is
+
+```
+	1 - exp(-((density / 64) * d)^2)
+```
+
+Two mistakes at once, and they compound in the same direction. At 100 units
+with the density a map actually sets, the guess gave 99% fog where the real
+curve gives 1%, so every room rendered as a flat sheet of the fog colour.
+
+The lesson worth keeping is that "implement fog" and "implement *this* fog" are
+different jobs, and the screenshot that proves the first says nothing about the
+second. `r_fogscale` exists because the correction is still inferred from
+another engine's source rather than measured against the maps, and a number
+that can be turned at runtime is worth more than a claim that it is right.
+
 ### `r_fog.c` (new) — fog without anything to blend with
 
 Fog is a blend, and this renderer has nothing to blend. It writes palette

@@ -287,10 +287,11 @@ extern qboolean	r_reportedbmodel;
 // drawers do not call exp().
 //
 #define	FOG_LEVELS			32
-#define	FOG_DIST_UNIT		8		// world units per r_fogdistmap entry
-#define	FOG_DIST_ENTRIES	512		// so 4096 units before it saturates
+#define	FOG_DIST_UNIT		16		// world units per r_fogdistmap entry
+#define	FOG_DIST_ENTRIES	2048	// so 32768 units, past any Quake map
 
 extern qboolean	r_fogenabled;
+extern cvar_t	r_fogscale;
 extern byte		r_fogmap[FOG_LEVELS][256];
 extern byte		r_fogdistmap[FOG_DIST_ENTRIES];
 

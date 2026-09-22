@@ -5,6 +5,41 @@ top section's heading is what the release workflow reads: `## [X.Y.Z] — DATE`
 on the default branch publishes that version, `## [Unreleased]` publishes only
 `edge`.
 
+## [Unreleased]
+
+### Fixed
+
+- **Fog was far too thick to see through.** 1.7.0 drew fog on a curve I guessed
+  rather than the one the maps were authored against, and got it wrong twice
+  over.
+
+  The re-release's `fog` command comes from FitzQuake, which sets
+  `GL_FOG_DENSITY` to **density / 64** and `GL_FOG_MODE` to **`GL_EXP2`**. So
+  the fraction of fog at distance *d* is `1 - exp(-((density/64) * d)^2)`, where
+  1.7.0 used a plain `1 - exp(-density * d)`. Missing the divisor and using the
+  wrong exponential compounded:
+
+  | distance | 1.7.0, density 0.05 | correct, density 0.05 |
+  | --- | --- | --- |
+  | 100 | 0.99 | **0.01** |
+  | 500 | 1.00 | **0.14** |
+  | 1000 | 1.00 | **0.46** |
+  | 2000 | 1.00 | **0.91** |
+
+  At a hundred units it was blending in 99% fog where it should have been 1%,
+  which is why a room came out as a flat wall of colour.
+
+  The distance table reaches 32768 units now rather than 4096, since fog on the
+  real curve is still deepening well past where the old one had saturated.
+
+### Added
+
+- **`r_fogscale`**, multiplying whatever density a map sets. 1 is FitzQuake's
+  curve; lower thins the fog, higher thickens it. It takes effect immediately
+  and is archived. It exists because the curve above is inferred from another
+  engine's source rather than measured against the maps themselves, and a
+  number that can be turned beats a number that has to be rebuilt.
+
 ## [1.7.0] — 2026-09-22
 
 ### Added

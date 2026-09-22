@@ -253,6 +253,7 @@ void R_Init (void)
 	Cvar_RegisterVariable (&r_dspeeds);
 	Cvar_RegisterVariable (&r_reportsurfout);
 	Cvar_RegisterVariable (&r_maxsurfs);
+	Cvar_RegisterVariable (&r_fogscale);
 	Cvar_RegisterVariable (&r_numsurfs);
 	Cvar_RegisterVariable (&r_reportedgeout);
 	Cvar_RegisterVariable (&r_maxedges);
@@ -1274,6 +1275,10 @@ void R_RenderView (void)
 
 	if ( (long)(&r_warpbuffer) & 3 )
 		Sys_Error ("Globals are missaligned");
+
+// so that r_fogscale takes effect when it is changed rather than when the next
+// map sets fog. It returns immediately unless something it depends on moved.
+	R_BuildFogMap ();
 
 	R_RenderView_ ();
 }
