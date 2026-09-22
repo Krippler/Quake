@@ -83,6 +83,8 @@ typedef struct texture_s
 #define SURF_DRAWTURB		0x10
 #define SURF_DRAWTILED		0x20
 #define SURF_DRAWBACKGROUND	0x40
+// a texture named "{something": palette index 255 is a hole. See r_fence.c.
+#define SURF_DRAWMASKED		0x80
 
 // !!! if this is changed, it must be changed in asm_draw.h too !!!
 typedef struct

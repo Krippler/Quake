@@ -89,6 +89,14 @@ surfcache_t	*D_CacheSurface (msurface_t *surface, int miplevel);
 
 extern int D_MipLevelForScale (float scale);
 
+//
+// The surface setup D_DrawSurfaces does per surface, shared with r_fence.c,
+// which drives one surface at a time from outside the edge list.
+//
+extern int		miplevel;
+extern vec3_t	transformed_modelorg;
+void D_CalcGradients (msurface_t *pface);
+
 #if id386
 extern void D_PolysetAff8Start (void);
 extern void D_PolysetAff8End (void);

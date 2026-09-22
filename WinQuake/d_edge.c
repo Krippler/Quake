@@ -22,7 +22,7 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 #include "quakedef.h"
 #include "d_local.h"
 
-static int	miplevel;
+int		miplevel;
 
 float		scale_for_mip;
 int			screenwidth;
@@ -34,18 +34,6 @@ extern void			R_RotateBmodel (void);
 extern void			R_TransformFrustum (void);
 
 vec3_t		transformed_modelorg;
-
-/*
-==============
-D_DrawPoly
-
-==============
-*/
-void D_DrawPoly (void)
-{
-// this driver takes spans, not polygons
-}
-
 
 /*
 =============

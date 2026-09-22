@@ -948,6 +948,57 @@ thing that gets blamed on the map. 65536 is the default and also a clamp, with
 a line printed if it is exceeded — necessary because the shortage message
 itself tells the reader to raise `r_maxsurfs`.
 
+### `r_fence.c` (new) — a hole is not a colour, and the edge list does not know
+
+A texture named `{something` is a fence: palette index 255 is a hole. Grates,
+vines, ladders, chainlink. id never shipped one — the convention grew up in the
+editors afterwards — so this renderer had never heard of it and drew index 255
+as what it literally is, palette entry 255, a flat dusty pink (159, 91, 83). A
+ceiling grate rendered as a sheet of pink with the bars punched into it.
+
+Skipping index 255 would have been a two-line change and wrong, because the
+holes would then have shown the previous frame. This renderer resolves
+visibility with an **edge list**: it sorts surfaces per screen span, the
+nearest one wins, and the rest are never rasterised at all. A fence that keeps
+its place in that list deletes the room behind it. Whether its own pixels get
+written is beside the point — nothing was ever drawn there to see.
+
+So the fence comes out of the edge list. `R_RenderFace` hands a masked surface
+to `R_FenceDeferFace` and returns; the world is then built and drawn as though
+the fence did not exist, which is exactly the picture its holes should show.
+After `R_EdgeDrawing` finishes, `R_DrawFenceFaces` puts each fence back, one
+polygon at a time, against the z-buffer the world has just written.
+
+The drawing itself is not new code. Sprites have always been drawn this way
+here — after the world, masked on index 255, z-tested and z-written per pixel —
+and `D_SpriteDrawSpans` already does all of it, fog included. It wants spans
+and a lit texture block. A world surface can supply both: `D_CacheSurface` for
+the block, `D_CalcGradients` for the texture gradients, and the same
+plane-to-1/z arithmetic `R_RenderFace` stores on a `surf_t` for the depth.
+
+The polygon comes from `R_RenderPoly`, which id wrote to frustum-clip and
+project a single surface and then hand it to `D_DrawPoly` — a function left
+empty in 1996 with the comment *"this driver takes spans, not polygons"*, the
+hook for a polygon driver that never shipped. Thirty years later it has one
+caller. `D_DrawPoly` scan-converts the projected polygon into one span per
+line and calls the sprite drawer.
+
+Two facts make this cheap rather than fiddly:
+
+- `colormap[l][255] == 255` at every one of the 64 light levels, and no other
+  index ever maps to 255. So a texel's transparency survives lighting, and the
+  mask test can be done on the **lit** cached block with no false holes.
+- The sprite drawer's inner loop is already the fence inner loop. The whole
+  feature is a scan converter and some setup.
+
+Measured with a common shareware wall texture turned into a fence, so about a
+third of the view is masked, at 1024x768: 507/552/543 fps without the pass
+against 465/477/429 with it. A frame containing no fence never enters it.
+
+What this does not get you is partial transparency. An 8-bit palette has no
+alpha; there is one index that means "not here" and no index that means "half
+here". A texel is a hole or it is opaque.
+
 ### `r_fog.c` — the curve, which was guessed once and wrong
 
 Getting fog onto the screen was the easy half. The half that matters to

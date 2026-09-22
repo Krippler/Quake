@@ -92,6 +92,13 @@ What to expect:
   progs reads back what it wrote.
 - `scr_usekfont` is the re-release's scalable font and is not implemented; the
   one "Unknown command" line at startup is accurate.
+- Masked ("fence") textures — the ones named `{something`, used for grates,
+  vines, ladders and chainlink — are drawn with their holes. They are taken out
+  of the renderer's edge list so they do not hide what is behind them, then
+  drawn over the finished frame against its z-buffer. They are lit, fogged and
+  z-sorted like anything else. What the palette cannot do is partial
+  transparency: a texel is a hole or it is opaque, so the re-release's
+  translucent surfaces are drawn solid.
 - Skyboxes are not drawn. The maps name one on worldspawn; the engine says so
   once per map and draws the map's own sky texture instead. `developer 1` also
   reports which sky texture that is and its size.

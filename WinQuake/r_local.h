@@ -299,6 +299,14 @@ void R_BuildFogMap (void);
 void R_FogClear (void);
 
 //
+// r_fence.c -- masked ("{name") world textures, drawn after the edge list
+// rather than in it. See the comment at the top of that file.
+//
+void		R_FenceClearFrame (void);
+qboolean	R_FenceDeferFace (msurface_t *fa, int clipflags);
+void		R_DrawFenceFaces (void);
+
+//
 // Depth to fog row. d is in world units. Written here so the drawers all agree
 // and so it stays one shift and two loads in the loop.
 //

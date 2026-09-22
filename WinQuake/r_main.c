@@ -1071,6 +1071,7 @@ void R_EdgeDrawing (void)
 	}
 
 	R_BeginEdgeFrame ();
+	R_FenceClearFrame ();
 
 	if (r_dspeeds.value)
 	{
@@ -1153,6 +1154,13 @@ SetVisibilityByPassages ();
 	}
 	
 	R_EdgeDrawing ();
+
+//
+// The world and the brush models have written colour and z. Fence surfaces
+// were held back out of that so they would not hide what is behind them; they
+// go on now, over the top, against the z they can now be tested against.
+//
+	R_DrawFenceFaces ();
 
 	if (!r_dspeeds.value)
 	{
