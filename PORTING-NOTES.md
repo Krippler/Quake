@@ -948,6 +948,58 @@ thing that gets blamed on the map. 65536 is the default and also a clamp, with
 a line printed if it is exceeded — necessary because the shortage message
 itself tells the reader to raise `r_maxsurfs`.
 
+### `d_surf.c` — the icon in the corner was the whole story
+
+`SCR_DrawRam` draws `scr_ram` at the top left of the view whenever
+`r_cache_thrash` is set. That flag means `D_SCAlloc` wrapped onto surface cache
+blocks it had already built *during the same frame*: the frame needs more lit
+surface than the cache holds, so every one of those is rebuilt next frame, and
+the frame after, for as long as the view does not change. It is expensive
+enough to be the stall rather than a symptom of one.
+
+`D_SurfaceCacheForRes` sized it at `600*1024 + (pixels - 64000) * 3`, which is
+1818 KB at 800x600 — and 1818 KB is exactly what the engine prints at startup,
+which is how this was identified from a log. Generous in 1996, nothing now.
+
+It is 8 MB plus 16 bytes a pixel, capped at 48 MB because it comes out of the
+same heap as the map and the frame pools. And it says so in words once a map,
+because `scr_showram` defaults on but can be off, and an unlabelled icon in the
+corner is not a diagnosis.
+
+### `cl_parse.c` — a short that had to be read unsigned
+
+Raising `MAX_EDICTS` reached further than the edict array. `SV_StartSound`
+packs both the entity and the channel into one field:
+
+```c
+	channel = (ent<<3) | channel;
+	MSG_WriteShort (&sv.datagram, channel);
+```
+
+`MSG_ReadShort` returns a signed short. At 600 edicts the largest value that
+could appear was 4800, so the sign bit was never reached and nobody noticed. At
+8192 edicts, everything from entity 4096 up sets it, reads back negative, and
+the sound is attributed to entity -1.
+
+Nothing on the wire changes: the field is and always was 16 bits, and the fix
+is to read it as unsigned. The bounds check under it also said `>` where it
+meant `>=`.
+
+The general shape is worth remembering when raising a 1996 limit: the array is
+the easy half, and the places that packed a value into a field sized for the
+old maximum are the half that fails quietly.
+
+### `cl_parse.c` — "Illegible server message" naming nothing
+
+The default case of `CL_ParseServerMessage`'s switch means the reader is no
+longer on a message boundary: some handler above it read the wrong number of
+bytes and everything after is misaligned. id's text says none of that and names
+neither the byte nor the opcode.
+
+It now prints the opcode it found, the offset it was at, the message size, and
+the last opcode that parsed cleanly — which is the one to look at, since the
+fault is almost always in that handler rather than where it was noticed.
+
 ### `pr_cmds.c`, `sv_main.c` — three writers, one fixed buffer
 
 `sv.signon` is written by `PF_makestatic` (14 bytes a static), `PF_ambientsound`

@@ -37,6 +37,9 @@ void S_StopAllSoundsC(void);
 // =======================================================================
 
 channel_t   channels[MAX_CHANNELS];
+
+// so that running out is reported once a map rather than once a sound
+qboolean	s_reportedchannels;
 int			total_channels;
 
 int				snd_blocked = 0;
@@ -556,6 +559,7 @@ void S_StopAllSounds(qboolean clear)
 		return;
 
 	total_channels = MAX_DYNAMIC_CHANNELS + NUM_AMBIENTS;	// no statics
+	s_reportedchannels = false;
 
 	for (i=0 ; i<MAX_CHANNELS ; i++)
 		if (channels[i].sfx)
@@ -643,7 +647,14 @@ void S_StaticSound (sfx_t *sfx, vec3_t origin, float vol, float attenuation)
 
 	if (total_channels == MAX_CHANNELS)
 	{
-		Con_Printf ("total_channels == MAX_CHANNELS\n");
+	// Once a map: a map that is over this is over it for every ambient sound
+	// it has left, and said the same thing each time.
+		if (!s_reportedchannels)
+		{
+			s_reportedchannels = true;
+			Con_Printf ("\nOut of sound channels (%d). The rest of this map's "
+						"ambient sounds\nare not playing.\n", MAX_CHANNELS);
+		}
 		return;
 	}
 

@@ -135,7 +135,17 @@ void SNDDMA_Shutdown(void);
 // User-setable variables
 // ====================================================================
 
-#define	MAX_CHANNELS			128
+//
+// Eight of these are the dynamic channels a player's own actions use; the rest
+// hold one entry per static sound in the map -- every fan, every hum, every
+// dripping pipe. id's 128 left 118 for those, which was plenty for id's maps
+// and is not for a re-release one: past it S_StaticSound drops the sound, so
+// the level plays with parts of its ambience missing and prints a line about
+// a constant nobody outside the engine has heard of.
+//
+// 1024 is 300 KB of channel_t.
+//
+#define	MAX_CHANNELS			1024
 #define	MAX_DYNAMIC_CHANNELS	8
 
 

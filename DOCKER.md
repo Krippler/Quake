@@ -104,6 +104,13 @@ What to expect:
   r_maxedges (now 131072) and restart the map.
   ```
 
+  A flickering icon in the top left corner is a different limit: the surface
+  cache, which holds each visible surface with its lighting applied. When a
+  frame needs more than it holds, everything in it is rebuilt every frame and
+  the picture stalls. It is sized for these maps (14 MB at 800x600, 40 MB at
+  1920x1080) and says so in words if it is still short; `-surfcachesize <kb>`
+  in `QUAKE_ARGS` raises it further, and a lower resolution needs less.
+
   Undrawn geometry looks like walls missing from the view with the rest of the
   level still there. `r_maxsurfs` and `r_maxedges` take effect on the next map
   load, and the heap they come out of is 192 MB by default (`-mem` in

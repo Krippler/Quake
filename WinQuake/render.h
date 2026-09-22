@@ -153,6 +153,7 @@ void R_PushDlights (void);
 //
 extern	int		reinit_surfcache;	// if 1, surface cache is currently empty and
 extern qboolean	r_cache_thrash;	// set if thrashing the surface cache
+extern qboolean	r_reportedthrash;
 
 int	D_SurfaceCacheForRes (int width, int height);
 void D_FlushCaches (void);

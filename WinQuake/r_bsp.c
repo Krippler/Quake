@@ -52,12 +52,13 @@ typedef enum {touchessolid, drawnode, nodrawnode} solidstate_t;
 // clipped polygon per frame, which is hundreds of lines a frame and slow
 // enough on its own to be felt.
 //
-// These are locals in R_DrawSolidClippedSubmodelPolygons, which is called once
-// per entity and is not itself recursive, so this is 98 KB and 393 KB of one
-// stack frame against the 8 MB a thread gets.
+// 8192 and 16384 were still not enough for the machine campaigns, so they are
+// larger again and no longer on the stack: R_DrawSolidClippedSubmodelPolygons
+// is called once per entity and is not itself recursive, so one static pair
+// serves it. That is 786 KB of bss rather than a 2 MB stack frame.
 //
-#define MAX_BMODEL_VERTS	8192		// 98K
-#define MAX_BMODEL_EDGES	16384		// 393K
+#define MAX_BMODEL_VERTS	65536		// 786K
+#define MAX_BMODEL_EDGES	131072		// 3M
 
 static mvertex_t	*pbverts;
 static bedge_t		*pbedges;
@@ -372,8 +373,9 @@ void R_DrawSolidClippedSubmodelPolygons (model_t *pmodel)
 	msurface_t	*psurf;
 	int			numsurfaces;
 	mplane_t	*pplane;
-	mvertex_t	bverts[MAX_BMODEL_VERTS];
-	bedge_t		bedges[MAX_BMODEL_EDGES], *pbedge;
+	static mvertex_t	bverts[MAX_BMODEL_VERTS];
+	static bedge_t		bedges[MAX_BMODEL_EDGES];
+	bedge_t		*pbedge;
 	medge_t		*pedge, *pedges;
 
 // FIXME: use bounding-box-based frustum clipping info?
