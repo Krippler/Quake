@@ -1003,6 +1003,14 @@ void Mod_LoadFaces (lump_t *l)
 			continue;
 		}
 		
+	//
+	// A '{' name is a fence: index 255 is see-through. It is otherwise an
+	// ordinary lit, subdivided surface, so this sets the flag and falls
+	// through rather than continuing like sky and water do.
+	//
+		if (out->texinfo->texture->name[0] == '{')
+			out->flags |= SURF_DRAWMASKED;
+
 		if (!Q_strncmp(out->texinfo->texture->name,"*",1))		// turbulent
 		{
 			out->flags |= (SURF_DRAWTURB | SURF_DRAWTILED);

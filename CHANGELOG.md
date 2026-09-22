@@ -5,6 +5,51 @@ top section's heading is what the release workflow reads: `## [X.Y.Z] — DATE`
 on the default branch publishes that version, `## [Unreleased]` publishes only
 `edge`.
 
+## [1.8.1] — 2026-09-22
+
+### Fixed
+
+- **Grates, vines and ladders were solid pink.** A texture whose name begins
+  with `{` is a fence: every texel that is palette index 255 is a hole you see
+  through. id never shipped one and this renderer predates the convention, so
+  it drew index 255 as what it literally is — palette entry 255, a flat dusty
+  pink (159, 91, 83). A ceiling grate came out as a sheet of pink with the bars
+  punched into it as dark shapes.
+
+  The holes were the easy half. The hard half is that this renderer decides
+  visibility with an edge list: for each screen span the nearest surface wins
+  and everything behind it is never drawn at all. A fence that keeps its place
+  in that list deletes the room behind it whether or not its own pixels are
+  drawn, so skipping index 255 on its own would have left the holes showing
+  the previous frame.
+
+  So a fence is now taken out of the edge list entirely — the room behind it is
+  drawn as if it were not there — and the fence goes on afterwards, over the
+  finished picture, tested against the z-buffer the world has just written.
+  That is the same order, and very nearly the same code, that sprites have
+  always used here: `D_SpriteDrawSpans` already skips index 255, tests and
+  writes z per pixel, and applies fog. It wants spans and a lit texture block,
+  and a world surface can hand it both.
+
+  A fence is therefore hidden by what is in front of it, hides what is behind
+  it, is lit by its own lightmap and dynamic lights like any other surface, and
+  fogs with the rest of the scene. It works on brush models — doors, platforms
+  — as well as on world geometry.
+
+  Measured on a map with a common wall texture turned into a fence, so roughly
+  a third of the view is masked, at 1024x768, three runs each: 507/552/543 fps
+  without the fence pass against 465/477/429 with it. Frames with no fence in
+  them are untouched.
+
+  Verified by turning a shareware wall texture into a fence and comparing the
+  frame before and after: 34000 pixels of palette index 255 before, none after,
+  and of the 34288 pixels that changed, 288 — 0.06% of the frame — were
+  anything other than those. Nothing bled over nearer geometry.
+
+  One consequence worth knowing: the palette has no alpha, so this is a hole or
+  it is not. The re-release's partly transparent surfaces are drawn opaque, as
+  they always were.
+
 ## [1.8.0] — 2026-09-22
 
 ### Added

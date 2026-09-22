@@ -439,6 +439,14 @@ void R_RenderFace (msurface_t *fa, int clipflags)
 	medge_t		*pedges, tedge;
 	clipplane_t	*pclip;
 
+//
+// A fence must not go in the edge list: it would hide the room behind it,
+// which is the room its holes are supposed to show. R_DrawFenceFaces draws it
+// over the finished frame instead.
+//
+	if ((fa->flags & SURF_DRAWMASKED) && R_FenceDeferFace (fa, clipflags))
+		return;
+
 // skip out if no more surfs
 	if ((surface_p) >= surf_max)
 	{
@@ -755,6 +763,15 @@ void R_RenderPoly (msurface_t *fa, int clipflags)
 	polyvert_t	pverts[100];	//FIXME: do real number, safely
 	int			vertpage, newverts, newpage, lastvert;
 	qboolean	visible;
+
+//
+// id's FIXME above, made real: clipping can add a vertex per plane, so a face
+// anywhere near the size of those buffers would walk off the end of them.
+// R_FenceDeferFace refuses such a face before it gets here; this is the
+// backstop for any other caller.
+//
+	if (fa->numedges > 90)
+		return;
 
 // FIXME: clean this up and make it faster
 // FIXME: guard against running out of vertices

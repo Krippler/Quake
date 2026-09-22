@@ -113,6 +113,7 @@ COMMON_SRCS = \
 	net_dgrm.c net_loop.c net_main.c net_vcr.c net_udp.c net_bsd.c \
 	nonintel.c pr_cmds.c pr_edict.c pr_exec.c r_aclip.c r_alias.c r_bsp.c \
 	r_light.c r_draw.c r_efrag.c r_edge.c r_misc.c r_main.c r_sky.c r_fog.c \
+	r_fence.c \
 	r_sprite.c r_surf.c r_part.c r_vars.c screen.c sbar.c sv_main.c \
 	sv_phys.c sv_move.c sv_user.c zone.c view.c wad.c world.c \
 	sys_linux.c vid_x.c
