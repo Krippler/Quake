@@ -278,6 +278,7 @@ extern int		r_outofedges;
 extern int		r_edgesoutofrange;
 extern qboolean	r_reportedshort;
 extern qboolean	r_reportedrange;
+extern qboolean	r_reportedbmodel;
 
 extern mvertex_t	*r_pcurrentvertbase;
 extern int			r_maxvalidedgeoffset;

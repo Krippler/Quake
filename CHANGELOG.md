@@ -5,6 +5,49 @@ top section's heading is what the release workflow reads: `## [X.Y.Z] — DATE`
 on the default branch publishes that version, `## [Unreleased]` publishes only
 `edge`.
 
+## [1.6.1] — 2026-09-22
+
+### Fixed
+
+- **A brush model too complex to clip was dropped, and said so hundreds of
+  times a frame.** Reported from the machine campaigns on 1.6.0 as a console
+  full of `Out of edges for bmodel`, with the picture stalling for up to 700 ms
+  at a time.
+
+  `MAX_BMODEL_VERTS` (500) and `MAX_BMODEL_EDGES` (1000) are the scratch buffers
+  `R_DrawSolidClippedSubmodelPolygons` clips one brush model in — a door, a
+  platform, a lift, any moving world geometry. Over the limit
+  `R_RecursiveClipBPoly` returns and the model is not drawn at all: a door that
+  is simply absent, not a door with a hole in it.
+
+  They are 8192 and 16384 now, which is 98 KB and 393 KB of a stack frame that
+  is not recursive. The message is said once per map instead of once per
+  clipped polygon — the printing was itself slow enough to be felt, so this is
+  half the stall as well as all of the noise. The vertex limit said nothing at
+  all before; it reports now too.
+
+- **The surface pool was still too small.** 1.5.1 raised it to 32768 on the
+  strength of id's maps. The machine campaigns come up **4128 short of that on
+  a single frame**, which is geometry missing from the view. 65536 now, which is
+  the most it can safely be: `edge_t` holds the index of the surface an edge
+  belongs to in an `unsigned short`, so a surface at index 65536 or above is
+  written back as a different one — it does not fail, it draws the wrong
+  surface. Raising `r_maxsurfs` past that is now clamped and reported, since the
+  shortage message tells the reader to raise it. The edge pool was not short on
+  the same frame and is unchanged.
+
+- **Three writers into the signon message, one of them still able to exit the
+  engine.** `PF_makestatic`, `SV_CreateBaseline` and `PF_ambientsound` all write
+  into a fixed buffer whose `allowoverflow` is clear, so filling it is
+  `Sys_Error` from `SZ_GetSpace` with the map nearly loaded — the worst place
+  for a hard stop.
+
+  All three check for room now and drop what will not fit, once with an
+  explanation, so a map that is too big for the protocol loses some torches or
+  ambient loops rather than refusing to load. Found by building maps with 400
+  to 4000 extra static entities out of the shareware data: 1.5.1 exits on all
+  of them, 1.6.0 exited above about 1800, and all of them now play.
+
 ## [1.6.0] — 2026-09-22
 
 ### Fixed

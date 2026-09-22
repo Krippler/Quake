@@ -531,6 +531,21 @@ void PF_ambientsound (void)
 
 // add an svc_spawnambient command to the level signon packet
 
+// The third writer into the fixed signon buffer, after the statics and the
+// baselines, and it overflows the same way: Sys_Error out of SZ_GetSpace with
+// the map nearly loaded. Losing an ambient loop is better than losing the map.
+	if (sv.signon.cursize + 12 > sv.signon.maxsize)
+	{
+		if (!sv_reportedsignon)
+		{
+			sv_reportedsignon = true;
+			Con_Printf ("\nThis map has more ambient sounds and static objects "
+						"than the signon\nmessage holds. The rest are being "
+						"left out; the map still plays.\n");
+		}
+		return;
+	}
+
 	MSG_WriteByte (&sv.signon,svc_spawnstaticsound);
 	for (i=0 ; i<3 ; i++)
 		MSG_WriteCoord(&sv.signon, pos[i]);
@@ -1591,6 +1606,32 @@ void PF_makestatic (void)
 	int		i;
 	
 	ent = G_EDICT(OFS_PARM0);
+
+//
+// Every static costs 14 bytes of the signon message, which is a fixed buffer
+// with allowoverflow clear -- so the map that fills it does not get an error,
+// it gets Sys_Error out of SZ_GetSpace and the engine exits. That is a hard
+// stop at the point a map is nearly loaded, which is the worst place for one.
+//
+// Losing a torch is better than losing the map. Over the limit the static is
+// dropped and the entity freed as usual, so the level still plays; it is said
+// once so a map that drops two hundred does not say it two hundred times.
+//
+// The check has to be here rather than after the fact: by the time
+// SV_SpawnServer could look at the total, SZ_GetSpace has already exited.
+//
+	if (sv.signon.cursize + 16 > sv.signon.maxsize)
+	{
+		if (!sv_reportedsignon)
+		{
+			sv_reportedsignon = true;
+			Con_Printf ("\nThis map has more static objects (torches, flames) "
+						"than the signon\nmessage holds. The rest are not "
+						"being placed; the map still plays.\n");
+		}
+		ED_Free (ent);
+		return;
+	}
 
 	MSG_WriteByte (&sv.signon,svc_spawnstatic);
 

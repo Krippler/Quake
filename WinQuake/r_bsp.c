@@ -41,8 +41,23 @@ int				r_currentbkey;
 
 typedef enum {touchessolid, drawnode, nodrawnode} solidstate_t;
 
-#define MAX_BMODEL_VERTS	500			// 6K
-#define MAX_BMODEL_EDGES	1000		// 12K
+//
+// Scratch for clipping one brush model -- a door, a platform, a lift, any of
+// the moving world geometry -- against the view. Over the limit
+// R_RecursiveClipBPoly returns and the model is not drawn at all: a door that
+// is simply absent, not a door with a hole in it.
+//
+// id's 500 and 1000 were sized for id's doors. A re-release map's machinery is
+// far heavier, and this was the flood of "Out of edges for bmodel" -- once per
+// clipped polygon per frame, which is hundreds of lines a frame and slow
+// enough on its own to be felt.
+//
+// These are locals in R_DrawSolidClippedSubmodelPolygons, which is called once
+// per entity and is not itself recursive, so this is 98 KB and 393 KB of one
+// stack frame against the 8 MB a thread gets.
+//
+#define MAX_BMODEL_VERTS	8192		// 98K
+#define MAX_BMODEL_EDGES	16384		// 393K
 
 static mvertex_t	*pbverts;
 static bedge_t		*pbedges;
@@ -150,6 +165,28 @@ void R_RotateBmodel (void)
 }
 
 
+//
+// Said once a map rather than once a clipped polygon.
+//
+// The original printed inside the clipping walk, so a map whose machinery
+// exceeds these buffers prints hundreds of lines a frame. That buries
+// everything else on the console, and the printing itself is slow enough to
+// show up as the picture stalling.
+//
+qboolean	r_reportedbmodel;
+
+static void R_ReportBmodelShort (void)
+{
+	if (r_reportedbmodel)
+		return;
+
+	r_reportedbmodel = true;
+	Con_Printf ("\nA brush model (door, platform, lift) is too complex for the "
+				"clipping\nbuffers and is not being drawn. Raising "
+				"MAX_BMODEL_VERTS and\nMAX_BMODEL_EDGES in r_bsp.c is the "
+				"fix; there is no cvar for it.\n");
+}
+
 /*
 ================
 R_RecursiveClipBPoly
@@ -206,7 +243,10 @@ void R_RecursiveClipBPoly (bedge_t *pedges, mnode_t *pnode, msurface_t *psurf)
 		{
 		// clipped
 			if (numbverts >= MAX_BMODEL_VERTS)
+			{
+				R_ReportBmodelShort ();
 				return;
+			}
 
 		// generate the clipped vertex
 			frac = lastdist / (lastdist - dist);
@@ -226,7 +266,7 @@ void R_RecursiveClipBPoly (bedge_t *pedges, mnode_t *pnode, msurface_t *psurf)
 		// FIXME: share the clip edge by having a winding direction flag?
 			if (numbedges >= (MAX_BMODEL_EDGES - 1))
 			{
-				Con_Printf ("Out of edges for bmodel\n");
+				R_ReportBmodelShort ();
 				return;
 			}
 
@@ -270,7 +310,7 @@ void R_RecursiveClipBPoly (bedge_t *pedges, mnode_t *pnode, msurface_t *psurf)
 	{
 		if (numbedges >= (MAX_BMODEL_EDGES - 2))
 		{
-			Con_Printf ("Out of edges for bmodel\n");
+			R_ReportBmodelShort ();
 			return;
 		}
 
