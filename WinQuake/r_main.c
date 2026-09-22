@@ -240,7 +240,18 @@ void R_Init (void)
 // that is now large enough for the maps that need them. r_maxsurfs and
 // r_maxedges still set it for anyone who wants it smaller.
 //
-#define	DEFAULT_MAXSURFS	32768
+// Measured on the machine campaigns at 32768: still 4128 surfaces short on a
+// single frame, so that was not enough. The edge pool was not short on the
+// same frame ("roughly 0 edges"), so it stays.
+//
+// MAX_SAFE_SURFS is a hard ceiling, not a preference: edge_t stores the index
+// of the surface an edge belongs to in an unsigned short (r_shared.h), so a
+// surface at index 65536 or above is written back as something else entirely.
+// That does not fail, it draws the wrong surface, which is the kind of bug
+// that gets blamed on the map. The pool stops there and says so.
+//
+#define	MAX_SAFE_SURFS		65536
+#define	DEFAULT_MAXSURFS	MAX_SAFE_SURFS
 #define	DEFAULT_MAXEDGES	131072
 
 	Cvar_SetValue ("r_maxedges", (float)DEFAULT_MAXEDGES);
@@ -289,6 +300,18 @@ void R_NewMap (void)
 	if (r_cnumsurfs <= MINSURFACES)
 		r_cnumsurfs = MINSURFACES;
 
+// The shortage report tells the reader to raise r_maxsurfs, so it has to be
+// safe to do that. Past what an unsigned short can index, the surface number
+// an edge carries wraps and the renderer draws the wrong surface -- silently.
+	if (r_cnumsurfs > MAX_SAFE_SURFS)
+	{
+		Con_Printf ("r_maxsurfs %d is above the %d the renderer can index; "
+					"using %d.\n",
+					r_cnumsurfs, MAX_SAFE_SURFS, MAX_SAFE_SURFS);
+		r_cnumsurfs = MAX_SAFE_SURFS;
+		Cvar_SetValue ("r_maxsurfs", (float)MAX_SAFE_SURFS);
+	}
+
 	if (r_cnumsurfs > NUMSTACKSURFACES)
 	{
 		surfaces = Hunk_AllocName (r_cnumsurfs * sizeof(surf_t), "surfaces");
@@ -309,6 +332,7 @@ void R_NewMap (void)
 	r_maxsurfsseen = 0;
 	r_reportedshort = false;
 	r_reportedrange = false;
+	r_reportedbmodel = false;
 
 	r_numallocatededges = r_maxedges.value;
 

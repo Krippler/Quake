@@ -205,6 +205,10 @@ extern	cvar_t	timelimit;
 extern	server_static_t	svs;				// persistant server info
 extern	server_t		sv;					// local server
 
+// set when the signon message filled and statics or baselines were dropped,
+// so it is said once a map; cleared in SV_SpawnServer
+extern	qboolean		sv_reportedsignon;
+
 extern	client_t	*host_client;
 
 extern	jmp_buf 	host_abortserver;

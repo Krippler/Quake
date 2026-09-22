@@ -918,6 +918,56 @@ backend writes to, so the failing branch was never taken. The smoke phase
 added for visual depth runs the engine without `QUAKE_AUDIO_FIFO`, which took
 it on the first try.
 
+### `r_bsp.c` — the door that is not there
+
+`R_DrawSolidClippedSubmodelPolygons` clips one brush model against the view in
+two stack buffers, `MAX_BMODEL_VERTS` (500) and `MAX_BMODEL_EDGES` (1000). Over
+either, `R_RecursiveClipBPoly` returns. The model is not partly drawn — it is
+absent, which for a lift or a door is more confusing than a hole would be.
+
+The vertex limit returned silently. The edge limit printed, and printed from
+inside the clipping walk, so a map whose machinery exceeds it prints hundreds
+of lines a frame. That is not just noise: the printing showed up as the picture
+stalling for hundreds of milliseconds. Both are reported once a map now, and
+the buffers are 8192 and 16384 — 98 KB and 393 KB in a frame that is not
+recursive.
+
+### `r_main.c`, `r_shared.h` — how far the surface pool can actually go
+
+The machine campaigns came up 4128 surfaces short of 32768 on one frame, so
+1.5.1's figure was not enough. The ceiling is not memory: `edge_t` carries the
+index of the surface an edge belongs to in
+
+```c
+	unsigned short	surfs[2];
+```
+
+so the pool cannot exceed 65536 entries without an edge silently naming a
+different surface. That draws wrong rather than failing, which is the kind of
+thing that gets blamed on the map. 65536 is the default and also a clamp, with
+a line printed if it is exceeded — necessary because the shortage message
+itself tells the reader to raise `r_maxsurfs`.
+
+### `pr_cmds.c`, `sv_main.c` — three writers, one fixed buffer
+
+`sv.signon` is written by `PF_makestatic` (14 bytes a static), `PF_ambientsound`
+(11 bytes an ambient loop) and `SV_CreateBaseline` (16 bytes an entity with a
+model). Its `allowoverflow` is clear, so whichever one fills it calls
+`Sys_Error` through `SZ_GetSpace` — at the point the map is nearly loaded,
+which is the worst place to stop.
+
+Each one checks for room now and drops what will not fit, saying so once. A map
+too big for the protocol loses some torches or ambient loops and still plays.
+
+Worth recording how the third one was found, because guessing missed it: a
+check placed after `SV_CreateBaseline` could never fire, since `SZ_GetSpace`
+had already exited. Guarding the two obvious writers left a map failing at 2500
+statics anyway, and a breakpoint on `Sys_Error` named `PF_ambientsound` in one
+line. The test data was synthetic — the re-release campaigns cannot be shipped
+or tested here, so `e1m1`'s entity lump was rewritten with 400 to 4000 extra
+wall torches at origins the map already used, which makes the same demand out
+of data that is present.
+
 ### `docker/entrypoint.sh` — the colours did not survive the trip
 
 The renderer draws palette indices. `vid_x.c` can hand those to an 8-bit

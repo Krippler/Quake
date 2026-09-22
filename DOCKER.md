@@ -94,13 +94,13 @@ What to expect:
   one "Unknown command" line at startup is accurate.
 - The re-release campaigns are much larger than anything from 1996, and the
   renderer holds one frame's worth of geometry in fixed pools. Those are sized
-  for the re-release now — 32768 surfaces and 131072 edges, against id's 800 and
+  for the re-release now — 65536 surfaces and 131072 edges, against id's 800 and
   2400, which the whole shareware episode peaks at 458 and 1162 of. If a frame
   still does not fit, the engine says so once per map and names what to raise:
 
   ```
   This frame did not fit: short 1204 surface(s) and roughly 800 edge(s).
-  Geometry is being left undrawn. Raise r_maxsurfs (now 32768) and
+  Geometry is being left undrawn. Raise r_maxsurfs (now 65536) and
   r_maxedges (now 131072) and restart the map.
   ```
 
