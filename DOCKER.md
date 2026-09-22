@@ -92,9 +92,22 @@ What to expect:
   progs reads back what it wrote.
 - `scr_usekfont` is the re-release's scalable font and is not implemented; the
   one "Unknown command" line at startup is accurate.
-- The re-release campaigns are much larger than anything from 1996. Where they
-  exceed the fixed pools the software renderer works from, geometry drops out
-  of a frame rather than the engine failing cleanly.
+- The re-release campaigns are much larger than anything from 1996, and the
+  renderer holds one frame's worth of geometry in fixed pools. Those are sized
+  for the re-release now — 32768 surfaces and 131072 edges, against id's 800 and
+  2400, which the whole shareware episode peaks at 458 and 1162 of. If a frame
+  still does not fit, the engine says so once per map and names what to raise:
+
+  ```
+  This frame did not fit: short 1204 surface(s) and roughly 800 edge(s).
+  Geometry is being left undrawn. Raise r_maxsurfs (now 32768) and
+  r_maxedges (now 131072) and restart the map.
+  ```
+
+  Undrawn geometry looks like walls missing from the view with the rest of the
+  level still there. `r_maxsurfs` and `r_maxedges` take effect on the next map
+  load, and the heap they come out of is 192 MB by default (`-mem` in
+  `QUAKE_ARGS` changes it).
 
 **2PSB**, the RMQ variant of BSP2, is not read. The engine names it rather than
 printing a number.

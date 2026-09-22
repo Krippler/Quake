@@ -808,6 +808,36 @@ directory, so a test cannot drop a map in `maps/` and load it. The check reads
 tool writes it. It unlocks the loose-file path and nothing else; there is no
 game content in 256 bytes of checksum table.
 
+### `r_main.c` — the frame pools were sized for 1996
+
+`surfaces[]` and `r_edges[]` hold what the renderer has accepted for the frame
+it is building. They are not per map: they are reset every frame, so what
+matters is how much is visible at once. id sized them at 800 and 2400, and
+measured across the shareware episode at 800x600 the peak use is 458 surfaces
+and 1162 edges — comfortable, for those maps.
+
+When they run out, `R_RenderFace` and `R_RenderBmodelFace` return before
+emitting anything and count it in `r_outofsurfaces` / `r_outofedges`. The face
+is not drawn. There is no error and no fallback; the wall is just not there.
+
+A map built for the Quake re-release puts far more in view at once, so the
+machine campaigns exhausted both and rendered with holes in them. The defaults
+are 32768 and 131072 now, which is past `NUMSTACKSURFACES` and `NUMSTACKEDGES`
+and therefore off the stack and onto the hunk — what those two constants are
+for. About 10 MB, measured as 15.7 MB to 25.7 MB resident, and the heap grew
+from 64 MB to 192 MB to hold it alongside a BSP2 map. That heap is one malloc
+and `Memory_Init` only records where it starts, so the pages a small map never
+reaches are never resident: the virtual size grows and the footprint does not.
+
+The worse half was that it happened silently. `r_reportsurfout` and
+`r_reportedgeout` both default to 0, so the engine dropped geometry and said
+nothing, and the only symptom was a view with parts of the level missing. It
+now says so once per map and names the two cvars to raise.
+
+Reproduced by building with the pools cut to 64 and 200 — most of e1m3's
+opening room renders black with the torches hanging in the void, which is what
+the report described.
+
 ---
 
 ## New files
