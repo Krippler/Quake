@@ -64,8 +64,28 @@ char *svc_strings[] =
 	"svc_finale",			// [string] music [string] text
 	"svc_cdtrack",			// [byte] track [byte] looptrack
 	"svc_sellscreen",
-	"svc_cutscene"
+	"svc_cutscene",
+	"",						// 35
+	"",						// 36
+	"svc_skybox",			// 37, 666
+	"",						// 38
+	"",						// 39
+	"svc_bf",				// 40, 666
+	"svc_fog",				// 41, 666
+	"svc_spawnbaseline2",	// 42, 666
+	"svc_spawnstatic2",		// 43, 666
+	"svc_spawnstaticsound2"	// 44, 666
 };
+
+#define	NUM_SVC_STRINGS	((int)(sizeof(svc_strings) / sizeof(svc_strings[0])))
+
+// a name for any opcode, including ones past the end of the table
+static const char *CL_SvcName (int cmd)
+{
+	if (cmd >= 0 && cmd < NUM_SVC_STRINGS && svc_strings[cmd][0])
+		return svc_strings[cmd];
+	return "?";
+}
 
 //=============================================================================
 
@@ -128,11 +148,31 @@ void CL_ParseStartSoundPacket(void)
 // is attributed to entity -1. The field is 16 unsigned bits and the wire format
 // does not change -- only how this end reads it.
 //
-	channel = (unsigned short)MSG_ReadShort ();
-	sound_num = MSG_ReadByte ();
+//
+// 666 adds two flags: SND_LARGEENTITY sends the entity as a short and the
+// channel as a byte of its own, and SND_LARGESOUND sends the sound number as
+// a short. This server sends the first only past 8191 entities, which
+// MAX_EDICTS does not reach, but reads both.
+//
+	if (field_mask & SND_LARGEENTITY)
+	{
+		ent = (unsigned short)MSG_ReadShort ();
+		channel = MSG_ReadByte ();
+	}
+	else
+	{
+		channel = (unsigned short)MSG_ReadShort ();
+		ent = channel >> 3;
+		channel &= 7;
+	}
 
-	ent = channel >> 3;
-	channel &= 7;
+	if (field_mask & SND_LARGESOUND)
+		sound_num = (unsigned short)MSG_ReadShort ();
+	else
+		sound_num = MSG_ReadByte ();
+
+	if (sound_num >= MAX_SOUNDS)
+		Host_Error ("CL_ParseStartSoundPacket: bad sound number %d", sound_num);
 
 	if (ent >= MAX_EDICTS)
 		Host_Error ("CL_ParseStartSoundPacket: ent = %i", ent);
@@ -214,8 +254,8 @@ void CL_ParseServerInfo (void)
 	char	*str;
 	int		i;
 	int		nummodels, numsounds;
-	char	model_precache[MAX_MODELS][MAX_QPATH];
-	char	sound_precache[MAX_SOUNDS][MAX_QPATH];
+	static char	model_precache[MAX_MODELS][MAX_QPATH];	// 128 KB each at 2048:
+	static char	sound_precache[MAX_SOUNDS][MAX_QPATH];	// too much for the stack
 	
 	Con_DPrintf ("Serverinfo packet received.\n");
 //
@@ -225,11 +265,13 @@ void CL_ParseServerInfo (void)
 
 // parse protocol version number
 	i = MSG_ReadLong ();
-	if (i != PROTOCOL_VERSION)
+	if (i != PROTOCOL_NETQUAKE && i != PROTOCOL_FITZQUAKE)
 	{
-		Con_Printf ("Server returned version %i, not %i", i, PROTOCOL_VERSION);
+		Con_Printf ("Server returned version %i, not %i or %i", i,
+					PROTOCOL_NETQUAKE, PROTOCOL_FITZQUAKE);
 		return;
 	}
+	cl.protocol = i;
 
 // parse maxclients
 	cl.maxclients = MSG_ReadByte ();
@@ -357,6 +399,15 @@ void CL_ParseUpdate (int bits)
 		bits |= (i<<8);
 	}
 
+// 666: up to two more bytes of bits, which exist only there
+	if (cl.protocol == PROTOCOL_FITZQUAKE)
+	{
+		if (bits & U_EXTEND1)
+			bits |= MSG_ReadByte () << 16;
+		if (bits & U_EXTEND2)
+			bits |= MSG_ReadByte () << 24;
+	}
+
 	if (bits & U_LONGENTITY)	
 		num = MSG_ReadShort ();
 	else
@@ -375,36 +426,15 @@ if (bits&(1<<i))
 
 	ent->msgtime = cl.mtime[0];
 	
+//
+// The model is looked up further down, once 666's U_MODEL2 -- the high byte,
+// which comes after everything else -- has been read.
+//
 	if (bits & U_MODEL)
-	{
 		modnum = MSG_ReadByte ();
-		if (modnum >= MAX_MODELS)
-			Host_Error ("CL_ParseModel: bad modnum");
-	}
 	else
 		modnum = ent->baseline.modelindex;
-		
-	model = cl.model_precache[modnum];
-	if (model != ent->model)
-	{
-		ent->model = model;
-	// automatic animation (torches, etc) can be either all together
-	// or randomized
-		if (model)
-		{
-			if (model->synctype == ST_RAND)
-				ent->syncbase = (float)(rand()&0x7fff) / 0x7fff;
-			else
-				ent->syncbase = 0.0;
-		}
-		else
-			forcelink = true;	// hack to make null model players work
-#ifdef GLQUAKE
-		if (num > 0 && num <= cl.maxclients)
-			R_TranslatePlayerSkin (num - 1);
-#endif
-	}
-	
+
 	if (bits & U_FRAME)
 		ent->frame = MSG_ReadByte ();
 	else
@@ -481,6 +511,49 @@ if (bits&(1<<i))
 	if ( bits & U_NOLERP )
 		ent->forcelink = true;
 
+//
+// 666's trailing bytes, in the order it writes them. Alpha, scale and the
+// lerp hint have nothing to draw them in this renderer, so they are read and
+// dropped; a model or frame's high byte is what a big map needs.
+//
+	if (cl.protocol == PROTOCOL_FITZQUAKE)
+	{
+		if (bits & U_ALPHA)
+			MSG_ReadByte ();
+		if (bits & U_SCALE)
+			MSG_ReadByte ();
+		if (bits & U_FRAME2)
+			ent->frame = (ent->frame & 0x00FF) | (MSG_ReadByte () << 8);
+		if (bits & U_MODEL2)
+			modnum = (modnum & 0x00FF) | (MSG_ReadByte () << 8);
+		if (bits & U_LERPFINISH)
+			MSG_ReadByte ();
+	}
+
+	if (modnum < 0 || modnum >= MAX_MODELS)
+		Host_Error ("CL_ParseModel: bad modnum");
+
+	model = cl.model_precache[modnum];
+	if (model != ent->model)
+	{
+		ent->model = model;
+	// automatic animation (torches, etc) can be either all together
+	// or randomized
+		if (model)
+		{
+			if (model->synctype == ST_RAND)
+				ent->syncbase = (float)(rand()&0x7fff) / 0x7fff;
+			else
+				ent->syncbase = 0.0;
+		}
+		else
+			forcelink = true;	// hack to make null model players work
+#ifdef GLQUAKE
+		if (num > 0 && num <= cl.maxclients)
+			R_TranslatePlayerSkin (num - 1);
+#endif
+	}
+
 	if ( forcelink )
 	{	// didn't have an update last message
 		VectorCopy (ent->msg_origins[0], ent->msg_origins[1]);
@@ -496,12 +569,19 @@ if (bits&(1<<i))
 CL_ParseBaseline
 ==================
 */
-void CL_ParseBaseline (entity_t *ent)
+//
+// version 1 is svc_spawnbaseline and svc_spawnstatic; version 2 is 666's
+// svc_spawnbaseline2 and svc_spawnstatic2, which lead with a flags byte saying
+// which numbers are shorts.
+//
+void CL_ParseBaseline (entity_t *ent, int version)
 {
-	int			i;
+	int			i, bits;
 	
-	ent->baseline.modelindex = MSG_ReadByte ();
-	ent->baseline.frame = MSG_ReadByte ();
+	bits = (version == 2) ? MSG_ReadByte () : 0;
+
+	ent->baseline.modelindex = (bits & B_LARGEMODEL) ? MSG_ReadShort () : MSG_ReadByte ();
+	ent->baseline.frame = (bits & B_LARGEFRAME) ? MSG_ReadShort () : MSG_ReadByte ();
 	ent->baseline.colormap = MSG_ReadByte();
 	ent->baseline.skin = MSG_ReadByte();
 	for (i=0 ; i<3 ; i++)
@@ -509,6 +589,14 @@ void CL_ParseBaseline (entity_t *ent)
 		ent->baseline.origin[i] = MSG_ReadCoord ();
 		ent->baseline.angles[i] = MSG_ReadAngle ();
 	}
+
+	if (bits & B_ALPHA)
+		MSG_ReadByte ();			// no translucency in this renderer
+	if (bits & B_SCALE)
+		MSG_ReadByte ();
+
+	if (ent->baseline.modelindex < 0 || ent->baseline.modelindex >= MAX_MODELS)
+		Host_Error ("CL_ParseBaseline: bad modelindex %d", ent->baseline.modelindex);
 }
 
 
@@ -522,6 +610,20 @@ Server information pertaining to this client only
 void CL_ParseClientdata (int bits)
 {
 	int		i, j;
+
+//
+// The bits arrive as a short, and MSG_ReadShort sign-extends: 666's
+// SU_EXTEND1 is the top bit of that short, and would otherwise smear into
+// every bit above it.
+//
+	bits &= 0xFFFF;
+	if (cl.protocol == PROTOCOL_FITZQUAKE)
+	{
+		if (bits & SU_EXTEND1)
+			bits |= MSG_ReadByte () << 16;
+		if (bits & SU_EXTEND2)
+			bits |= MSG_ReadByte () << 24;
+	}
 	
 	if (bits & SU_VIEWHEIGHT)
 		cl.viewheight = MSG_ReadChar ();
@@ -628,6 +730,30 @@ void CL_ParseClientdata (int bits)
 			Sbar_Changed ();
 		}
 	}
+
+//
+// 666: the high bytes of what came above as single bytes, in the order the
+// server writes them. The view weapon's model number is the one a big map
+// actually needs.
+//
+	if (bits & SU_WEAPON2)
+		cl.stats[STAT_WEAPON] |= MSG_ReadByte () << 8;
+	if (bits & SU_ARMOR2)
+		cl.stats[STAT_ARMOR] |= MSG_ReadByte () << 8;
+	if (bits & SU_AMMO2)
+		cl.stats[STAT_AMMO] |= MSG_ReadByte () << 8;
+	if (bits & SU_SHELLS2)
+		cl.stats[STAT_SHELLS] |= MSG_ReadByte () << 8;
+	if (bits & SU_NAILS2)
+		cl.stats[STAT_NAILS] |= MSG_ReadByte () << 8;
+	if (bits & SU_ROCKETS2)
+		cl.stats[STAT_ROCKETS] |= MSG_ReadByte () << 8;
+	if (bits & SU_CELLS2)
+		cl.stats[STAT_CELLS] |= MSG_ReadByte () << 8;
+	if (bits & SU_WEAPONFRAME2)
+		cl.stats[STAT_WEAPONFRAME] |= MSG_ReadByte () << 8;
+	if (bits & SU_WEAPONALPHA)
+		MSG_ReadByte ();			// no translucency in this renderer
 }
 
 /*
@@ -673,7 +799,7 @@ void CL_NewTranslation (int slot)
 CL_ParseStatic
 =====================
 */
-void CL_ParseStatic (void)
+void CL_ParseStatic (int version)
 {
 	entity_t *ent;
 	int		i;
@@ -683,7 +809,7 @@ void CL_ParseStatic (void)
 		Host_Error ("Too many static entities");
 	ent = &cl_static_entities[i];
 	cl.num_statics++;
-	CL_ParseBaseline (ent);
+	CL_ParseBaseline (ent, version);
 
 // copy it to the current state
 	ent->model = cl.model_precache[ent->baseline.modelindex];
@@ -702,7 +828,7 @@ void CL_ParseStatic (void)
 CL_ParseStaticSound
 ===================
 */
-void CL_ParseStaticSound (void)
+void CL_ParseStaticSound (int version)
 {
 	vec3_t		org;
 	int			sound_num, vol, atten;
@@ -710,7 +836,14 @@ void CL_ParseStaticSound (void)
 	
 	for (i=0 ; i<3 ; i++)
 		org[i] = MSG_ReadCoord ();
-	sound_num = MSG_ReadByte ();
+
+// version 2 is 666's svc_spawnstaticsound2, where the number is a short
+	if (version == 2)
+		sound_num = (unsigned short)MSG_ReadShort ();
+	else
+		sound_num = MSG_ReadByte ();
+	if (sound_num >= MAX_SOUNDS)
+		Host_Error ("CL_ParseStaticSound: bad sound number %d", sound_num);
 	vol = MSG_ReadByte ();
 	atten = MSG_ReadByte ();
 	
@@ -769,7 +902,7 @@ void CL_ParseServerMessage (void)
 			continue;
 		}
 
-		SHOWNET(svc_strings[cmd]);
+		SHOWNET(CL_SvcName (cmd));
 
 	// kept so that an illegible message can name the opcode before it, which
 	// is the one whose handler read the wrong number of bytes
@@ -789,10 +922,7 @@ void CL_ParseServerMessage (void)
 			Host_Error ("CL_ParseServerMessage: illegible server message\n"
 						"  opcode %d at byte %d of %d; last good was %s (%d)\n",
 						cmd, msg_readcount - 1, net_message.cursize,
-						(cl_prevcmd >= 0 && cl_prevcmd < 128
-							&& svc_strings[cl_prevcmd])
-								? svc_strings[cl_prevcmd] : "?",
-						cl_prevcmd);
+						CL_SvcName (cl_prevcmd), cl_prevcmd);
 			break;
 			
 		case svc_nop:
@@ -811,8 +941,9 @@ void CL_ParseServerMessage (void)
 		
 		case svc_version:
 			i = MSG_ReadLong ();
-			if (i != PROTOCOL_VERSION)
-				Host_Error ("CL_ParseServerMessage: Server is protocol %i instead of %i\n", i, PROTOCOL_VERSION);
+			if (i != PROTOCOL_NETQUAKE && i != PROTOCOL_FITZQUAKE)
+				Host_Error ("CL_ParseServerMessage: Server is protocol %i instead of %i or %i\n",
+							i, PROTOCOL_NETQUAKE, PROTOCOL_FITZQUAKE);
 			break;
 			
 		case svc_disconnect:
@@ -897,10 +1028,10 @@ void CL_ParseServerMessage (void)
 		case svc_spawnbaseline:
 			i = MSG_ReadShort ();
 			// must use CL_EntityNum() to force cl.num_entities up
-			CL_ParseBaseline (CL_EntityNum(i));
+			CL_ParseBaseline (CL_EntityNum(i), 1);
 			break;
 		case svc_spawnstatic:
-			CL_ParseStatic ();
+			CL_ParseStatic (1);
 			break;			
 		case svc_temp_entity:
 			CL_ParseTEnt ();
@@ -951,7 +1082,7 @@ void CL_ParseServerMessage (void)
 			break;
 			
 		case svc_spawnstaticsound:
-			CL_ParseStaticSound ();
+			CL_ParseStaticSound (1);
 			break;
 
 		case svc_cdtrack:
@@ -985,6 +1116,47 @@ void CL_ParseServerMessage (void)
 
 		case svc_sellscreen:
 			Cmd_ExecuteString ("help", src_command);
+			break;
+
+	//
+	// Protocol 666's messages. This server sends the last three itself for a
+	// map that needs them; the first three are read so that a 666 demo from
+	// another engine plays rather than stopping at "Illegible server message".
+	//
+		case svc_skybox:
+			MSG_ReadString ();		// no skyboxes here; see pr_edict.c
+			break;
+
+		case svc_bf:
+			Cmd_ExecuteString ("bf", src_command);
+			break;
+
+		case svc_fog:
+			{
+				extern float	r_fogdensity;
+				extern float	r_fogcolor[3];
+				void			R_BuildFogMap (void);
+
+				r_fogdensity = MSG_ReadByte () / 255.0;
+				r_fogcolor[0] = MSG_ReadByte () / 255.0;
+				r_fogcolor[1] = MSG_ReadByte () / 255.0;
+				r_fogcolor[2] = MSG_ReadByte () / 255.0;
+				MSG_ReadShort ();	// fade time; this sets it at once
+				R_BuildFogMap ();
+			}
+			break;
+
+		case svc_spawnbaseline2:
+			i = MSG_ReadShort ();
+			CL_ParseBaseline (CL_EntityNum(i), 2);
+			break;
+
+		case svc_spawnstatic2:
+			CL_ParseStatic (2);
+			break;
+
+		case svc_spawnstaticsound2:
+			CL_ParseStaticSound (2);
 			break;
 		}
 	}

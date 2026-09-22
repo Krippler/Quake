@@ -53,6 +53,14 @@ typedef struct
 	char		*model_precache[MAX_MODELS];	// NULL terminated
 	struct model_s	*models[MAX_MODELS];
 	char		*sound_precache[MAX_SOUNDS];	// NULL terminated
+
+//
+// PROTOCOL_NETQUAKE unless this map needs more than one byte for a model or
+// sound number, or for the frame of something written into the signon while
+// it loads; then PROTOCOL_FITZQUAKE. Decided as the map spawns -- nothing can
+// be precached after that -- and sent to each client in its serverinfo.
+//
+	int			protocol;
 	char		*lightstyles[MAX_LIGHTSTYLES];
 	int			num_edicts;
 	int			max_edicts;

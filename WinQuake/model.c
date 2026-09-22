@@ -44,7 +44,9 @@ byte	mod_novis[MAX_MAP_LEAFS/8];
 //
 static qboolean	loadmodel_bsp2;
 
-#define	MAX_MOD_KNOWN	256
+// Every model a map precaches takes a slot, a brush model's submodels
+// included, so this has to be comfortably above MAX_MODELS.
+#define	MAX_MOD_KNOWN	4096
 model_t	mod_known[MAX_MOD_KNOWN];
 int		mod_numknown;
 

@@ -534,7 +534,7 @@ void PF_ambientsound (void)
 // The third writer into the fixed signon buffer, after the statics and the
 // baselines, and it overflows the same way: Sys_Error out of SZ_GetSpace with
 // the map nearly loaded. Losing an ambient loop is better than losing the map.
-	if (sv.signon.cursize + 12 > sv.signon.maxsize)
+	if (sv.signon.cursize + 13 > sv.signon.maxsize)
 	{
 		if (!sv_reportedsignon)
 		{
@@ -546,11 +546,21 @@ void PF_ambientsound (void)
 		return;
 	}
 
-	MSG_WriteByte (&sv.signon,svc_spawnstaticsound);
+// past 255, svc_spawnstaticsound2 and a short: 666, as for statics above
+	if (soundnum > 255)
+	{
+		sv.protocol = PROTOCOL_FITZQUAKE;
+		MSG_WriteByte (&sv.signon,svc_spawnstaticsound2);
+	}
+	else
+		MSG_WriteByte (&sv.signon,svc_spawnstaticsound);
 	for (i=0 ; i<3 ; i++)
 		MSG_WriteCoord(&sv.signon, pos[i]);
 
-	MSG_WriteByte (&sv.signon, soundnum);
+	if (soundnum > 255)
+		MSG_WriteShort (&sv.signon, soundnum);
+	else
+		MSG_WriteByte (&sv.signon, soundnum);
 
 	MSG_WriteByte (&sv.signon, vol*255);
 	MSG_WriteByte (&sv.signon, attenuation*64);
@@ -1603,7 +1613,7 @@ int SV_ModelIndex (char *name);
 void PF_makestatic (void)
 {
 	edict_t	*ent;
-	int		i;
+	int		i, bits, modelindex, frame;
 	
 	ent = G_EDICT(OFS_PARM0);
 
@@ -1620,7 +1630,7 @@ void PF_makestatic (void)
 // The check has to be here rather than after the fact: by the time
 // SV_SpawnServer could look at the total, SZ_GetSpace has already exited.
 //
-	if (sv.signon.cursize + 16 > sv.signon.maxsize)
+	if (sv.signon.cursize + 19 > sv.signon.maxsize)
 	{
 		if (!sv_reportedsignon)
 		{
@@ -1633,11 +1643,38 @@ void PF_makestatic (void)
 		return;
 	}
 
-	MSG_WriteByte (&sv.signon,svc_spawnstatic);
+//
+// A model or frame number past 255 needs svc_spawnstatic2, which is 666's.
+// This runs while the map loads, before any client has been told a protocol,
+// so needing it is what moves the map to 666.
+//
+	modelindex = SV_ModelIndex(pr_strings + ent->v.model);
+	frame = (int)ent->v.frame;
 
-	MSG_WriteByte (&sv.signon, SV_ModelIndex(pr_strings + ent->v.model));
+	bits = 0;
+	if (modelindex & 0xFF00)
+		bits |= B_LARGEMODEL;
+	if (frame & 0xFF00)
+		bits |= B_LARGEFRAME;
 
-	MSG_WriteByte (&sv.signon, ent->v.frame);
+	if (bits)
+	{
+		sv.protocol = PROTOCOL_FITZQUAKE;
+		MSG_WriteByte (&sv.signon, svc_spawnstatic2);
+		MSG_WriteByte (&sv.signon, bits);
+	}
+	else
+		MSG_WriteByte (&sv.signon,svc_spawnstatic);
+
+	if (bits & B_LARGEMODEL)
+		MSG_WriteShort (&sv.signon, modelindex);
+	else
+		MSG_WriteByte (&sv.signon, modelindex);
+
+	if (bits & B_LARGEFRAME)
+		MSG_WriteShort (&sv.signon, frame);
+	else
+		MSG_WriteByte (&sv.signon, frame);
 	MSG_WriteByte (&sv.signon, ent->v.colormap);
 	MSG_WriteByte (&sv.signon, ent->v.skin);
 	for (i=0 ; i<3 ; i++)
