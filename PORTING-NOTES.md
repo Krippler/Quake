@@ -1452,6 +1452,26 @@ or tested here, so `e1m1`'s entity lump was rewritten with 400 to 4000 extra
 wall torches at origins the map already used, which makes the same demand out
 of data that is present.
 
+### `world.c` — a trigger that removes the next trigger
+
+`SV_TouchLinks` walks an area node's list of triggers and runs each one's touch
+function as it goes, holding a pointer to the next link across the call. If
+that touch function removes the next trigger, or moves it and so relinks it,
+the pointer is left dangling. `SV_UnlinkEdict` sets an unlinked edict's links
+to NULL, so the walk then reads `NULL->next` and dies at address 8. A
+`trigger_once` that `killtarget`s a trigger overlapping it is enough, and MG1's
+Acid Sanctuary did it mid-game.
+
+Now it collects the overlapping triggers first and runs them afterwards,
+checking each one again first: still linked and not freed, still a trigger
+with a touch function, still overlapping. It also stops if the entity doing
+the touching has itself been removed. Later engines fix it the same way.
+
+It was reproduced on the shareware `e1m1` with its entity lump rewritten to
+put four such pairs at the player start: the old engine died on arrival with
+the same backtrace the player sent, and the new one shows the first trigger's
+message and never reaches the removed one.
+
 ### `docker/entrypoint.sh` — the colours did not survive the trip
 
 The renderer draws palette indices. `vid_x.c` can hand those to an 8-bit

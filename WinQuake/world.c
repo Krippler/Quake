@@ -271,21 +271,73 @@ void SV_UnlinkEdict (edict_t *ent)
 
 /*
 ====================
+SV_AreaTriggerEdicts
+
+Collects the triggers under node whose boxes overlap ent's.
+====================
+*/
+static void SV_AreaTriggerEdicts (edict_t *ent, areanode_t *node, edict_t **list, int *count)
+{
+	link_t		*l;
+	edict_t		*touch;
+
+	for (l = node->trigger_edicts.next ; l != &node->trigger_edicts ; l = l->next)
+	{
+		touch = EDICT_FROM_AREA(l);
+		if (touch == ent)
+			continue;
+		if (!touch->v.touch || touch->v.solid != SOLID_TRIGGER)
+			continue;
+		if (ent->v.absmin[0] > touch->v.absmax[0]
+		|| ent->v.absmin[1] > touch->v.absmax[1]
+		|| ent->v.absmin[2] > touch->v.absmax[2]
+		|| ent->v.absmax[0] < touch->v.absmin[0]
+		|| ent->v.absmax[1] < touch->v.absmin[1]
+		|| ent->v.absmax[2] < touch->v.absmin[2] )
+			continue;
+		if (*count == MAX_EDICTS)
+			return;
+		list[(*count)++] = touch;
+	}
+	
+// recurse down both sides
+	if (node->axis == -1)
+		return;
+	
+	if ( ent->v.absmax[node->axis] > node->dist )
+		SV_AreaTriggerEdicts ( ent, node->children[0], list, count );
+	if ( ent->v.absmin[node->axis] < node->dist )
+		SV_AreaTriggerEdicts ( ent, node->children[1], list, count );
+}
+
+/*
+====================
 SV_TouchLinks
+
+id walked the trigger lists and ran each touch function as it went, holding
+only a pointer to the next link. A touch function that removes or relinks
+that next trigger leaves the pointer dangling: an unlinked edict's links are
+NULL, and the walk then reads NULL->next. So collect the triggers first, and
+check each one again before touching it, as later engines do.
 ====================
 */
 void SV_TouchLinks ( edict_t *ent, areanode_t *node )
 {
-	link_t		*l, *next;
+	edict_t		*list[MAX_EDICTS];
 	edict_t		*touch;
+	int			count, i;
 	int			old_self, old_other;
 
-// touch linked edicts
-	for (l = node->trigger_edicts.next ; l != &node->trigger_edicts ; l = next)
+	count = 0;
+	SV_AreaTriggerEdicts (ent, node, list, &count);
+
+	for (i = 0 ; i < count ; i++)
 	{
-		next = l->next;
-		touch = EDICT_FROM_AREA(l);
-		if (touch == ent)
+		if (ent->free)
+			break;
+		touch = list[i];
+	// an earlier touch may have removed, moved or disarmed this one
+		if (touch->free || !touch->area.prev)
 			continue;
 		if (!touch->v.touch || touch->v.solid != SOLID_TRIGGER)
 			continue;
@@ -307,15 +359,6 @@ void SV_TouchLinks ( edict_t *ent, areanode_t *node )
 		pr_global_struct->self = old_self;
 		pr_global_struct->other = old_other;
 	}
-	
-// recurse down both sides
-	if (node->axis == -1)
-		return;
-	
-	if ( ent->v.absmax[node->axis] > node->dist )
-		SV_TouchLinks ( ent, node->children[0] );
-	if ( ent->v.absmin[node->axis] < node->dist )
-		SV_TouchLinks ( ent, node->children[1] );
 }
 
 
