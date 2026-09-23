@@ -28,9 +28,12 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 // name (see PR_PatchRereleaseBuiltins), in practice as nothing at all.
 //
 // The file is one entry per line, key = "value", with // comments and C-style
-// escapes; the same reading QuakeSpasm gives it. It is looked for in the game
-// directories first, then loose under the base directory, then inside
-// QuakeEX.kpf -- a zip beside id1, which is where the re-release keeps it.
+// escapes; the same reading QuakeSpasm gives it. Every copy is read and they
+// are merged, the first to define a key winning: the game directories in
+// search order (a mod's own before id1's), then loose under the base
+// directory, then inside QuakeEX.kpf -- a zip beside id1, which is where the
+// re-release keeps the main one. Stopping at the first found would let a mod's
+// few strings hide all of the base game's.
 //
 
 #include "quakedef.h"
@@ -44,9 +47,8 @@ typedef struct
 	char	*value;
 } locentry_t;
 
-static char			*loc_text;
 static locentry_t	*loc_entries;
-static int			loc_numentries;
+static int			loc_numentries, loc_maxentries;
 static int			*loc_index;		// open addressing, entry number + 1
 static int			loc_indexsize;
 
@@ -57,30 +59,6 @@ static unsigned LOC_Hash (const char *s)
 	while (*s)
 		h = (h ^ (byte)*s++) * 16777619u;
 	return h;
-}
-
-//
-// the file from the search path: a game directory, loose or in a pak
-//
-static char *LOC_ReadSearchPath (const char *name)
-{
-	FILE	*f;
-	int		len;
-	char	*buf;
-
-	len = COM_FOpenFile ((char *)name, &f);
-	if (!f)
-		return NULL;
-	buf = malloc (len + 1);
-	if (buf && fread (buf, 1, len, f) == (size_t)len)
-		buf[len] = 0;
-	else
-	{
-		free (buf);
-		buf = NULL;
-	}
-	fclose (f);
-	return buf;
 }
 
 static char *LOC_ReadLoose (const char *path)
@@ -277,18 +255,18 @@ static void LOC_FoldUTF8 (char *s)
 	*out = 0;
 }
 
-static void LOC_Parse (char *text)
+//
+// One file's entries, added to the rest. The text is kept: the entries point
+// into it.
+//
+static void LOC_AddText (char *text, char *where)
 {
 	char		*cursor, *line, *equals, *key_end, *value, *src, *dst;
-	int			max, i;
-	unsigned	pos;
-
-	max = 1024;
-	loc_entries = malloc (max * sizeof(*loc_entries));
-	loc_numentries = 0;
+	int			before = loc_numentries;
+	locentry_t	*grown;
 
 	cursor = text;
-	while (*cursor && loc_entries)
+	while (*cursor)
 	{
 		while (*cursor == ' ' || *cursor == '\t' || *cursor == '\r')
 			cursor++;
@@ -346,23 +324,28 @@ static void LOC_Parse (char *text)
 
 		LOC_FoldUTF8 (value);
 
-		if (loc_numentries == max)
+		if (loc_numentries == loc_maxentries)
 		{
-			max *= 2;
-			loc_entries = realloc (loc_entries, max * sizeof(*loc_entries));
-			if (!loc_entries)
+			loc_maxentries = loc_maxentries ? loc_maxentries * 2 : 1024;
+			grown = realloc (loc_entries, loc_maxentries * sizeof(*loc_entries));
+			if (!grown)
 				break;
+			loc_entries = grown;
 		}
 		loc_entries[loc_numentries].key = line;
 		loc_entries[loc_numentries].value = value;
 		loc_numentries++;
 	}
 
-	if (!loc_entries || !loc_numentries)
-	{
-		loc_numentries = 0;
-		return;
-	}
+	Con_Printf ("Localization: %d strings from %s\n", loc_numentries - before,
+				where);
+}
+
+// the hash over every entry; where two define a key, the first read wins
+static void LOC_BuildIndex (void)
+{
+	int			i, j;
+	unsigned	pos;
 
 	loc_indexsize = loc_numentries * 2;
 	loc_index = calloc (loc_indexsize, sizeof(*loc_index));
@@ -374,41 +357,41 @@ static void LOC_Parse (char *text)
 	for (i=0 ; i<loc_numentries ; i++)
 	{
 		pos = LOC_Hash (loc_entries[i].key) % loc_indexsize;
-		while (loc_index[pos])
+		while ((j = loc_index[pos]))
+		{
+			if (!strcmp (loc_entries[j-1].key, loc_entries[i].key))
+				break;
 			pos = (pos + 1) % loc_indexsize;
-		loc_index[pos] = i + 1;
+		}
+		if (!j)
+			loc_index[pos] = i + 1;
 	}
 }
 
 void LOC_Init (void)
 {
 	char	path[MAX_OSPATH*2];
-	char	*from;
+	char	*text;
 
-	from = "the game directories";
-	loc_text = LOC_ReadSearchPath (LOC_FILE);
-	if (!loc_text)
-	{
-		sprintf (path, "%s/%s", com_basedir, LOC_FILE);
-		loc_text = LOC_ReadLoose (path);
-		from = "the base directory";
-	}
-	if (!loc_text)
-	{
-		sprintf (path, "%s/quakeex.kpf", com_basedir);
-		loc_text = LOC_ReadFromZip (path, LOC_FILE);
-		if (!loc_text)
-		{
-			sprintf (path, "%s/QuakeEX.kpf", com_basedir);
-			loc_text = LOC_ReadFromZip (path, LOC_FILE);
-		}
-		from = "QuakeEX.kpf";
-	}
-	if (!loc_text)
-		return;		// id's data: nothing to look up, and nothing asks
+	COM_ForEachFile (LOC_FILE, LOC_AddText);
 
-	LOC_Parse (loc_text);
-	Con_Printf ("Localization: %d strings from %s\n", loc_numentries, from);
+	sprintf (path, "%s/%s", com_basedir, LOC_FILE);
+	if ((text = LOC_ReadLoose (path)))
+		LOC_AddText (text, path);
+
+	sprintf (path, "%s/quakeex.kpf", com_basedir);
+	text = LOC_ReadFromZip (path, LOC_FILE);
+	if (!text)
+	{
+		sprintf (path, "%s/QuakeEX.kpf", com_basedir);
+		text = LOC_ReadFromZip (path, LOC_FILE);
+	}
+	if (text)
+		LOC_AddText (text, path);
+
+	if (loc_numentries)
+		LOC_BuildIndex ();
+	// with none, id's data: nothing to look up, and nothing asks
 }
 
 //
@@ -459,8 +442,21 @@ const char *LOC_GetString (const char *key)
 			said = true;
 			Con_Printf ("This game's messages are re-release keys (%s), and "
 						"the text for\nthem is in localization/loc_english.txt, "
-						"inside QuakeEX.kpf. Put\nQuakeEX.kpf beside id1 to see "
-						"the messages.\n", key);
+						"inside QuakeEX.kpf. None was\nfound: not in a game "
+						"directory, nor in %s, nor in\n%s/QuakeEX.kpf. Put "
+						"QuakeEX.kpf beside id1 to see the messages.\n", key,
+						com_basedir, com_basedir);
+		}
+	}
+	else
+	{
+		// loaded, but not this one: name the first few, which says which
+		// file it should have been in
+		static int	said;
+		if (said < 8)
+		{
+			said++;
+			Con_Printf ("Localization: no text for %s\n", key);
 		}
 	}
 	Q_strncpy (missing, (char *)key + 1, sizeof(missing) - 1);

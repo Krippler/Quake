@@ -5,6 +5,17 @@ top section's heading is what the release workflow reads: `## [X.Y.Z] — DATE`
 on the default branch publishes that version, `## [Unreleased]` publishes only
 `edge`.
 
+## [Unreleased]
+
+### Changed
+
+- **Every localization file found is read, not just the first.** A mod's own
+  `localization/loc_english.txt` used to hide the base game's in
+  `QuakeEX.kpf`. Now all are merged: game directories in search order, then
+  the base directory, then `QuakeEX.kpf`. The first to define a key wins. The
+  console lists each file and how many strings it gave, names the first few
+  keys that had no text, and, when nothing was found, says where it looked.
+
 ## [1.10.0] — 2026-09-23
 
 ### Fixed
