@@ -5,6 +5,18 @@ top section's heading is what the release workflow reads: `## [X.Y.Z] — DATE`
 on the default branch publishes that version, `## [Unreleased]` publishes only
 `edge`.
 
+## [Unreleased]
+
+### Added
+
+- **`surface` also says what was drawn at the crosshair.** It now reports
+  which surface the renderer gave that pixel and the colour it came out,
+  alongside what the map says is there. `NO SURFACE` means a gap in the
+  geometry, and `NOT that face` means the wrong face was sorted in front.
+  Either points at the renderer; a match with a black pixel points at the
+  texture or the light. Bound to a key (`bind p surface`), it reads the view
+  with the console up.
+
 ## [1.9.4] — 2026-09-23
 
 ### Added

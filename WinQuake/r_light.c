@@ -375,7 +375,61 @@ static void R_ToModel (vec3_t p, entity_t *ent, vec3_t f, vec3_t r, vec3_t u,
 	out[2] = DotProduct (local, u);
 }
 
+//
+// What the renderer itself put at the crosshair, caught by D_DrawSurfaces on
+// the frame after "surface" is typed: the ray above says what should be there,
+// this says what was drawn, and the two together say whether the map or the
+// renderer is wrong.
+//
+qboolean	r_probe;		// set by "surface", cleared by R_SurfaceReport
+qboolean	r_probefound;	// an edge-list surface covered the crosshair
+surf_t		r_probedrawn;	// a copy of it
+
 void R_Surface_f (void)
+{
+	if (cls.state != ca_connected || !cl.worldmodel)
+	{
+		Con_Printf ("No map is running.\n");
+		return;
+	}
+
+	// reported at the end of the next frame, once it has been drawn
+	r_probe = true;
+	r_probefound = false;
+}
+
+static void R_DrawnReport (msurface_t *expected)
+{
+	int			cx, cy, p;
+	msurface_t	*pf;
+
+	cx = r_refdef.vrect.x + r_refdef.vrect.width/2;
+	cy = r_refdef.vrect.y + r_refdef.vrect.height/2;
+	p = vid.buffer[cy * vid.rowbytes + cx];
+
+	Con_Printf ("drawn at the crosshair: ");
+	if (!r_probefound)
+		Con_Printf ("no world or brush surface");
+	else if (r_probedrawn.flags & SURF_DRAWBACKGROUND)
+		Con_Printf ("NO SURFACE -- the gap colour, r_clearcolor %g",
+					r_clearcolor.value);
+	else if (r_probedrawn.flags & SURF_DRAWSKY)
+		Con_Printf ("sky");
+	else
+	{
+		pf = r_probedrawn.data;
+		Con_Printf ("%s face %d%s",
+					r_probedrawn.insubmodel && r_probedrawn.entity
+					? r_probedrawn.entity->model->name : cl.worldmodel->name,
+					(int)(pf - cl.worldmodel->surfaces),
+					pf == expected ? ", the same face"
+					: ", NOT that face");
+	}
+	Con_Printf ("\npixel there: palette %d (%d %d %d)\n", p,
+				host_basepal[p*3], host_basepal[p*3+1], host_basepal[p*3+2]);
+}
+
+void R_SurfaceReport (void)
 {
 	int			i, j, maps, total, black, bright, light;
 	int			s, t, ds, dt, smax, tmax;
@@ -389,11 +443,7 @@ void R_Surface_f (void)
 	mtexinfo_t	*tex;
 	byte		*pix, *lightmap;
 
-	if (cls.state != ca_connected || !cl.worldmodel)
-	{
-		Con_Printf ("No map is running.\n");
-		return;
-	}
+	r_probe = false;
 
 	AngleVectors (r_refdef.viewangles, forward, right, up);
 	VectorCopy (r_refdef.vieworg, start);
@@ -440,9 +490,8 @@ void R_Surface_f (void)
 
 	if (!best)
 	{
-		Con_Printf ("No face under the crosshair within 8192 units. Anything "
-					"drawn there\nis r_clearcolor (%g), the colour of no "
-					"surface at all.\n", r_clearcolor.value);
+		Con_Printf ("\nNo face under the crosshair within 8192 units.\n");
+		R_DrawnReport (NULL);
 		return;
 	}
 
@@ -453,6 +502,7 @@ void R_Surface_f (void)
 				bestent ? bestent->model->name : cl.worldmodel->name,
 				(int)(best - cl.worldmodel->surfaces), bestdist,
 				besthit[0], besthit[1], besthit[2]);
+	R_DrawnReport (best);
 
 	Con_Printf ("texture \"%s\", %dx%d%s%s%s%s\n", tx->name, tx->width,
 				tx->height,

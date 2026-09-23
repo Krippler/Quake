@@ -121,3 +121,6 @@ extern float	d_scalemip[3];
 
 extern void (*d_drawspans) (espan_t *pspan);
 
+// r_light.c: the "surface" probe; D_DrawSurfaces fills in what was drawn
+extern qboolean	r_probe, r_probefound;
+extern surf_t	r_probedrawn;

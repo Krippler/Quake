@@ -1322,6 +1322,10 @@ SetVisibilityByPassages ();
 // was drawn wrong, but it means the two ends of that edge were measured
 // differently from how they were sorted -- worth one line if it ever happens.
 //
+// "surface" was typed: this frame has been drawn, so say what is where
+	if (r_probe)
+		R_SurfaceReport ();
+
 	if (r_bmodelodd && !r_reportedodd)
 	{
 		r_reportedodd = true;
