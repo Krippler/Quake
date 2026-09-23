@@ -143,14 +143,20 @@ face is lit at that point:
 
 ```
 maps/e1m3.bsp face 3068, 922 units away at (-95 -944 199)
+drawn at the crosshair: maps/e1m3.bsp face 3068, the same face
+pixel there: palette 51 (19 19 0)
 texture "wswamp2_1", 64x64
 its pixels: 0% palette 0 (black), average brightness 29 of 255
 lightmap 10x12, styles 0 (sample 52 x 264)
 light here 53, where 0 is black and 255 is full
 ```
 
-A black area with no face under it is a gap in the geometry. A texture that
-is mostly palette 0 is black art. A `light here` near 0 is the lightmap.
+The first line is what the map says is there; `drawn at the crosshair` is
+what the renderer put on that pixel. `NO SURFACE` there is a gap in the
+geometry, and `NOT that face` is the renderer sorting the wrong face in front.
+Either one means the renderer is at fault. A texture that is mostly palette 0
+is black art, and a `light here` near 0 is the lightmap. Bind it to a key
+(`bind p surface`) to use it without the console covering the view.
 
 **2PSB**, the RMQ variant of BSP2, is not read. The engine names it rather than
 printing a number.

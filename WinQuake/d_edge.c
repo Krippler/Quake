@@ -159,6 +159,36 @@ void D_CalcGradients (msurface_t *pface)
 D_DrawSurfaces
 ==============
 */
+/*
+==============
+D_ProbeSpans
+
+For "surface": which surface the edge list gave the crosshair's pixel.
+==============
+*/
+static void D_ProbeSpans (void)
+{
+	surf_t		*s;
+	espan_t		*span;
+	int			cx, cy;
+
+	cx = r_refdef.vrect.x + r_refdef.vrect.width/2;
+	cy = r_refdef.vrect.y + r_refdef.vrect.height/2;
+
+	for (s = &surfaces[1] ; s<surface_p ; s++)
+	{
+		for (span = s->spans ; span ; span = span->pnext)
+		{
+			if (span->v == cy && span->u <= cx && cx < span->u + span->count)
+			{
+				r_probedrawn = *s;
+				r_probefound = true;
+				return;
+			}
+		}
+	}
+}
+
 void D_DrawSurfaces (void)
 {
 	surf_t			*s;
@@ -189,6 +219,9 @@ void D_DrawSurfaces (void)
 	}
 	else
 	{
+		if (r_probe)
+			D_ProbeSpans ();
+
 		for (s = &surfaces[1] ; s<surface_p ; s++)
 		{
 			if (!s->spans)
