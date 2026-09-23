@@ -5,6 +5,19 @@ top section's heading is what the release workflow reads: `## [X.Y.Z] — DATE`
 on the default branch publishes that version, `## [Unreleased]` publishes only
 `edge`.
 
+## [Unreleased]
+
+### Fixed
+
+- **A black box behind the version text at the bottom right of the
+  console.** id's console art has a dark plate under the id logo, sized for
+  the four characters DOS Quake stamps on it: `1.09`. The X11 build stamped
+  `(X11 Quake 1.10) 1.09` ending at the same margin. Only the last four
+  characters landed on the plate, and the rest ran across the texture to its
+  left, so the plate looked like a stray black bar. It now gets the DOS stamp.
+  The port's own version is on the launch page. A game directory whose console
+  picture isn't id's 320x200 is no longer written into at id's offsets.
+
 ## [1.9.3] — 2026-09-23
 
 ### Fixed
