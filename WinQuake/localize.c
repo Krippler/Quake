@@ -429,9 +429,9 @@ static void LOC_AddText (char *text, char *where)
 	if (loc_numentries - before == 1
 		&& !strcmp (loc_entries[before].key, "placeholder"))
 		Con_Printf ("Localization: that is a placeholder with no messages in "
-					"it. This version of\nthe re-release keeps the text "
-					"elsewhere; any loc_english.txt in the\ngame directories "
-					"is read.\n");
+					"it. This version of\nthe re-release keeps the text in "
+					"id1/pak0.pak, which is read if it is the\nre-release's "
+					"and not a 1996 one.\n");
 }
 
 // the hash over every entry; where two define a key, the first read wins
@@ -537,10 +537,11 @@ const char *LOC_GetString (const char *key)
 			said = true;
 			Con_Printf ("This game's messages are re-release keys (%s), and "
 						"the text for\nthem is in localization/loc_english.txt, "
-						"inside QuakeEX.kpf. None was\nfound: not in a game "
-						"directory, nor in %s, nor in\n%s/QuakeEX.kpf. Put "
-						"QuakeEX.kpf beside id1 to see the messages.\n", key,
-						com_basedir, com_basedir);
+						"inside the re-release's\nid1/pak0.pak. None was found: "
+						"not in a game directory, nor in %s,\nnor in "
+						"QuakeEX.kpf. A 1996 pak0.pak does not have it; use the\n"
+						"re-release's id1 to see the messages.\n", key,
+						com_basedir);
 		}
 	}
 	else

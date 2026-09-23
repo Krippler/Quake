@@ -9,12 +9,14 @@ on the default branch publishes that version, `## [Unreleased]` publishes only
 
 ### Changed
 
-- **The current re-release's `QuakeEX.kpf` has no message text.** Its
-  `localization/loc_english.txt`, like every language beside it, is the single
-  line `placeholder = "placeholder"`. The console now says so when that is what
-  it read, instead of leaving the only clue as `no text for $qc_entered`. Any
-  `loc_english.txt` in the game directories, loose or in a pak, is read ahead
-  of it.
+- **The re-release's message text is in its `id1/pak0.pak`, not
+  `QuakeEX.kpf`.** The current `QuakeEX.kpf` holds only a one-line placeholder
+  in every language. The text is `localization/loc_english.txt` inside the
+  re-release's `pak0.pak`, which the engine already read. A player running the
+  expansions over a 1996 `pak0.pak` saw every message as its key. With the
+  re-release's `pak0.pak` in `id1` they all appear. DOCKER.md and the console
+  now point there. When the placeholder is all the engine finds, the console
+  says so.
 - **The `QuakeEX.kpf` reader handles ZIP64 archives and gives reasons.** A
   zip past 65535 files or 4 GB keeps its counts and offsets in ZIP64 records,
   which are now read. When the text can't be taken out, the console says why:
