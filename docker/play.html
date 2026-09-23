@@ -595,6 +595,26 @@ function openRFB() {
   rfb.clipViewport  = false;
   rfb.focusOnClick  = true;
 
+  //
+  // How hard x11vnc compresses each picture. noVNC asks for level 2, and at
+  // that level x11vnc spends most of every frame in zlib: at 1920x1200 it got
+  // 14 pictures a second out, against the engine's 72. Level 1 compresses
+  // less and keeps up twice as well -- 28 to 34 a second -- for about twice
+  // the bandwidth, 10 to 12 MB/s at that size and a quarter of it at
+  // 640x480. Quality (the JPEG level, 0-9) made no measurable difference to
+  // the rate and stays at noVNC's 6.
+  //
+  // ?compression=N and ?quality=N override both, 0 to 9: a higher compression
+  // for a slow link, where bytes cost more than x11vnc's time.
+  //
+  const params = new URLSearchParams(location.search);
+  const level = (name, dflt) => {
+    const v = parseInt(params.get(name), 10);
+    return Number.isInteger(v) && v >= 0 && v <= 9 ? v : dflt;
+  };
+  rfb.compressionLevel = level('compression', 1);
+  rfb.qualityLevel = level('quality', 6);
+
   watchDecoding();
 
   rfb.addEventListener('connect', () => {

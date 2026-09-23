@@ -1,197 +1,80 @@
 # Quake
 
-The 1999 GPL source release, repaired until it builds and runs on a current
-64-bit Linux, given sound and music the container age can actually carry, and
-packaged so you play it in a browser.
+id Software's 1999 GPL source release of Quake, repaired to build and run on
+current 64-bit Linux and packaged to play in a browser: picture and sound both
+arrive there, and nothing is installed on the host.
 
-```
-docker run --rm -p 6080:6080 -v /path/to/quake:/quakedata:ro ghcr.io/krippler/quake
-```
-
-Then open **<http://localhost:6080/play.html>** and click to play.
-
-Nothing is installed on the host — no X server, no display, no audio setup —
-and picture and sound both arrive in the browser.
-
-## Your own game data
-
-There is no game data in the image, and there will not be. id's shareware
-licence ([`WinQuake/data/SLICNSE.TXT`](WinQuake/data/SLICNSE.TXT), clause 6)
-permits passing the shareware release along *as a whole*, free of charge, by
-electronic means, in a compressed format, with the agreement attached. A pak
-file lifted out of that archive and baked into a container image is none of
-those things. DOOM's shareware IWAD may be copied unmodified on its own; Quake's
-may not, and that is the one thing this port cannot do the same way.
-
-So `/path/to/quake` above is your own install directory — the one holding
-`id1/pak0.pak`. Any of these will do:
-
-* the CD, or the directory a CD install left behind;
-* the Steam or GOG install (`.../Quake/id1/`);
-* the shareware release unpacked, from id's own `quake106.zip`.
-
-The shareware `pak0.pak` is a complete game as far as this is concerned: it
-holds `progs.dat`, every model and sound, and E1M1 to E1M8, so episode 1 plays
-start to finish. It is also what the port was tested against — see
-[PORTING-NOTES.md](PORTING-NOTES.md#how-this-was-tested).
-
-The mission packs and mods go beside `id1` in the same directory, and the
-container finds them:
-
-```
-/path/to/quake/
-├── id1/pak0.pak, pak1.pak    ← the game
-│   └── music/track02.ogg ... ← its soundtrack, see below
-├── hipnotic/pak0.pak         ← Scourge of Armagon      (QUAKE_GAME=hipnotic)
-│   └── music/track02.ogg ... ← and its own soundtrack
-├── rogue/pak0.pak            ← Dissolution of Eternity (QUAKE_GAME=rogue)
-├── ad/                       ← any mod                 (QUAKE_GAME=ad)
-└── music/track02.ogg ...     ← or one rip shared by all of them
-```
-
-`QUAKE_GAME` picks the one to start on; **Options → Game / mission pack** in
-the game switches between whatever is installed, and Quake restarts on it.
-
-
-Mounted read-only, as above, is right: the container never writes to your game
-data. It builds a writable game directory of its own in the state volume and
-links your pak files into it, because Quake writes `config.cfg` and its
-savegames next to the pak files and would otherwise silently lose both.
-
-## Music
-
-Quake's soundtrack is not in the pak files and never was: it is audio tracks 2
-to 11 of the CD, and the 1996 code plays them by telling a CD drive to. There
-is no drive here, so rip them and put them in a `music/` directory as
-`track02.ogg`, `track03.ogg` and so on — the numbering the CD used. Ogg Vorbis,
-FLAC, Opus, WAV, and MP3 where the installed libsndfile has it.
-
-**`music/` goes inside the game directory it belongs to**, beside that game's
-pak files: `id1/music/` for Quake, `hipnotic/music/` for Scourge of Armagon,
-`rogue/music/` for Dissolution of Eternity. They are different soundtracks, and
-this is what lets each game play its own. A `music/` directory at the top level
-instead is one rip shared by every game that has none of its own, which is
-right if you only have Quake's.
-
-Without them the game is silent where the music would be, which is exactly what
-the shareware release was like for anyone who downloaded it.
-
-## Data from the Quake re-release
-
-Pak files from the 2021 re-release work, including its **BSP2** maps —
-*Dimension of the Past* and the machine campaigns. BSP2 widens the indices and
-bounds that the 1996 format kept in a short, and both layouts are read now.
-
-Two things to know. The maps built for the re-release carry entity keys the
-1996 QuakeC does not define (`alpha`, `fog`) — those are reported once each and
-ignored, which is the same thing id's engine did, just not several hundred
-times. And these maps are far larger than anything id shipped, so the fixed
-sizes the engine keeps its world in — the frame pools, the entity tables, the
-edict array — are sized for them rather than for 1996. Where one of those
-still runs out, the engine says which and what to raise, instead of quietly
-leaving walls and torches out of the picture.
-
-The other BSP2 spelling, **2PSB** (the RMQ variant), is not read; the engine
-says so by name rather than printing a number.
-
-## Keeping savegames and settings
-
-`config.cfg`, savegames and screenshots live in `/quake/state`. Without a volume
-there they go when the container does:
+## Quick start
 
 ```
 docker run --rm -p 6080:6080 \
-  -v /path/to/quake:/quakedata:ro -v quake-state:/quake/state \
+  -v /path/to/quake:/quakedata:ro \
+  -v quake-state:/quake/state \
   ghcr.io/krippler/quake
 ```
 
-With Compose:
+Open **<http://localhost:6080/play.html>** and click to play.
+
+- `/path/to/quake` is your own Quake install: the directory holding
+  `id1/pak0.pak`.
+- `quake-state` keeps your settings and savegames between runs. Leave it out
+  and they go when the container does.
+
+## Game data
+
+None is included. Quake's data is id's, and its licence does not allow a pak
+file to be shipped on its own ([why](ABOUT.md#no-bundled-game-data)). Any of
+these works:
+
+- a Steam or GOG install, or a CD install;
+- the free shareware release (id's `quake106.zip`), which is episode 1;
+- the 2021 re-release: mount its `rerelease` folder
+  (`steamapps/common/Quake/rerelease` on Steam) to get the expansions and its
+  in-game messages as well.
+
+Mission packs and mods go beside `id1`, and the game's **Options → Game /
+mission pack** menu switches between them:
 
 ```
-mkdir -p quakedata && cp -r /path/to/quake/id1 quakedata/
-docker compose up --build
+/path/to/quake/
+├── id1/pak0.pak, pak1.pak
+├── hipnotic/pak0.pak        Scourge of Armagon
+├── rogue/pak0.pak           Dissolution of Eternity
+└── <mod>/                   anything else
 ```
 
-Running as root is not required. Started as root the container takes ownership
-of the state directory as `PUID:PGID` (1001 by default, 99:100 on Unraid) and
-drops to that user; started with `--user` it stays as whoever you gave it.
+**Music** is not in the pak files; it was audio on the CD. Rip it to
+`id1/music/track02.ogg`, `track03.ogg` and so on, and it plays. Without it the
+game runs silent where the music would be.
 
-## Resolution
+## Common settings
 
-The software renderer draws every pixel on the CPU, so the resolution is a real
-choice rather than a free one. 640x480 is the default; the ceiling is 1920x1200.
+| | |
+| --- | --- |
+| `-e QUAKE_WIDTH=1280 -e QUAKE_HEIGHT=800` | starting resolution; also in **Options → Video Options** |
+| `-e QUAKE_GAME=hipnotic` | the game or mod to start on |
+| `-e PUID=1000 -e PGID=1000` | who owns the saved files (default 1001) |
 
-Pick it in the game — **Options → Video Options** lists twenty modes and
-switches to the one you choose, and remembers it. Or set where it starts:
-
-```
-docker run --rm -p 6080:6080 -e QUAKE_WIDTH=1280 -e QUAKE_HEIGHT=800 \
-  -v /path/to/quake:/quakedata:ro ghcr.io/krippler/quake
-```
-
-The browser scales whatever it is given to fit the window, so a lower number is
-not a smaller picture — it is a softer one, and a faster one. Switching mode
-resizes the X screen the browser is watching, so the picture blinks once.
-
-## Images
-
-Published to `ghcr.io/krippler/quake`, 297 MB unpacked, `linux/amd64` only.
-`latest` is the newest release, `edge` tracks `master`. Signed with cosign on
-every push.
-
-No game data is in there, which is why it is less than half the size of the
-[DOOM container](https://github.com/Krippler/DOOM) it is modelled on — that one
-carries the shareware IWAD and a General MIDI soundfont, and neither has an
-equivalent here.
-
-Unraid users: the Community Applications template is
-[`templates/unraid.xml`](templates/unraid.xml).
-
-## Building it yourself
-
-```
-docker build -t quake .
-```
-
-Or without a container, pointed at any X display at depth 8 or 24 — which in
-practice means an Xvfb:
-
-```
-make -C WinQuake            # -> WinQuake/linux/xquake
-make -C audiostream         # -> audiostream/linux/audiostream
-tools/smoke-test.sh         # starts it on a throwaway Xvfb and checks it draws
-```
-
-The smoke test builds its own game data, because there is none here to test
-against, and so stops at the console. Point it at real data and it loads E1M1
-as well, which is where the renderer, the server and the QuakeC interpreter
-actually get exercised:
-
-```
-QUAKE_SMOKE_DATA=/path/to/quake tools/smoke-test.sh
-```
+Everything else, including controls, game controllers, sound, Compose and
+Unraid, is in [DOCKER.md](DOCKER.md).
 
 ## Documentation
 
 | | |
 | --- | --- |
-| [ABOUT.md](ABOUT.md) | What this actually is: what the 1999 sources needed, and what the port added |
-| [DOCKER.md](DOCKER.md) | Running it: game data, controls, game controllers, options, saves, sound, troubleshooting |
-| [PORTING-NOTES.md](PORTING-NOTES.md) | Every change made to the 1999 sources, and why |
+| [DOCKER.md](DOCKER.md) | Running it: game data in detail, every setting, controls, troubleshooting |
+| [BUILDING.md](BUILDING.md) | Building the image or the engine yourself, and the smoke test |
+| [ABOUT.md](ABOUT.md) | What the 1999 sources needed and what the port added |
+| [PORTING-NOTES.md](PORTING-NOTES.md) | Every change made to the sources, and why |
 | [PUBLISHING.md](PUBLISHING.md) | Releases, image tags, and the Unraid listing |
 | [CHANGELOG.md](CHANGELOG.md) | What changed in each release |
 | [readme.txt](readme.txt) | id Software's original 1999 release note |
 
-## Licence and game data
+## Licence
 
-The sources are GPLv2 — see [gnu.txt](gnu.txt), the licence id released them
-under in December 1999.
-
-None of that covers the game data, and unlike DOOM there is no part of Quake's
-data that can travel with the code. `pak0.pak` and `pak1.pak` are id's, come
-from your own copy, and are not in this repository or in the published images.
-The ignore rules exclude every `*.pak` so they cannot be committed or baked in
-by accident.
+The sources are GPLv2 ([gnu.txt](gnu.txt)), as id released them in December
+1999. That does not cover the game data, which comes from your own copy and is
+never in this repository or the images.
 
 QUAKE is a trademark of id Software LLC. This is an unaffiliated port of the
 sources they published.
