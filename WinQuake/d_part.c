@@ -100,7 +100,7 @@ void D_DrawParticle (particle_t *pparticle)
 		pcolor = r_fogmap[R_FOGLEVEL(izi > 0 ? 32768.0 / izi
 											 : FOG_DIST_ENTRIES * FOG_DIST_UNIT)][pcolor];
 
-	pix = izi >> d_pix_shift;
+	pix = (izi * d_pix_mul) >> 16;	// see d_pix_mul in d_modech.c
 
 	if (pix < d_pix_min)
 		pix = d_pix_min;

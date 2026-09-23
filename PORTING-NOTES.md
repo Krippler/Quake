@@ -1043,6 +1043,26 @@ pieces, looking each one up, which is what turns a map's `$key` message
 handed to `centerprint` into text. `PF_WriteString` looks up too, for the
 finale.
 
+### `d_modech.c`, `d_part.c` — particle size above 640 wide
+
+`D_DrawParticle` sizes a particle as `izi >> d_pix_shift`, where `izi` is
+1/z scaled by 0x8000, and clamps the result to `d_pix_min` and `d_pix_max`.
+The two clamps scale with the width in proportion: `width/320` and
+`width/80`. The shift is `8 - (int)(width/320 + 0.5)`, one bit less for every
+320 pixels. That doubles the size each step where it should grow linearly:
+- right at 320 and 640;
+- 4x instead of 3x at 960 and 8x instead of 4x at 1280;
+- 32x instead of 6x at 1920.
+
+At 1920 wide almost every particle was pinned to one clamp or the other. id's
+DOS and Windows builds topped out around 640 wide, where it never showed.
+
+`d_pix_mul` replaces the shift in the C drawer: `(izi * d_pix_mul) >> 16`, with
+the multiplier at 512 x width/320. At 320 wide that is exactly `izi >> 7`, and
+at 640 exactly `izi >> 6`. `izi` is at most 4096, since particles nearer than
+`PARTICLE_Z_CLIP` are dropped, so the product stays in range. `d_pix_shift`
+is still set for the i386 assembler, which this build doesn't compile.
+
 ### `r_draw.c` — an edge walked the same way twice
 
 `R_RenderFace` shares screen edges between faces. When a face emits an edge,
