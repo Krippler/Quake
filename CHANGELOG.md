@@ -5,6 +5,19 @@ top section's heading is what the release workflow reads: `## [X.Y.Z] — DATE`
 on the default branch publishes that version, `## [Unreleased]` publishes only
 `edge`.
 
+## [Unreleased]
+
+### Added
+
+- **`surface` explains a mismatch.** When the face drawn at the crosshair
+  isn't the one the map puts there, it now says why. For the face that
+  should be there, it gives whether it was marked visible this frame and
+  whether it made the edge list, with its sort key. For the face that was
+  drawn, it gives the texture, how far along the ray its plane lies and
+  whether the ray meets the face there, and its sort key. That tells a face
+  culled by visibility from one sorted behind, and either from the probe
+  missing a nearer face.
+
 ## [1.9.5] — 2026-09-23
 
 ### Added

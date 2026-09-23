@@ -398,7 +398,54 @@ void R_Surface_f (void)
 	r_probefound = false;
 }
 
-static void R_DrawnReport (msurface_t *expected)
+// this frame's edge-list entry for a face, if it made one
+static surf_t *R_FindSurf (msurface_t *face)
+{
+	surf_t	*s;
+
+	for (s = &surfaces[1] ; s<surface_p ; s++)
+		if (s->data == face)
+			return s;
+	return NULL;
+}
+
+// how far along the ray a world face's plane is, and whether the ray meets the
+// face itself there
+static void R_FaceOnRay (msurface_t *face, vec3_t start, vec3_t dir)
+{
+	float	d, t;
+	vec3_t	p;
+
+	d = DotProduct (dir, face->plane->normal);
+	if (d > -0.0001 && d < 0.0001)
+	{
+		Con_Printf ("  its plane runs along the ray\n");
+		return;
+	}
+	t = (face->plane->dist - DotProduct (start, face->plane->normal)) / d;
+	VectorMA (start, t, dir, p);
+	Con_Printf ("  the ray meets its plane %.0f units away, %s the face\n",
+				t, R_PointInFace (face, p) ? "inside" : "outside");
+}
+
+// where a face stood this frame: marked visible, and its place in the sort
+static void R_FaceThisFrame (msurface_t *face)
+{
+	surf_t	*s;
+
+	s = R_FindSurf (face);
+	Con_Printf ("  this frame: ");
+	if (face - cl.worldmodel->surfaces < cl.worldmodel->nummodelsurfaces)
+		Con_Printf ("%s, ", face->visframe == r_framecount ? "marked visible"
+					: "NOT marked visible (its leaves were culled)");
+	if (!s)
+		Con_Printf ("NOT in the edge list\n");
+	else
+		Con_Printf ("in the edge list, key %d, %s\n", s->key,
+					s->spans ? "drawn somewhere" : "drawn nowhere");
+}
+
+static void R_DrawnReport (msurface_t *expected, vec3_t start, vec3_t dir)
 {
 	int			cx, cy, p;
 	msurface_t	*pf;
@@ -427,6 +474,29 @@ static void R_DrawnReport (msurface_t *expected)
 	}
 	Con_Printf ("\npixel there: palette %d (%d %d %d)\n", p,
 				host_basepal[p*3], host_basepal[p*3+1], host_basepal[p*3+2]);
+
+//
+// When they differ, say which is wrong: a drawn face nearer along the ray
+// than the expected one is the probe missing it; one farther away means the
+// expected face was lost -- not marked, not listed, or sorted behind.
+//
+	if (!r_probefound || !expected || (r_probedrawn.flags & SURF_DRAWBACKGROUND)
+		|| r_probedrawn.data == expected)
+		return;
+
+	Con_Printf ("face %d, which should be there:\n",
+				(int)(expected - cl.worldmodel->surfaces));
+	R_FaceThisFrame (expected);
+
+	if (r_probedrawn.flags & SURF_DRAWSKY)
+		return;
+	pf = r_probedrawn.data;
+	Con_Printf ("face %d, which was drawn: texture \"%s\"%s\n",
+				(int)(pf - cl.worldmodel->surfaces), pf->texinfo->texture->name,
+				r_probedrawn.insubmodel ? ", on a brush model" : "");
+	if (!r_probedrawn.insubmodel)
+		R_FaceOnRay (pf, start, dir);
+	Con_Printf ("  key %d\n", r_probedrawn.key);
 }
 
 void R_SurfaceReport (void)
@@ -491,7 +561,7 @@ void R_SurfaceReport (void)
 	if (!best)
 	{
 		Con_Printf ("\nNo face under the crosshair within 8192 units.\n");
-		R_DrawnReport (NULL);
+		R_DrawnReport (NULL, start, forward);
 		return;
 	}
 
@@ -502,7 +572,7 @@ void R_SurfaceReport (void)
 				bestent ? bestent->model->name : cl.worldmodel->name,
 				(int)(best - cl.worldmodel->surfaces), bestdist,
 				besthit[0], besthit[1], besthit[2]);
-	R_DrawnReport (best);
+	R_DrawnReport (best, start, forward);
 
 	Con_Printf ("texture \"%s\", %dx%d%s%s%s%s\n", tx->name, tx->width,
 				tx->height,
