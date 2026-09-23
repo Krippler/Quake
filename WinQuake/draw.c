@@ -548,12 +548,23 @@ void Draw_ConsoleBackground (int lines)
 	conback = Draw_CachePic ("gfx/conback.lmp");
 
 // hack the version number directly into the pic
+//
+// The art has a dark plate under the id logo, cut for four characters, and
+// DOS Quake stamps "1.09" on it. The X11 build stamped "(X11 Quake 1.10) 1.09"
+// ending at the same margin, so the plate held only the last four characters
+// and the rest ran across the texture to its left: a black box behind half a
+// line of text, which read as a rendering fault. It gets the DOS stamp now.
+// The port's own version is on the launch page.
+//
+// Every offset here assumes id's 320x200 picture; a game directory with a
+// different one is left as it is rather than written into at the wrong place.
+//
 #ifdef _WIN32
 	sprintf (ver, "(WinQuake) %4.2f", (float)VERSION);
 	dest = conback->data + 320*186 + 320 - 11 - 8*strlen(ver);
 #elif defined(X11)
-	sprintf (ver, "(X11 Quake %2.2f) %4.2f", (float)X11_VERSION, (float)VERSION);
-	dest = conback->data + 320*186 + 320 - 11 - 8*strlen(ver);
+	dest = conback->data + 320 - 43 + 320*186;
+	sprintf (ver, "%4.2f", VERSION);
 #elif defined(__linux__)
 	sprintf (ver, "(Linux Quake %2.2f) %4.2f", (float)LINUX_VERSION, (float)VERSION);
 	dest = conback->data + 320*186 + 320 - 11 - 8*strlen(ver);
@@ -562,8 +573,9 @@ void Draw_ConsoleBackground (int lines)
 	sprintf (ver, "%4.2f", VERSION);
 #endif
 
-	for (x=0 ; x<strlen(ver) ; x++)
-		Draw_CharToConback (ver[x], dest+(x<<3));
+	if (conback->width == 320 && conback->height == 200)
+		for (x=0 ; x<strlen(ver) ; x++)
+			Draw_CharToConback (ver[x], dest+(x<<3));
 	
 // draw the pic
 	if (r_pixbytes == 1)

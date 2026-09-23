@@ -754,8 +754,11 @@ void Mod_LoadTextures (lump_t *l)
 Mod_LoadLighting
 =================
 */
+static int	mod_lightlen;	// bytes of light data, for Mod_LoadFaces to check against
+
 void Mod_LoadLighting (lump_t *l)
 {
+	mod_lightlen = l->filelen;
 	if (!l->filelen)
 	{
 		loadmodel->lightdata = NULL;
@@ -1142,6 +1145,27 @@ void Mod_LoadFaces (lump_t *l)
 			out->samples = NULL;
 		else
 			out->samples = loadmodel->lightdata + lightofs;
+
+	//
+	// A lightmap that runs past the end of the light data would be read from
+	// whatever follows it in memory. Sky and water have none to check.
+	//
+		if (out->samples && !(out->texinfo->flags & TEX_SPECIAL))
+		{
+			int		nstyles, size;
+
+			for (nstyles=0 ; nstyles<MAXLIGHTMAPS && styles[nstyles] != 255
+				 ; nstyles++)
+				;
+			size = ((out->extents[0]>>4)+1) * ((out->extents[1]>>4)+1);
+			if (lightofs < 0 || lightofs > mod_lightlen - size*nstyles)
+			{
+				Mod_NoteBad ("face %d's lightmap runs from %d to %d; the light "
+							 "data is %d bytes", surfnum, lightofs,
+							 lightofs + size*nstyles, mod_lightlen);
+				out->samples = NULL;
+			}
+		}
 		
 	// set the drawing flags flag
 		

@@ -136,6 +136,22 @@ What to expect:
   load, and the heap they come out of is 192 MB by default (`-mem` in
   `QUAKE_ARGS` changes it).
 
+If part of a map is drawn wrong — black, stretched, missing — aim the
+crosshair at it, open the console and type `surface`. It names the face and
+the model it belongs to, its texture and how dark that texture is, and how the
+face is lit at that point:
+
+```
+maps/e1m3.bsp face 3068, 922 units away at (-95 -944 199)
+texture "wswamp2_1", 64x64
+its pixels: 0% palette 0 (black), average brightness 29 of 255
+lightmap 10x12, styles 0 (sample 52 x 264)
+light here 53, where 0 is black and 255 is full
+```
+
+A black area with no face under it is a gap in the geometry. A texture that
+is mostly palette 0 is black art. A `light here` near 0 is the lightmap.
+
 **2PSB**, the RMQ variant of BSP2, is not read. The engine names it rather than
 printing a number.
 
