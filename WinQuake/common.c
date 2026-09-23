@@ -1505,6 +1505,66 @@ int COM_FOpenFile (char *filename, FILE **file)
 }
 
 /*
+===========
+COM_ForEachFile
+
+Every copy of a file on the search path, in search order, where COM_FindFile
+stops at the first: each is read into a malloc'd, NUL-terminated buffer and
+handed to fn, which keeps it or frees it. For files that add up rather than
+replace one another -- the re-release's message text, which a mod can extend
+without repeating the base game's.
+===========
+*/
+void COM_ForEachFile (char *filename, void (*fn) (char *data, char *where))
+{
+	searchpath_t	*s;
+	int				i, len;
+	FILE			*f;
+	char			path[MAX_OSPATH*2];
+	char			*buf;
+
+	for (s = com_searchpaths ; s ; s = s->next)
+	{
+		f = NULL;
+		len = 0;
+		if (s->pack)
+		{
+			for (i=0 ; i<s->pack->numfiles ; i++)
+				if (!Q_strcasecmp (s->pack->files[i].name, filename))
+					break;
+			if (i == s->pack->numfiles)
+				continue;
+			f = fopen (s->pack->filename, "rb");
+			if (!f)
+				continue;
+			fseek (f, s->pack->files[i].filepos, SEEK_SET);
+			len = s->pack->files[i].filelen;
+			sprintf (path, "%s", s->pack->filename);
+		}
+		else
+		{
+			sprintf (path, "%s/%s", s->filename, filename);
+			f = fopen (path, "rb");
+			if (!f)
+				continue;
+			fseek (f, 0, SEEK_END);
+			len = ftell (f);
+			fseek (f, 0, SEEK_SET);
+		}
+
+		buf = len >= 0 ? malloc (len + 1) : NULL;
+		if (buf && fread (buf, 1, len, f) == (size_t)len)
+		{
+			buf[len] = 0;
+			fn (buf, path);
+		}
+		else
+			free (buf);
+		fclose (f);
+	}
+}
+
+/*
 ============
 COM_CloseFile
 
