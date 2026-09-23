@@ -5,6 +5,17 @@ top section's heading is what the release workflow reads: `## [X.Y.Z] — DATE`
 on the default branch publishes that version, `## [Unreleased]` publishes only
 `edge`.
 
+## [Unreleased]
+
+### Fixed
+
+- **A crash mid-game, back to the demos.** When a trigger's touch function
+  removed another trigger next to it (a `killtarget`, for instance), the
+  engine went on to read the removed trigger's list links, which were NULL,
+  and died with a SIGSEGV in `SV_TouchLinks`. MG1's Acid Sanctuary did this.
+  The triggers an entity touches are now collected first, and each is checked
+  again just before it runs, so one removed along the way is skipped.
+
 ## [1.11.1] — 2026-09-23
 
 ### Fixed
