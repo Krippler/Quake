@@ -303,6 +303,7 @@ extern int		r_clampedfrac;
 extern qboolean	r_probe, r_probefound;
 extern surf_t	r_probedrawn;
 void R_SurfaceReport (void);
+void R_FaceEdgeReport (msurface_t *face);
 
 // r_bsp.c: brush-model cuts that crossed a plane only once (see R_BPlaneDist)
 extern int		r_bmodelodd;

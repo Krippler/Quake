@@ -497,6 +497,8 @@ static void R_DrawnReport (msurface_t *expected, vec3_t start, vec3_t dir)
 	if (!r_probedrawn.insubmodel)
 		R_FaceOnRay (pf, start, dir);
 	Con_Printf ("  key %d\n", r_probedrawn.key);
+	if (!r_probedrawn.insubmodel)
+		R_FaceEdgeReport (pf);
 }
 
 void R_SurfaceReport (void)
