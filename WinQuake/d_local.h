@@ -124,3 +124,7 @@ extern void (*d_drawspans) (espan_t *pspan);
 // r_light.c: the "surface" probe; D_DrawSurfaces fills in what was drawn
 extern qboolean	r_probe, r_probefound;
 extern surf_t	r_probedrawn;
+
+// translucent models and sprites: the blend table the drawers write through,
+// or NULL for opaque (r_alpha.c)
+extern byte	*d_blendmap;

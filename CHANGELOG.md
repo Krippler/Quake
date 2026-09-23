@@ -7,12 +7,24 @@ on the default branch publishes that version, `## [Unreleased]` publishes only
 
 ## [Unreleased]
 
+### Added
+
+- **Translucent models and sprites.** The re-release's progs (MG1 and MG3)
+  give entities an alpha: MG1's gas flares are a blue flame drawn twice,
+  see-through, as a soft glow, and ghosts, runes and effects fade in and
+  out. They were all drawn solid. The server now sends alpha over protocol 666,
+  which games whose progs have an alpha field now always use. The renderer
+  blends models and sprites with what is behind them through lookup tables,
+  rounded to eighths, after everything opaque is drawn. Brush models (doors,
+  walls) with an alpha are still drawn solid. id's progs have no alpha field
+  and play exactly as before, over protocol 15.
+
 ### Notes
 
 - The blue flames 1.12.1 set out to fix are MG1's gas flares
   (`light_flame_gas`). They are blue by design. The re-release draws them
-  translucent, twice, as a soft glow. This engine has no entity alpha, so
-  they are drawn solid. 1.12.1's colormap check is still right for a
+  translucent, twice, as a soft glow. This engine had no entity alpha, so
+  they were drawn solid. 1.12.1's colormap check is still right for a
   colormap that lights the fullbright colours, but it was not the cause here.
 
 ## [1.12.1] — 2026-09-23

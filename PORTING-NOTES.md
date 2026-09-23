@@ -1462,6 +1462,45 @@ or tested here, so `e1m1`'s entity lump was rewritten with 400 to 4000 extra
 wall torches at origins the map already used, which makes the same demand out
 of data that is present.
 
+### `r_alpha.c`, `sv_main.c`, `cl_parse.c` — entity alpha
+
+The re-release's progs (MG1's and MG3's) give entities an `.alpha`: gas flares
+drawn twice at 0.6 and 0.4, ghosts and runes that fade, and walls that
+fade, which are brush models and stay solid here. None of it
+reached the screen: the server did not send it, the client read 666's alpha
+bytes and dropped them, and the renderer had nothing to blend with.
+
+**Carrying it.** `PR_LoadProgs` looks up an `alpha` float field, and
+`SV_EntityAlpha` turns it into FitzQuake's byte (0 unset and opaque, 1
+invisible, 255 opaque). Only 666 can carry it, so progs with the field play
+over 666, decided in `SV_ChooseProtocol` like the model count. Baselines and
+statics carry it with `B_ALPHA` in `svc_spawnbaseline2` and
+`svc_spawnstatic2`, and updates with `U_ALPHA`, written before `U_FRAME2` in
+666's order. id's progs have no such field, so they stay on 15 and send
+exactly what they did.
+
+**Drawing it.** Everything here is a palette index, so a blend is a table, as
+light and fog are: for an alpha, `table[src*256 + dst]` is the palette colour
+nearest to src over dst. Alpha is rounded to eighths; each table is 64K,
+built the first time that alpha is drawn, through a 32x32x32 cube of nearest
+colours built once, so a table costs a fraction of a frame. Index 255 is never
+a result, since it means "hole" in skins and sprites.
+
+Translucent models and sprites are held back from `R_DrawEntitiesOnList` and
+drawn by `R_DrawTranslucentEntities` after the particles, far to near, when
+everything they blend with is already on screen. Their pixels test the
+z-buffer and do not write it. The model rasteriser writes pixels in three
+places (span, subdivided triangle, lone vertex) and the sprite drawer in one;
+each blends through `d_blendmap` when it is set. Brush models go through the
+edge list, which decides visibility before anything is drawn, and are still
+drawn solid.
+
+Tested without MG1's data by adding a `.float alpha` field to the shareware
+`progs.dat` and `"alpha"` keys to items and a static flame in a copy of E1M1:
+the old build draws them solid, the new one translucent. With id's progs the
+map stays on protocol 15, the three demos play, and screenshots differ from the
+old build's only as much as two runs of the old build differ from each other.
+
 ### `host.c` — a colormap that lights the fullbright colours
 
 `gfx/colormap.lmp` says what each palette index becomes at each of 64 light
@@ -1475,8 +1514,8 @@ brightened fire yellow are lightning's pale blues.
 This was written for a report of blue flames in MG1, and it was not their
 cause. They were `light_flame_gas`, which MG1's QuakeC calls a gas flare:
 `progs/flame3.mdl`, blue by design, drawn twice at `alpha` 0.6 and 0.4 to make
-a soft glow. This engine has no entity alpha, so both copies are drawn
-opaque. The check stays, because a colormap that lights the fullbrights would
+a soft glow, and this engine had no entity alpha, so both copies were drawn
+opaque. That is what `r_alpha.c` below is for. The check stays, because a colormap that lights the fullbrights would
 do exactly what it describes, and it costs nothing when the colormap is id's.
 
 `Host_CheckColormap` puts those 32 columns back to id's values when the

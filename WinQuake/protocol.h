@@ -56,7 +56,7 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 
 // PROTOCOL_FITZQUAKE
 #define	U_EXTEND1		(1<<15)		// another byte of bits follows
-#define	U_ALPHA			(1<<16)		// 1 byte; read and ignored here
+#define	U_ALPHA			(1<<16)		// 1 byte, ENTALPHA_ encoded
 #define	U_FRAME2		(1<<17)		// 1 byte, frame >> 8
 #define	U_MODEL2		(1<<18)		// 1 byte, modelindex >> 8
 #define	U_LERPFINISH	(1<<19)		// 1 byte; read and ignored here
@@ -106,7 +106,17 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 // PROTOCOL_FITZQUAKE: flags byte of svc_spawnbaseline2 and svc_spawnstatic2
 #define	B_LARGEMODEL	(1<<0)		// modelindex is a short
 #define	B_LARGEFRAME	(1<<1)		// frame is a short
-#define	B_ALPHA			(1<<2)		// 1 byte; read and ignored here
+#define	B_ALPHA			(1<<2)		// 1 byte, ENTALPHA_ encoded
+
+//
+// FitzQuake's entity alpha, as a byte: 0 is "not set", which is opaque and
+// what zeroed memory and every entity of id's progs holds; 1 is invisible and
+// 255 opaque, with the progs' 0..1 spread over 1..255 in between.
+//
+#define	ENTALPHA_DEFAULT	0
+#define	ENTALPHA_ZERO		1
+#define	ENTALPHA_ONE		255
+#define	ENTALPHA_DECODE(a)	((a) == ENTALPHA_DEFAULT ? 1.0f : ((float)(a) - 1) / 254)
 #define	B_SCALE			(1<<3)		// 1 byte; read and ignored here
 
 

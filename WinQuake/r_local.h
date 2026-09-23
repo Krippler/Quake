@@ -415,3 +415,9 @@ void R_SplitEntityOnNode2 (mnode_t *node);
 void R_MarkLights (dlight_t *light, int bit, mnode_t *node);
 
 #endif
+// r_alpha.c: the blend table for an entity's encoded alpha, NULL for opaque,
+// r_blendinvisible for not drawn at all
+byte *R_BlendMap (int alpha);
+extern byte	r_blendinvisible[1];
+void R_DrawTranslucentEntities (void);
+extern byte	*d_blendmap;

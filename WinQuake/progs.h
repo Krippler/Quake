@@ -140,3 +140,6 @@ void ED_PrintNum (int ent);
 
 eval_t *GetEdictFieldValue(edict_t *ed, char *field);
 
+extern int		pr_alphaofs;		// the progs' .alpha field, or -1
+int SV_EntityAlpha (edict_t *ent);
+

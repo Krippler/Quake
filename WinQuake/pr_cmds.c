@@ -1650,7 +1650,7 @@ int SV_ModelIndex (char *name);
 void PF_makestatic (void)
 {
 	edict_t	*ent;
-	int		i, bits, modelindex, frame;
+	int		i, bits, modelindex, frame, alpha;
 	
 	ent = G_EDICT(OFS_PARM0);
 
@@ -1693,6 +1693,9 @@ void PF_makestatic (void)
 		bits |= B_LARGEMODEL;
 	if (frame & 0xFF00)
 		bits |= B_LARGEFRAME;
+	alpha = SV_EntityAlpha (ent);		// a translucent static: 666 again
+	if (alpha != ENTALPHA_DEFAULT)
+		bits |= B_ALPHA;
 
 	if (bits)
 	{
@@ -1719,6 +1722,8 @@ void PF_makestatic (void)
 		MSG_WriteCoord(&sv.signon, ent->v.origin[i]);
 		MSG_WriteAngle(&sv.signon, ent->v.angles[i]);
 	}
+	if (bits & B_ALPHA)
+		MSG_WriteByte (&sv.signon, alpha);
 
 // throw the entity away now
 	ED_Free (ent);

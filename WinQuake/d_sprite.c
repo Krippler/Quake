@@ -177,8 +177,15 @@ void D_SpriteDrawSpans (sspan_t *pspan)
 				{
 					if (*pz <= (izi >> 16))
 					{
-						*pz = izi >> 16;
-						*pdest = fogrow ? fogrow[btemp] : btemp;
+						if (fogrow)
+							btemp = fogrow[btemp];
+						if (d_blendmap)		// translucent: see r_alpha.c
+							*pdest = d_blendmap[(btemp<<8) | *pdest];
+						else
+						{
+							*pz = izi >> 16;
+							*pdest = btemp;
+						}
 					}
 				}
 

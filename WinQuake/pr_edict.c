@@ -1255,6 +1255,8 @@ static void PR_PatchRereleaseBuiltins (void)
 PR_LoadProgs
 ===============
 */
+int		pr_alphaofs = -1;	// the progs' .alpha field, or -1
+
 void PR_LoadProgs (void)
 {
 	int		i;
@@ -1338,6 +1340,14 @@ void PR_LoadProgs (void)
 		((int *)pr_globals)[i] = LittleLong (((int *)pr_globals)[i]);
 
 	PR_PatchRereleaseBuiltins ();
+
+// the re-release's .alpha, which id's progs do not have; see SV_EntityAlpha
+	{
+		ddef_t	*def = ED_FindField ("alpha");
+
+		pr_alphaofs = (def && (def->type & ~DEF_SAVEGLOBAL) == ev_float)
+			? def->ofs : -1;
+	}
 }
 
 
