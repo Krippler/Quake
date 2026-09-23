@@ -207,11 +207,18 @@ static void R_ReportBmodelShort (void)
 // lifts spanning the world's BSP, far more often.
 //
 // Measured once, by one function the compiler may not inline, the same vertex
-// gets the same answer both times. The pointers are also cleared per cut, and
-// a face that still crosses an odd number of times is left out of that frame
-// and counted rather than closed with an edge from nowhere.
+// gets the same answer both times. The pointers are also cleared per cut.
+//
+// After that a closed loop of edges cannot cross a plane an odd number of
+// times, but a face whose edges do not close can: one whose last edge does not
+// end where its first begins, or with a gap in the middle, which the
+// re-release maps have. There is no second cut point to join, so such a face
+// is not cut at that plane at all: it goes whole to the side most of it is on,
+// and is drawn as it is when nothing cuts it. It was left out of the frame
+// before, and flickered.
 //
 int		r_bmodelodd;	// this frame, for the report in r_main.c
+char	*r_bmodeloddname;	// the model it was on
 
 #ifdef __GNUC__
 __attribute__((noinline))
@@ -231,6 +238,7 @@ void R_RecursiveClipBPoly (bedge_t *pedges, mnode_t *pnode, msurface_t *psurf)
 	bedge_t		*psideedges[2], *pnextedge, *ptedge;
 	int			i, side, lastside;
 	float		dist, frac, lastdist;
+	int			crossings, front, count;
 	mplane_t	*splitplane, tplane;
 	mvertex_t	*pvert, *plastvert, *ptvert;
 	mnode_t		*pn;
@@ -265,6 +273,25 @@ void R_RecursiveClipBPoly (bedge_t *pedges, mnode_t *pnode, msurface_t *psurf)
 						 currententity->angles[0], currententity->angles[1],
 						 currententity->angles[2]);
 		return;
+	}
+
+// count the crossings first, while the edge list is still whole
+	crossings = front = count = 0;
+	for (ptedge = pedges ; ptedge ; ptedge = ptedge->pnext)
+	{
+		lastside = R_BPlaneDist (ptedge->v[0], &tplane) > 0 ? 0 : 1;
+		side = R_BPlaneDist (ptedge->v[1], &tplane) > 0 ? 0 : 1;
+		crossings += side != lastside;
+		front += !lastside;
+		count++;
+	}
+
+	if (crossings & 1)
+	{
+		r_bmodelodd++;
+		r_bmodeloddname = currententity->model->name;
+		psideedges[front*2 >= count ? 0 : 1] = pedges;
+		goto recurse;
 	}
 
 // clip edges to BSP plane
@@ -388,6 +415,7 @@ void R_RecursiveClipBPoly (bedge_t *pedges, mnode_t *pnode, msurface_t *psurf)
 	}
 
 // draw or recurse further
+recurse:
 	for (i=0 ; i<2 ; i++)
 	{
 		if (psideedges[i])

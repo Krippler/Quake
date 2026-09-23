@@ -1142,9 +1142,19 @@ on its own terms, so for a vertex lying on the plane the two can differ in the
 last bit, and so in sign. With the frames fixed by `timedemo`, id's demo2 does
 this 71 times. The measurement is now one function the compiler may not inline
 (`R_BPlaneDist`), so the same vertex gets bit-for-bit the same answer, and
-demo2 does it 0 times. The pointers are cleared per cut, and a face still
-crossing an odd number of times is left out for the frame and counted
-(`r_bmodelodd`), not closed with an edge from nowhere.
+demo2 does it 0 times. The pointers are cleared per cut.
+
+That makes an odd count impossible for a face whose edges close, since a loop
+crosses any plane as often going one way as the other. It is still possible
+for one whose edges do not close, and the re-release maps have them: MG1's
+Acid Sanctuary set off the report that used to ask players to send this line
+in. Such a face was left out for the frame. It now gets a first pass that
+only counts crossings, before the edge list is taken apart, and on an odd
+count it goes to the side most of its vertices are on, uncut, and is drawn as
+it is when no plane cuts it. `developer 1` names the model once per map.
+Reproduced by moving the end of the last edge of every door, lift and wall
+face in episode 1 up 8 units: the old build prints the player's line on all
+three demos, and the new one draws those faces.
 
 `R_ClipEdge` has the same pattern for the frustum's left and right planes. On
 all three demos the left plane is always crossed an even number of times. The
@@ -1451,6 +1461,23 @@ line. The test data was synthetic — the re-release campaigns cannot be shipped
 or tested here, so `e1m1`'s entity lump was rewritten with 400 to 4000 extra
 wall torches at origins the map already used, which makes the same demand out
 of data that is present.
+
+### `host.c` — a colormap that lights the fullbright colours
+
+`gfx/colormap.lmp` says what each palette index becomes at each of 64 light
+levels. In id's, the last 32 indices -- fire, lamps, lightning, torch and
+candle flames -- map to themselves in every row, and that is all a
+fullbright colour is in the software renderer: it looks the same in the dark
+as in the light. A colormap that lights them like the other 224 changes them
+into the nearest colour at each level, and the nearest palette colours to a
+brightened fire yellow are lightning's pale blues. That fits what a player saw
+on MG1's candles and lanterns with the re-release's `id1/pak0.pak` installed,
+and the console line says whether the colormap in use was the cause.
+
+`Host_CheckColormap` puts those 32 columns back to id's values when the
+colormap is loaded, and says on the console how many it changed. A colormap
+built with a stock `colormap.lmp`'s last 32 columns relit reproduces the pale
+blue torches in E1M1, and the check makes them yellow again.
 
 ### `draw.c`, `screen.c`, `sbar.c`, `menu.c`, `console.c` — a 2D canvas
 

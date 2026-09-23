@@ -829,6 +829,45 @@ void Host_InitVCR (quakeparms_t *parms)
 
 /*
 ====================
+Host_CheckColormap
+
+The colormap is 64 rows of 256, one row per light level, saying what each
+palette index becomes at that level. The last 32 indices, 224 to 255, are the
+fullbright colours -- fire, lamps, lightning, the flames on torches and
+candles -- and id's colormap maps each of them to itself in every row, which
+is the only thing that makes them glow: a flame keeps its yellow however dark
+or bright the spot it is drawn in.
+
+A colormap that lights them like everything else turns them into the nearest
+palette colour at each level, and the nearest to a brightened fire yellow is
+one of lightning's pale blues. So the fullbright columns are put back to id's
+constant values, and the console says so once.
+====================
+*/
+void Host_CheckColormap (byte *colormap)
+{
+	int		row, col, changed;
+
+	changed = 0;
+	for (col = 224 ; col < 256 ; col++)
+	{
+		for (row = 0 ; row < 64 ; row++)
+			if (colormap[row*256 + col] != col)
+				break;
+		if (row == 64)
+			continue;
+		changed++;
+		for (row = 0 ; row < 64 ; row++)
+			colormap[row*256 + col] = col;
+	}
+
+	if (changed)
+		Con_Printf ("gfx/colormap.lmp lit %d of the 32 fullbright colours; "
+			"they glow again as id's did\n", changed);
+}
+
+/*
+====================
 Host_Init
 ====================
 */
@@ -882,6 +921,7 @@ void Host_Init (quakeparms_t *parms)
 		host_colormap = (byte *)COM_LoadHunkFile ("gfx/colormap.lmp");
 		if (!host_colormap)
 			Sys_Error ("Couldn't load gfx/colormap.lmp");
+		Host_CheckColormap (host_colormap);
 
 #ifndef _WIN32 // on non win32, mouse comes before video for security reasons
 		IN_Init ();
