@@ -5,6 +5,34 @@ top section's heading is what the release workflow reads: `## [X.Y.Z] — DATE`
 on the default branch publishes that version, `## [Unreleased]` publishes only
 `edge`.
 
+## [Unreleased]
+
+### Fixed
+
+- **Black bars: a face drawn across the screen past its own edge.** The
+  `surface` reading on the re-release start map found it. The cliff face that
+  belongs at the crosshair was visible and in the edge list, but a crate face
+  (`crate0_side`) with an earlier sort key covered the pixel. The ray met the
+  crate's plane outside the crate itself. The crate's span had lost a closing
+  edge and run on sideways: a bar of a dark texture.
+
+  The renderer skips clipping against a screen edge for every face in a BSP
+  node whose bounds lie wholly inside that edge. It also shares edges between
+  faces within a frame: an edge one face found wholly off-screen is skipped by
+  the others that use it. Both rely on every face lying inside its node's
+  bounds, which id's compiler guaranteed by cutting faces along the tree.
+  Modern compilers can leave faces uncut (ericw-tools' `func_detail_wall` and
+  `func_detail_illusionary` exist for that), and such a face can stick out of
+  its node. It then goes unclipped against an edge it crosses. A neighbour
+  that did clip marks their shared edge as off-screen, the face skips it, and
+  nothing closes the span.
+
+  Node bounds are now widened on load to hold their own faces and the nodes
+  below them. When that changes anything, the console says so once per map,
+  which is how we will know this was it. id's maps need no widening and render
+  pixel for pixel as before. In a test build with every node's bounds shrunk by
+  64 units, widening restored every frame exactly.
+
 ## [1.9.6] — 2026-09-23
 
 ### Added
