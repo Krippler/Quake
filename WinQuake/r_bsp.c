@@ -395,6 +395,22 @@ void R_DrawSolidClippedSubmodelPolygons (model_t *pmodel)
 		if (((psurf->flags & SURF_PLANEBACK) && (dot < -BACKFACE_EPSILON)) ||
 			(!(psurf->flags & SURF_PLANEBACK) && (dot > BACKFACE_EPSILON)))
 		{
+		//
+		// A fence on a brush model that straddles the world's BSP comes through
+		// here, not through R_RenderFace: it is cut into pieces along the world's
+		// planes and each piece goes into the edge list by R_RenderBmodelFace,
+		// which has no idea what a fence is. So it was drawn solid, holes and
+		// all, in palette 255's pink -- a walkway made of a func_wall, next to
+		// one made of world brushes that looked right.
+		//
+		// The cutting is there so the edge list can sort the pieces against the
+		// world. The fence pass sorts with the z-buffer instead and needs none
+		// of it, so the whole face goes to it here, before it is cut.
+		//
+			if ((psurf->flags & SURF_DRAWMASKED)
+				&& R_FenceDeferFace (psurf, r_clipflags))
+				continue;
+
 		// FIXME: use bounding-box-based frustum clipping info?
 
 		// copy the edges to bedges, flipping if necessary so always
