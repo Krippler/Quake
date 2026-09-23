@@ -82,15 +82,20 @@ Pak files from the 2021 re-release work, **BSP2 maps included** — so
 same fifteen lumps as the original format with the indices and bounds widened
 past what a short holds, and six of them are read both ways now.
 
-Mount the re-release's folder as it is, `QuakeEX.kpf` included. That zip
-(beside `id1` in a Steam install, in `steamapps/common/Quake/rerelease/`)
-holds the text for every message the re-release shows: gate prompts, keys,
-pickups, deaths. Its progs and maps name the messages by key
-(`$qc_need_gold_key`) and the engine looks the text up there. The container
-finds it anywhere up to four folders down in the mount, in any case, and logs
-where. Without it the messages come out as their keys, and the console says so
-once. It is part of the paid re-release, like the pak files, so the image
-cannot include it.
+Use the re-release's own `id1` (in a Steam install,
+`steamapps/common/Quake/rerelease/id1`), not an `id1` from the 1996 release.
+Its `pak0.pak` holds `localization/loc_english.txt`, the text for every message
+the re-release shows: gate prompts, keys, pickups, deaths. The re-release's
+progs and maps name their messages by key (`$qc_need_gold_key`) and the engine
+looks the text up there. With a 1996 `pak0.pak` in its place the expansions
+still play, but every message comes out as its key, and the console says so.
+Mounting the `rerelease` folder itself is the simplest way to get it right.
+
+Early versions of the re-release kept that text in `QuakeEX.kpf`, a zip beside
+`id1`, and it is still read if the mount has one, anywhere up to four folders
+down. The current `QuakeEX.kpf` holds only a placeholder, and the console says
+so when that is all it finds. Both files are part of the paid re-release, like
+the rest of the pak files, so the image cannot include either.
 
 What to expect:
 

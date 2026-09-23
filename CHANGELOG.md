@@ -5,6 +5,24 @@ top section's heading is what the release workflow reads: `## [X.Y.Z] — DATE`
 on the default branch publishes that version, `## [Unreleased]` publishes only
 `edge`.
 
+## [1.10.2] — 2026-09-23
+
+### Changed
+
+- **The re-release's message text is in its `id1/pak0.pak`, not
+  `QuakeEX.kpf`.** The current `QuakeEX.kpf` holds only a one-line placeholder
+  in every language. The text is `localization/loc_english.txt` inside the
+  re-release's `pak0.pak`, which the engine already read. A player running the
+  expansions over a 1996 `pak0.pak` saw every message as its key. With the
+  re-release's `pak0.pak` in `id1` they all appear. DOCKER.md and the console
+  now point there. When the placeholder is all the engine finds, the console
+  says so.
+- **The `QuakeEX.kpf` reader handles ZIP64 archives and gives reasons.** A
+  zip past 65535 files or 4 GB keeps its counts and offsets in ZIP64 records,
+  which are now read. When the text can't be taken out, the console says why:
+  "is not a zip", "has no localization/loc_english.txt among its N files", or
+  an unknown compression method. Tested with an archive of 70,000 files.
+
 ## [1.10.1] — 2026-09-23
 
 ### Changed
