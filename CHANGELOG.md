@@ -5,6 +5,47 @@ top section's heading is what the release workflow reads: `## [X.Y.Z] — DATE`
 on the default branch publishes that version, `## [Unreleased]` publishes only
 `edge`.
 
+## [Unreleased]
+
+### Fixed
+
+- **The re-release's messages were never shown.** The gate prompts ("This
+  hall selects NORMAL skill" and the like), "You need the gold key", item
+  pickups and death messages were all missing. The trigger's sound played
+  and nothing appeared. The re-release's QuakeC reaches its print functions
+  by name, `centerprint = #0:ex_centerprint`, which compiles to a function
+  with statement 0 as its start. The re-release engine looks the name up. id's
+  had never heard of that and ran it as QuakeC starting at statement 0, which
+  returns at once. So every `centerprint`, `sprint` and `bprint` did nothing.
+  They're now pointed at the real builtins when the progs loads, along with
+  the re-release's other named functions, using QuakeSpasm's numbers:
+  - a sound for one player, sent as a `play` to that client;
+  - debug drawing and bot navigation, which do nothing;
+  - a monster's path request, answered with no path, so it moves the old way.
+
+  The earlier re-release update that numbered its three prints 90 to 92 is
+  handled too.
+
+- **The messages are keys, and are now looked up.** The re-release prints
+  `$qc_need_gold_key`, not text, and its maps' trigger messages are keys too.
+  The text is in `localization/loc_english.txt`, which the re-release keeps
+  inside `QuakeEX.kpf`, a zip beside `id1`. The engine reads it from a game
+  directory, or loose under the base directory, or out of `QuakeEX.kpf`
+  (inflated with zlib). It fills `{}` and `{N}` from the arguments, as
+  QuakeSpasm does. Typographic quotes and dashes are folded to ones Quake's
+  font has. The container links `QuakeEX.kpf` and a `localization` folder
+  from the top of the mount. If neither is there, a key is shown without its
+  `$`, and the console says once where the text would be.
+
+  Tested with id's progs patched to reach `centerprint` by name, as the
+  re-release's does, and three start-map messages turned into keys. The old
+  engine showed nothing walking into the hall. This one shows the text,
+  looked up from a zipped `QuakeEX.kpf`. id's own progs and messages work as
+  before.
+
+- `PF_VarString` joined its pieces with `strcat` into 256 bytes and didn't
+  check the length. It's bounded now, at 1024.
+
 ## [1.9.9] — 2026-09-23
 
 ### Fixed

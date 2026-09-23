@@ -860,6 +860,7 @@ void Host_Init (quakeparms_t *parms)
 	COM_Init (parms->basedir);
 	Host_InitLocal ();
 	W_LoadWadFile ("gfx.wad");
+	LOC_Init ();		// the re-release's message strings
 	Key_Init ();
 	Con_Init ();	
 	M_Init ();	

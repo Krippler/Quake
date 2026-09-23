@@ -31,6 +31,7 @@ RUN apt-get update \
         libxext-dev \
         libxrandr-dev \
         libsndfile1-dev \
+        zlib1g-dev \
  && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /src

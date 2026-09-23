@@ -82,6 +82,12 @@ Pak files from the 2021 re-release work, **BSP2 maps included** — so
 same fifteen lumps as the original format with the indices and bounds widened
 past what a short holds, and six of them are read both ways now.
 
+Mount the re-release's folder as it is, `QuakeEX.kpf` included. That zip,
+beside `id1`, holds the text for every message the re-release shows: gate
+prompts, keys, pickups, deaths. Its progs and maps name the messages by key
+(`$qc_need_gold_key`) and the engine looks the text up there. Without it, the
+messages come out as their keys, and the console says so once.
+
 What to expect:
 
 - Entity keys the 1996 QuakeC does not define (`alpha`, `fog`) are reported

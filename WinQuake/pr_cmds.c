@@ -30,16 +30,52 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 ===============================================================================
 */
 
+//
+// The strings a print builtin was given, joined. A re-release progs passes a
+// "$key" first and the pieces to fill it with after: the key is looked up
+// (localize.c) and its {} and {N} filled from the arguments that follow.
+// Anything else is joined as id's was -- which also looks each piece up, so a
+// map's "$key" message handed to centerprint comes out as text.
+//
+// id's joined with strcat into 256 bytes and did not check; this does.
+//
+static const char *PF_VarStringArg (int n, void *data)
+{
+	n += *(int *)data;
+	if (n < 0 || n >= pr_argc)
+		return "";
+	return LOC_GetString (G_STRING((OFS_PARM0+n*3)));
+}
+
 char *PF_VarString (int	first)
 {
-	int		i;
-	static char out[256];
-	
+	int			i, len, l;
+	const char	*format, *piece;
+	static char out[1024];
+
 	out[0] = 0;
+	if (first >= pr_argc)
+		return out;
+
+	format = LOC_GetString (G_STRING((OFS_PARM0+first*3)));
+	if (LOC_HasPlaceholders (format))
+	{
+		i = first + 1;
+		LOC_Format (format, PF_VarStringArg, &i, out, sizeof(out));
+		return out;
+	}
+
+	len = 0;
 	for (i=first ; i<pr_argc ; i++)
 	{
-		strcat (out, G_STRING((OFS_PARM0+i*3)));
+		piece = LOC_GetString (G_STRING((OFS_PARM0+i*3)));
+		l = strlen (piece);
+		if (l > (int)sizeof(out) - 1 - len)
+			l = sizeof(out) - 1 - len;
+		memcpy (out + len, piece, l);
+		len += l;
 	}
+	out[len] = 0;
 	return out;
 }
 
@@ -1597,7 +1633,8 @@ void PF_WriteCoord (void)
 
 void PF_WriteString (void)
 {
-	MSG_WriteString (WriteDest(), G_STRING(OFS_PARM1));
+	// the finale text is written this way, as a "$key"
+	MSG_WriteString (WriteDest(), (char *)LOC_GetString (G_STRING(OFS_PARM1)));
 }
 
 
@@ -1903,6 +1940,49 @@ void PF_sqrt (void)
 }
 #endif
 
+/*
+==============
+The 2021 re-release's own builtins, #79 onwards
+
+PR_PatchRereleaseBuiltins points the progs at these; the numbers are
+QuakeSpasm's. What they do in the re-release engine that this one has no
+equivalent for -- debug drawing, bot navigation -- is a harmless no-op here,
+and a monster that asks for a path is told there is none, which sends it the
+old way.
+==============
+*/
+void PF_finalefinished (void)
+{
+	G_FLOAT(OFS_RETURN) = 0;
+}
+
+//
+// A sound for one player only. The protocol has no message for it, so the
+// client is told to "play" it, which is what that command is.
+//
+void PF_localsound (void)
+{
+	char	*sample, *c;
+	int		entnum;
+	client_t	*client;
+
+	entnum = G_EDICTNUM(OFS_PARM0);
+	sample = G_STRING(OFS_PARM1);
+	if (entnum < 1 || entnum > svs.maxclients)
+		return;
+	client = &svs.clients[entnum-1];
+	for (c = sample ; *c ; c++)		// it goes into a command line
+		if (*c <= ' ' || *c == ';' || *c == '"')
+			return;
+	MSG_WriteByte (&client->message, svc_stufftext);
+	MSG_WriteString (&client->message, va("play %s\n", sample));
+}
+
+void PF_nothing (void)
+{
+	G_FLOAT(OFS_RETURN) = 0;
+}
+
 void PF_Fixme (void)
 {
 	PR_RunError ("unimplemented bulitin");
@@ -2008,7 +2088,23 @@ PF_precache_model,
 PF_precache_sound,		// precache_sound2 is different only for qcc
 PF_precache_file,
 
-PF_setspawnparms
+PF_setspawnparms,
+
+// 2021 re-release, numbered as QuakeSpasm numbers them
+PF_finalefinished,	// float() finaleFinished = #79
+PF_localsound,		// void localsound (entity client, string sample) = #80
+PF_nothing,			// draw_point = #81
+PF_nothing,			// draw_line = #82
+PF_nothing,			// draw_arrow = #83
+PF_nothing,			// draw_ray = #84
+PF_nothing,			// draw_circle = #85
+PF_nothing,			// draw_bounds = #86
+PF_nothing,			// draw_worldtext = #87
+PF_nothing,			// draw_sphere = #88
+PF_nothing,			// draw_cylinder = #89
+PF_nothing,			// float CheckPlayerEXFlags (entity) = #90: none set
+PF_nothing,			// float walkpathtogoal (float, vector) = #91: PATH_ERROR
+PF_nothing			// bot_movetopoint, bot_followentity = #92
 };
 
 builtin_t *pr_builtins = pr_builtin;
