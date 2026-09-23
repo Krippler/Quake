@@ -5,6 +5,28 @@ top section's heading is what the release workflow reads: `## [X.Y.Z] — DATE`
 on the default branch publishes that version, `## [Unreleased]` publishes only
 `edge`.
 
+## [Unreleased]
+
+### Fixed
+
+- **Some grates were still solid pink, at any distance.** 1.8.1 takes a fence
+  out of the renderer's edge list where a face normally goes in —
+  `R_RenderFace`. A brush model (a `func_wall`, a door, a platform) whose
+  bounds cross more than one part of the world's BSP tree never goes through
+  there: its faces are first cut along the world's planes, and the pieces go
+  into the edge list by a different function that had never heard of fences.
+  So a walkway built from world brushes looked right, and the one next to it
+  built as a `func_wall` came out as pink stripes.
+
+  That face now goes to the fence pass whole, before it is cut. The cutting
+  only exists so the edge list can sort the pieces against the world, and the
+  fence pass sorts with the z-buffer instead.
+
+  Reproduced by forcing every brush model down that path with a door made a
+  fence: 61872 pink pixels before, none after, and the corridor behind the
+  door shows through it. A door in the same view that takes the path on its
+  own went from 2944 pink pixels to none.
+
 ## [1.9.0] — 2026-09-22
 
 ### Fixed

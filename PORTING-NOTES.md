@@ -1038,6 +1038,16 @@ Measured with a common shareware wall texture turned into a fence, so about a
 third of the view is masked, at 1024x768: 507/552/543 fps without the pass
 against 465/477/429 with it. A frame containing no fence never enters it.
 
+A brush model has two ways into the edge list, and the first release hooked
+one. One that sits inside a single BSP leaf goes through `R_RenderFace` like
+the world. One that straddles the world's planes goes through
+`R_DrawSolidClippedSubmodelPolygons`, which cuts each face along those planes
+and hands the pieces to `R_RenderBmodelFace` — a function with no fence check.
+That is where a `func_wall` walkway stayed pink beside a world-brush walkway
+that did not. The fence is now taken before the cutting, whole; the cutting
+exists for the edge list's sorting, which the z-buffer replaces. My door test
+had missed it because each door sat in one leaf.
+
 The first release of this missed something the test could not show. The test
 fence had holes punched into all four mip levels by hand; a real one has them
 only in the first. Texture tools build the smaller levels by averaging, which
