@@ -1816,6 +1816,36 @@ void Mod_LoadBrushModel (model_t *mod, void *buffer)
 	if (COM_CheckParm ("-bspchecksum"))
 		Mod_BspChecksum (mod);
 
+//
+// Edges that more than one face walks the same way. id's maps have none: every
+// edge has one face on each side. The renderer gives each such face an edge of
+// its own (see R_EmitCachedEdge); this says how many there are, since they are
+// what the black bars on the re-release maps came from.
+//
+	{
+		byte	*uses;
+		int		k, lindex, same;
+
+		uses = calloc (mod->numedges + 1, 2);
+		same = 0;
+		if (uses)
+		{
+			for (i=0 ; i<mod->numsurfaces ; i++)
+				for (k=0 ; k<mod->surfaces[i].numedges ; k++)
+				{
+					lindex = mod->surfedges[mod->surfaces[i].firstedge + k];
+					j = (lindex > 0 ? lindex : -lindex)*2 + (lindex < 0);
+					if (uses[j] < 255 && ++uses[j] == 2)
+						same++;
+				}
+			free (uses);
+		}
+		if (same)
+			Con_Printf ("%s: %d edge(s) walked the same way by more than one "
+						"face. Each\nsuch face is given an edge of its own when "
+						"drawn.\n", mod->name, same);
+	}
+
 // after the checksum, which is of what the file says
 	mod_widened = 0;
 	mod_widest = 0;

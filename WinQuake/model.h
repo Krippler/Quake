@@ -91,6 +91,7 @@ typedef struct
 {
 	unsigned int	v[2];		// int, not short: BSP2 indexes more vertices
 	unsigned int	cachededgeoffset;
+	qboolean		cachedforward;	// the way the face that cached it walked it
 } medge_t;
 
 typedef struct

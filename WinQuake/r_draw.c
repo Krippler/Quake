@@ -553,6 +553,38 @@ void R_ClipEdge (mvertex_t *pv0, mvertex_t *pv1, clipplane_t *clip)
 R_EmitCachedEdge
 ================
 */
+//
+// An edge_t has two slots: the surface it closes on each scanline and the
+// surface it opens. id's cache hands an edge one face made to the next face
+// that uses it, and puts that face in whichever slot is free. That is right
+// when the second face walks the edge the other way, which in id's maps it
+// always does: every edge has one face on each side.
+//
+// Maps from modern compilers can have an edge walked by three faces, two of
+// them the same way. The re-release start map has one on a crate: the crate's
+// side and a face beside it both close on the same edge, the neighbour took
+// that slot first, and the crate was put in the other and opened there
+// instead. Nothing closed it, and it ran on to the right edge of the screen as
+// a black bar. So the medge now remembers which way the face that cached it
+// walked it, and a face walking it the same way makes an edge of its own. So
+// does a third face when both slots are taken, which id's code would have
+// written over, taking the edge from one of the first two.
+//
+static qboolean R_CanReuseEdge (medge_t *pedge, qboolean forward)
+{
+	edge_t	*e;
+
+	if (pedge->cachedforward == forward)
+		return false;
+	if (((unsigned long)edge_p - (unsigned long)r_edges) <=
+		pedge->cachededgeoffset)
+		return false;
+	e = (edge_t *)((unsigned long)r_edges + pedge->cachededgeoffset);
+	if (e->owner != pedge)
+		return false;
+	return !e->surfs[0] || !e->surfs[1];
+}
+
 void R_EmitCachedEdge (void)
 {
 	edge_t		*pedge_t;
@@ -655,10 +687,7 @@ void R_RenderFace (msurface_t *fa, int clipflags)
 				}
 				else
 				{
-					if ((((unsigned long)edge_p - (unsigned long)r_edges) >
-						 r_pedge->cachededgeoffset) &&
-						(((edge_t *)((unsigned long)r_edges +
-						 r_pedge->cachededgeoffset))->owner == r_pedge))
+					if (R_CanReuseEdge (r_pedge, true))
 					{
 						R_EmitCachedEdge ();
 						r_lastvertvalid = false;
@@ -674,6 +703,7 @@ void R_RenderFace (msurface_t *fa, int clipflags)
 						&r_pcurrentvertbase[r_pedge->v[1]],
 						pclip);
 			r_pedge->cachededgeoffset = cacheoffset;
+			r_pedge->cachedforward = true;
 
 			if (r_leftclipped)
 				makeleftedge = true;
@@ -699,12 +729,7 @@ void R_RenderFace (msurface_t *fa, int clipflags)
 				}
 				else
 				{
-				// it's cached if the cached edge is valid and is owned
-				// by this medge_t
-					if ((((unsigned long)edge_p - (unsigned long)r_edges) >
-						 r_pedge->cachededgeoffset) &&
-						(((edge_t *)((unsigned long)r_edges +
-						 r_pedge->cachededgeoffset))->owner == r_pedge))
+					if (R_CanReuseEdge (r_pedge, false))
 					{
 						R_EmitCachedEdge ();
 						r_lastvertvalid = false;
@@ -720,6 +745,7 @@ void R_RenderFace (msurface_t *fa, int clipflags)
 						&r_pcurrentvertbase[r_pedge->v[0]],
 						pclip);
 			r_pedge->cachededgeoffset = cacheoffset;
+			r_pedge->cachedforward = false;
 
 			if (r_leftclipped)
 				makeleftedge = true;
