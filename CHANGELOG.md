@@ -5,6 +5,28 @@ top section's heading is what the release workflow reads: `## [X.Y.Z] — DATE`
 on the default branch publishes that version, `## [Unreleased]` publishes only
 `edge`.
 
+## [1.9.8] — 2026-09-23
+
+### Added
+
+- **`surface` lists the edges of a face drawn where it isn't.** For each edge
+  it shows which way the face walks it, how many faces walk it each way (a
+  closed surface has one each), what happened to it this frame, and where its
+  two ends land on screen. What happened is one of: skipped as off-screen or
+  flat, clipped, emitted with its two surface slots, or never emitted. A span
+  that runs on across the screen has lost the edge that closes it; this names
+  the edge and how it was lost.
+
+### Changed
+
+- **1.9.7's node-bounds widening was not the black bars.** On the re-release
+  start map it widened nothing: that map's node bounds already hold their
+  faces, and the bars are still there. The widening stays, since it is right
+  for maps that need it and costs nothing on those that don't, but the cause
+  of these bars is still open. The crate face's span runs on from the crate to
+  the right edge of the screen, so its closing edge is missing on those
+  scanlines.
+
 ## [1.9.7] — 2026-09-23
 
 ### Fixed

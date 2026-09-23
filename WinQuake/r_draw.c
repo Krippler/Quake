@@ -1143,3 +1143,90 @@ void R_ZDrawSubmodelPolys (model_t *pmodel)
 	}
 }
 
+
+
+/*
+================
+R_FaceEdgeReport
+
+For "surface", when a face was drawn where it is not: what became of each of
+its edges this frame. A face whose span runs on across the screen has lost the
+edge that should close it, and this says which edge and how -- skipped as
+off-screen, never emitted, or emitted with the face in the wrong slot.
+================
+*/
+void R_FaceEdgeReport (msurface_t *face)
+{
+	int			i, j, k, lindex, idx, self, fwd, back, nedges;
+	unsigned	off;
+	medge_t		*pedge, *pedges;
+	edge_t		*e;
+	msurface_t	*f;
+	surf_t		*s;
+	float		*v;
+	vec3_t		local, t;
+	model_t		*m;
+
+	m = cl.worldmodel;
+	pedges = m->edges;
+
+	self = 0;
+	for (s = &surfaces[1] ; s<surface_p ; s++)
+		if (s->data == face)
+			self = s - surfaces;
+	Con_Printf ("  its surface this frame is %d; its edges:\n", self);
+
+	nedges = edge_p - r_edges;
+	for (i=0 ; i<face->numedges ; i++)
+	{
+		lindex = m->surfedges[face->firstedge + i];
+		idx = lindex > 0 ? lindex : -lindex;
+		pedge = &pedges[idx];
+
+	// how many faces walk this edge each way; a closed surface has one each
+		fwd = back = 0;
+		for (j=0, f=m->surfaces ; j<m->numsurfaces ; j++, f++)
+			for (k=0 ; k<f->numedges ; k++)
+			{
+				if (m->surfedges[f->firstedge + k] == idx)
+					fwd++;
+				else if (m->surfedges[f->firstedge + k] == -idx)
+					back++;
+			}
+
+		Con_Printf ("  %d: edge %d %s, faces %d+ %d-,", i, idx,
+					lindex > 0 ? "forward" : "backward", fwd, back);
+
+		off = pedge->cachededgeoffset;
+		if (off & FULLY_CLIPPED_CACHED)
+			Con_Printf (" skipped as off-screen or flat%s",
+						(off & FRAMECOUNT_MASK) == (r_framecount & FRAMECOUNT_MASK)
+						? "" : " (another frame)");
+		else if (off == 0x7FFFFFFF)
+			Con_Printf (" clipped");
+		else if (off / sizeof(edge_t) < (unsigned)nedges
+			&& (e = (edge_t *)((byte *)r_edges + off))->owner == pedge)
+			Con_Printf (" edge_t %d surfs %d/%d%s", (int)(off / sizeof(edge_t)),
+						e->surfs[0], e->surfs[1],
+						(e->surfs[0] == self || e->surfs[1] == self)
+						? "" : " WITHOUT this face");
+		else
+			Con_Printf (" not emitted");
+
+		for (j=0 ; j<2 ; j++)
+		{
+			v = m->vertexes[pedge->v[j]].position;
+			VectorSubtract (v, r_origin, local);
+			t[0] = DotProduct (local, vright);
+			t[1] = DotProduct (local, vup);
+			t[2] = DotProduct (local, vpn);
+			if (t[2] < NEAR_CLIP)
+				Con_Printf (j ? " to behind" : " from behind");
+			else
+				Con_Printf (j ? " to (%.0f %.0f)" : " from (%.0f %.0f)",
+							xcenter + xscale*t[0]/t[2],
+							ycenter - yscale*t[1]/t[2]);
+		}
+		Con_Printf ("\n");
+	}
+}
