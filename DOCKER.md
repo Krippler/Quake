@@ -129,15 +129,21 @@ the rest of the pak files, so the image cannot include either.
 
 What to expect:
 
-- Entity keys the 1996 QuakeC does not define (`alpha`, `fog`) are reported
-  once each per map and ignored. id's engine did the same; it just said it
+- Entity keys the progs do not define (`fog`, and `alpha` under id's 1996
+  QuakeC) are reported once each per map and ignored. id's engine did the same; it just said it
   again for every entity.
 - A cvar the re-release progs sets but this engine does not define — `campaign`
   is the one you will see — is created on demand rather than refused, so the
   progs reads back what it wrote.
 - A map with more than 256 models or sounds — MG1 has several — is played over
-  FitzQuake's protocol 666, which can count past a byte; everything else stays
-  on id's protocol 15. It is decided per map, and `developer 1` says when.
+  FitzQuake's protocol 666, which can count past a byte. So is any game whose
+  progs have an `alpha` field (MG1 and MG3), because only 666 can carry it.
+  Everything else stays on id's protocol 15. It is decided per map, and
+  `developer 1` says when.
+- Models and sprites the progs make translucent are drawn translucent: MG1's
+  gas flares are a soft blue glow, and things fade in and out. Alpha is
+  rounded to eighths. Brush models (doors, walls) with an alpha are still
+  drawn solid; the software renderer's edge list has no way to blend them.
 - The re-release progs unlock Steam achievements by sending their own server
   message: a monster killed by another monster, a secret found, a level or
   episode finished. There is nothing here to unlock; `developer 1` shows the

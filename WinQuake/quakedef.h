@@ -257,6 +257,7 @@ typedef struct
 	int		colormap;
 	int		skin;
 	int		effects;
+	int		alpha;		// ENTALPHA_ encoded: 0 is opaque, as id drew everything
 } entity_state_t;
 
 

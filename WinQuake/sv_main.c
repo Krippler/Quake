@@ -445,7 +445,7 @@ SV_WriteEntitiesToClient
 void SV_WriteEntitiesToClient (edict_t	*clent, sizebuf_t *msg)
 {
 	int		e, i;
-	int		bits;
+	int		bits, alpha;
 	byte	*pvs;
 	vec3_t	org;
 	float	miss;
@@ -529,6 +529,9 @@ void SV_WriteEntitiesToClient (edict_t	*clent, sizebuf_t *msg)
 	//
 		if (sv.protocol == PROTOCOL_FITZQUAKE)
 		{
+			alpha = SV_EntityAlpha (ent);
+			if (alpha != ent->baseline.alpha)
+				bits |= U_ALPHA;
 			if ((bits & U_FRAME) && ((int)ent->v.frame & 0xFF00))
 				bits |= U_FRAME2;
 			if ((bits & U_MODEL) && ((int)ent->v.modelindex & 0xFF00))
@@ -579,6 +582,8 @@ void SV_WriteEntitiesToClient (edict_t	*clent, sizebuf_t *msg)
 			MSG_WriteCoord (msg, ent->v.origin[2]);
 		if (bits & U_ANGLE3)
 			MSG_WriteAngle(msg, ent->v.angles[2]);
+		if (bits & U_ALPHA)		// 666's order: alpha, frame2, model2
+			MSG_WriteByte (msg, alpha);
 		if (bits & U_FRAME2)
 			MSG_WriteByte (msg, (int)ent->v.frame >> 8);
 		if (bits & U_MODEL2)
@@ -1006,6 +1011,33 @@ int SV_ModelIndex (char *name)
 
 /*
 ================
+SV_EntityAlpha
+
+An entity's .alpha as the byte protocol 666 carries (ENTALPHA_ in
+protocol.h). The re-release's progs set it for gas flares, fading walls,
+ghosts and runes; id's progs have no such field, and everything is opaque.
+================
+*/
+int SV_EntityAlpha (edict_t *ent)
+{
+	float	a;
+
+	if (pr_alphaofs < 0)
+		return ENTALPHA_DEFAULT;
+
+	a = ((float *)&ent->v)[pr_alphaofs];
+	if (a == 0)
+		return ENTALPHA_DEFAULT;
+	a = a * 254 + 1;
+	if (a < 1)
+		a = 1;
+	if (a > 255)
+		a = 255;
+	return (int)(a + 0.5);
+}
+
+/*
+================
 SV_ChooseProtocol
 
 Protocol 15 sends a model or sound number as one byte. A map that precaches
@@ -1024,6 +1056,12 @@ void SV_ChooseProtocol (void)
 		;
 
 	if (nummodels > 256 || numsounds > 256)
+		sv.protocol = PROTOCOL_FITZQUAKE;
+
+// Progs with an .alpha field -- MG1's and MG3's -- fade things in and out
+// while the game runs, and only 666 can say so. id's progs have no such
+// field and stay on 15.
+	if (pr_alphaofs >= 0)
 		sv.protocol = PROTOCOL_FITZQUAKE;
 
 	if (sv.protocol != PROTOCOL_NETQUAKE)
@@ -1103,6 +1141,10 @@ void SV_CreateBaseline (void)
 			bits |= B_LARGEFRAME;
 		if (bits)
 			sv.protocol = PROTOCOL_FITZQUAKE;
+		svent->baseline.alpha = sv.protocol == PROTOCOL_FITZQUAKE
+			? SV_EntityAlpha (svent) : ENTALPHA_DEFAULT;
+		if (svent->baseline.alpha != ENTALPHA_DEFAULT)
+			bits |= B_ALPHA;
 
 		if (bits)
 		{
@@ -1131,6 +1173,8 @@ void SV_CreateBaseline (void)
 			MSG_WriteCoord(&sv.signon, svent->baseline.origin[i]);
 			MSG_WriteAngle(&sv.signon, svent->baseline.angles[i]);
 		}
+		if (bits & B_ALPHA)
+			MSG_WriteByte (&sv.signon, svent->baseline.alpha);
 	}
 }
 

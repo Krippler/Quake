@@ -514,14 +514,15 @@ if (bits&(1<<i))
 		ent->forcelink = true;
 
 //
-// 666's trailing bytes, in the order it writes them. Alpha, scale and the
-// lerp hint have nothing to draw them in this renderer, so they are read and
-// dropped; a model or frame's high byte is what a big map needs.
+// 666's trailing bytes, in the order it writes them. Scale and the lerp hint
+// have nothing to draw them in this renderer, so they are read and dropped.
+// Alpha, like everything else an update leaves out, is the baseline's.
 //
+	ent->alpha = ent->baseline.alpha;
 	if (cl.protocol == PROTOCOL_FITZQUAKE)
 	{
 		if (bits & U_ALPHA)
-			MSG_ReadByte ();
+			ent->alpha = MSG_ReadByte ();
 		if (bits & U_SCALE)
 			MSG_ReadByte ();
 		if (bits & U_FRAME2)
@@ -592,8 +593,7 @@ void CL_ParseBaseline (entity_t *ent, int version)
 		ent->baseline.angles[i] = MSG_ReadAngle ();
 	}
 
-	if (bits & B_ALPHA)
-		MSG_ReadByte ();			// no translucency in this renderer
+	ent->baseline.alpha = (bits & B_ALPHA) ? MSG_ReadByte () : ENTALPHA_DEFAULT;
 	if (bits & B_SCALE)
 		MSG_ReadByte ();
 
@@ -819,6 +819,7 @@ void CL_ParseStatic (int version)
 	ent->colormap = vid.colormap;
 	ent->skinnum = ent->baseline.skin;
 	ent->effects = ent->baseline.effects;
+	ent->alpha = ent->baseline.alpha;
 
 	VectorCopy (ent->baseline.origin, ent->origin);
 	VectorCopy (ent->baseline.angles, ent->angles);	

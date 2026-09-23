@@ -653,15 +653,89 @@ void R_MarkLeaves (void)
 R_DrawEntitiesOnList
 =============
 */
-void R_DrawEntitiesOnList (void)
+static void R_DrawEntity (void)
 {
-	int			i, j;
+	int			j;
 	int			lnum;
 	alight_t	lighting;
 // FIXME: remove and do real lighting
 	float		lightvec[3] = {-1, 0, 0};
 	vec3_t		dist;
 	float		add;
+
+	switch (currententity->model->type)
+	{
+	case mod_sprite:
+		VectorCopy (currententity->origin, r_entorigin);
+		VectorSubtract (r_origin, r_entorigin, modelorg);
+		R_DrawSprite ();
+		break;
+
+	case mod_alias:
+		VectorCopy (currententity->origin, r_entorigin);
+		VectorSubtract (r_origin, r_entorigin, modelorg);
+
+	// see if the bounding box lets us trivially reject, also sets
+	// trivial accept status
+		if (R_AliasCheckBBox ())
+		{
+			j = R_LightPoint (currententity->origin);
+
+			lighting.ambientlight = j;
+			lighting.shadelight = j;
+
+			lighting.plightvec = lightvec;
+
+			for (lnum=0 ; lnum<MAX_DLIGHTS ; lnum++)
+			{
+				if (cl_dlights[lnum].die >= cl.time)
+				{
+					VectorSubtract (currententity->origin,
+									cl_dlights[lnum].origin,
+									dist);
+					add = cl_dlights[lnum].radius - Length(dist);
+
+					if (add > 0)
+						lighting.ambientlight += add;
+				}
+			}
+
+		// clamp lighting so it doesn't overbright as much
+			if (lighting.ambientlight > 128)
+				lighting.ambientlight = 128;
+			if (lighting.ambientlight + lighting.shadelight > 192)
+				lighting.shadelight = 192 - lighting.ambientlight;
+
+			R_AliasDrawModel (&lighting);
+		}
+
+		break;
+
+	default:
+		break;
+	}
+}
+
+//
+// Translucent models and sprites wait until everything opaque is drawn --
+// world, fences, other models, the view model, particles -- because a blend
+// is with whatever is behind it at the moment it is drawn. They go far to
+// near, so one seen through another is blended in the right order, and they
+// test the z-buffer without writing it. Brush models are part of the edge
+// list and cannot be blended; one with an alpha is drawn solid.
+//
+#define	MAX_TRANSLUCENT	256
+static entity_t	*r_translucent[MAX_TRANSLUCENT];
+static float	r_translucentdist[MAX_TRANSLUCENT];
+static int		r_numtranslucent;
+
+void R_DrawEntitiesOnList (void)
+{
+	int			i, j;
+	vec3_t		d;
+	float		dist;
+
+	r_numtranslucent = 0;
 
 	if (!r_drawentities.value)
 		return;
@@ -673,58 +747,44 @@ void R_DrawEntitiesOnList (void)
 		if (currententity == &cl_entities[cl.viewentity])
 			continue;	// don't draw the player
 
-		switch (currententity->model->type)
+		if (currententity->alpha != ENTALPHA_DEFAULT
+			&& (currententity->model->type == mod_alias
+				|| currententity->model->type == mod_sprite)
+			&& R_BlendMap (currententity->alpha))
 		{
-		case mod_sprite:
-			VectorCopy (currententity->origin, r_entorigin);
-			VectorSubtract (r_origin, r_entorigin, modelorg);
-			R_DrawSprite ();
-			break;
-
-		case mod_alias:
-			VectorCopy (currententity->origin, r_entorigin);
-			VectorSubtract (r_origin, r_entorigin, modelorg);
-
-		// see if the bounding box lets us trivially reject, also sets
-		// trivial accept status
-			if (R_AliasCheckBBox ())
+			if (r_numtranslucent == MAX_TRANSLUCENT)
+				continue;
+			VectorSubtract (currententity->origin, r_origin, d);
+			dist = DotProduct (d, d);
+		// insert, farthest first
+			for (j = r_numtranslucent ; j > 0 && r_translucentdist[j-1] < dist ; j--)
 			{
-				j = R_LightPoint (currententity->origin);
-	
-				lighting.ambientlight = j;
-				lighting.shadelight = j;
-
-				lighting.plightvec = lightvec;
-
-				for (lnum=0 ; lnum<MAX_DLIGHTS ; lnum++)
-				{
-					if (cl_dlights[lnum].die >= cl.time)
-					{
-						VectorSubtract (currententity->origin,
-										cl_dlights[lnum].origin,
-										dist);
-						add = cl_dlights[lnum].radius - Length(dist);
-	
-						if (add > 0)
-							lighting.ambientlight += add;
-					}
-				}
-	
-			// clamp lighting so it doesn't overbright as much
-				if (lighting.ambientlight > 128)
-					lighting.ambientlight = 128;
-				if (lighting.ambientlight + lighting.shadelight > 192)
-					lighting.shadelight = 192 - lighting.ambientlight;
-
-				R_AliasDrawModel (&lighting);
+				r_translucent[j] = r_translucent[j-1];
+				r_translucentdist[j] = r_translucentdist[j-1];
 			}
-
-			break;
-
-		default:
-			break;
+			r_translucent[j] = currententity;
+			r_translucentdist[j] = dist;
+			r_numtranslucent++;
+			continue;
 		}
+
+		R_DrawEntity ();
 	}
+}
+
+void R_DrawTranslucentEntities (void)
+{
+	int		i;
+
+	for (i=0 ; i<r_numtranslucent ; i++)
+	{
+		currententity = r_translucent[i];
+		d_blendmap = R_BlendMap (currententity->alpha);
+		if (d_blendmap && d_blendmap != r_blendinvisible)
+			R_DrawEntity ();
+	}
+	d_blendmap = NULL;
+	r_numtranslucent = 0;
 }
 
 /*
@@ -1222,6 +1282,8 @@ SetVisibilityByPassages ();
 	}
 
 	R_DrawParticles ();
+
+	R_DrawTranslucentEntities ();	// last, over everything they blend with
 
 	if (r_dspeeds.value)
 		dp_time2 = Sys_FloatTime ();

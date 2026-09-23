@@ -164,8 +164,10 @@ void D_PolysetDrawFinalVerts (finalvert_t *fv, int numverts)
 			if (z >= *zbuf)
 			{
 				int		pix;
+				byte	*dest;
 				
-				*zbuf = z;
+				if (!d_blendmap)
+					*zbuf = z;
 				pix = skintable[fv->v[3]>>16][fv->v[2]>>16];
 				pix = ((byte *)acolormap)[pix + (fv->v[4] & 0xFF00) ];
 			// the lone vertices a thin triangle leaves behind, fogged with
@@ -173,7 +175,8 @@ void D_PolysetDrawFinalVerts (finalvert_t *fv, int numverts)
 				if (r_fogenabled)
 					pix = r_fogmap[R_FOGLEVEL(z > 0 ? 32768.0 / z
 													: FOG_DIST_ENTRIES * FOG_DIST_UNIT)][pix];
-				d_viewbuffer[d_scantable[fv->v[1]] + fv->v[0]] = pix;
+				dest = &d_viewbuffer[d_scantable[fv->v[1]] + fv->v[0]];
+				*dest = d_blendmap ? d_blendmap[(pix<<8) | *dest] : pix;
 			}
 		}
 	}
@@ -379,15 +382,18 @@ split:
 	if (z >= *zbuf)
 	{
 		int		pix;
+		byte	*dest;
 		
-		*zbuf = z;
+		if (!d_blendmap)
+			*zbuf = z;
 		pix = d_pcolormap[skintable[new[3]>>16][new[2]>>16]];
 	// the subdivided path, used for models close enough to be drawn a point
 	// at a time; same table as the spans
 		if (r_fogenabled)
 			pix = r_fogmap[R_FOGLEVEL(z > 0 ? 32768.0 / z
 											: FOG_DIST_ENTRIES * FOG_DIST_UNIT)][pix];
-		d_viewbuffer[d_scantable[new[1]] + new[0]] = pix;
+		dest = &d_viewbuffer[d_scantable[new[1]] + new[0]];
+		*dest = d_blendmap ? d_blendmap[(pix<<8) | *dest] : pix;
 	}
 
 nodraw:
@@ -677,11 +683,21 @@ void D_PolysetDrawSpans8 (spanpackage_t *pspanpackage)
 			{
 				if ((lzi >> 16) >= *lpz)
 				{
-					*lpdest = ((byte *)acolormap)[*lptex + (llight & 0xFF00)];
+					int		pix;
+
+					pix = ((byte *)acolormap)[*lptex + (llight & 0xFF00)];
 					if (lfogrow)
-						*lpdest = lfogrow[*lpdest];
-// gel mapping					*lpdest = gelmap[*lpdest];
-					*lpz = lzi >> 16;
+						pix = lfogrow[pix];
+// gel mapping					pix = gelmap[pix];
+				// translucent (r_alpha.c): over what is there, and leaving
+				// the depth to whatever is behind
+					if (d_blendmap)
+						*lpdest = d_blendmap[(pix<<8) | *lpdest];
+					else
+					{
+						*lpdest = pix;
+						*lpz = lzi >> 16;
+					}
 				}
 				lpdest++;
 				lzi += r_zistepx;
