@@ -5,6 +5,16 @@ top section's heading is what the release workflow reads: `## [X.Y.Z] — DATE`
 on the default branch publishes that version, `## [Unreleased]` publishes only
 `edge`.
 
+## [Unreleased]
+
+### Notes
+
+- The blue flames 1.12.1 set out to fix are MG1's gas flares
+  (`light_flame_gas`). They are blue by design. The re-release draws them
+  translucent, twice, as a soft glow. This engine has no entity alpha, so
+  they are drawn solid. 1.12.1's colormap check is still right for a
+  colormap that lights the fullbright colours, but it was not the cause here.
+
 ## [1.12.1] — 2026-09-23
 
 ### Fixed

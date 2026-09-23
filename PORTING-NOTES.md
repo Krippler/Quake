@@ -1470,9 +1470,14 @@ candle flames -- map to themselves in every row, and that is all a
 fullbright colour is in the software renderer: it looks the same in the dark
 as in the light. A colormap that lights them like the other 224 changes them
 into the nearest colour at each level, and the nearest palette colours to a
-brightened fire yellow are lightning's pale blues. That fits what a player saw
-on MG1's candles and lanterns with the re-release's `id1/pak0.pak` installed,
-and the console line says whether the colormap in use was the cause.
+brightened fire yellow are lightning's pale blues.
+
+This was written for a report of blue flames in MG1, and it was not their
+cause. They were `light_flame_gas`, which MG1's QuakeC calls a gas flare:
+`progs/flame3.mdl`, blue by design, drawn twice at `alpha` 0.6 and 0.4 to make
+a soft glow. This engine has no entity alpha, so both copies are drawn
+opaque. The check stays, because a colormap that lights the fullbrights would
+do exactly what it describes, and it costs nothing when the colormap is id's.
 
 `Host_CheckColormap` puts those 32 columns back to id's values when the
 colormap is loaded, and says on the console how many it changed. A colormap
