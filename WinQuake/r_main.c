@@ -46,6 +46,8 @@ int			r_edgesoutofrange;
 // so that the shortage is reported once a map rather than once a frame
 qboolean	r_reportedshort;
 qboolean	r_reportedrange;
+qboolean	r_reportedclamp;	// once per map, for R_SafeFrac
+qboolean	r_reportedodd;		// once per map, for r_bmodelodd
 
 qboolean	r_dowarp, r_dowarpold, r_viewchanged;
 
@@ -372,6 +374,9 @@ void R_NewMap (void)
 	r_reportedrange = false;
 	r_reportedbmodel = false;
 	r_badrecorded = false;
+	r_badsource[0] = 0;
+	r_reportedclamp = false;
+	r_reportedodd = false;
 
 // a map that sets no fog must not inherit the last one's; the level's own
 // fog command, if it has one, runs after this
@@ -935,6 +940,27 @@ void R_DrawBEntitiesOnList (void)
 
 			clmodel = currententity->model;
 
+		// a door or lift placed or turned by something that is not a
+		// number: every point of it would be one too, so leave it out
+		// and say which
+			if (R_BadFloat (currententity->origin[0])
+				|| R_BadFloat (currententity->origin[1])
+				|| R_BadFloat (currententity->origin[2])
+				|| R_BadFloat (currententity->angles[0])
+				|| R_BadFloat (currententity->angles[1])
+				|| R_BadFloat (currententity->angles[2]))
+			{
+				R_NoteBadSource ("the position of %s, (%g %g %g) angles "
+								 "(%g %g %g)", clmodel->name,
+								 currententity->origin[0],
+								 currententity->origin[1],
+								 currententity->origin[2],
+								 currententity->angles[0],
+								 currententity->angles[1],
+								 currententity->angles[2]);
+				break;
+			}
+
 		// see if the bounding box lets us trivially reject, also sets
 		// trivial accept status
 			for (j=0 ; j<3 ; j++)
@@ -1275,6 +1301,9 @@ SetVisibilityByPassages ();
 						r_badtransformed[2]);
 		}
 
+		if (r_badsource[0])
+			Con_Printf ("What was not a number: %s.\n", r_badsource);
+
 		if (r_edgesoutofrange)
 		{
 			Con_Printf ("\n%d edge(s) landed outside the %d scanlines the "
@@ -1283,6 +1312,27 @@ SetVisibilityByPassages ();
 						"is not the edge pool; r_maxedges does not affect it.\n",
 						r_edgesoutofrange, MAXHEIGHT);
 		}
+	}
+
+//
+// A cut point off the end of its edge. R_SafeFrac put it back on, so nothing
+// was drawn wrong, but it means the two ends of that edge were measured
+// differently from how they were sorted -- worth one line if it ever happens.
+//
+	if (r_bmodelodd && !r_reportedodd)
+	{
+		r_reportedodd = true;
+		Con_Printf ("\n%d piece(s) of a door, lift or wall crossed a world plane "
+					"only once\nthis frame, and were left out rather than "
+					"stretched. Please report this line.\n", r_bmodelodd);
+	}
+
+	if (r_clampedfrac && !r_reportedclamp)
+	{
+		r_reportedclamp = true;
+		Con_Printf ("\n%d clip point(s) fell off their edge this frame and "
+					"were put back on it.\n%s\n", r_clampedfrac,
+					r_badsource[0] ? r_badsource : "Their inputs were numbers.");
 	}
 
 // back to high floating-point precision

@@ -277,6 +277,55 @@ extern int		r_outofsurfaces;
 extern int		r_outofedges;
 extern int		r_edgesoutofrange;
 
+//
+// True for an infinity or a NaN, by the bits. -ffast-math lets the compiler
+// assume neither exists, so a comparison-based test can be compiled away; this
+// cannot. See r_facebad in r_draw.c for what that cost.
+//
+static inline qboolean R_BadFloat (float f)
+{
+	unsigned int	bits;
+
+	memcpy (&bits, &f, sizeof(bits));
+	return (bits & 0x7F800000) == 0x7F800000;
+}
+
+//
+// A clip fraction places a cut point on the edge between two points, so it is
+// in [0, 1] by construction -- the two ends are on opposite sides of the plane.
+// Held there, and a non-finite one taken as the midpoint, so that whatever
+// arithmetic produced it, the point it makes is on the edge. r_clampedfrac
+// counts the times this changed anything, for the report in r_main.c.
+//
+extern int		r_clampedfrac;
+
+// r_bsp.c: brush-model cuts that crossed a plane only once (see R_BPlaneDist)
+extern int		r_bmodelodd;
+
+static inline float R_SafeFrac (float f)
+{
+	if (R_BadFloat (f))
+	{
+		r_clampedfrac++;
+		return 0.5f;
+	}
+	if (f < 0)
+	{
+		r_clampedfrac++;
+		return 0;
+	}
+	if (f > 1)
+	{
+		r_clampedfrac++;
+		return 1;
+	}
+	return f;
+}
+
+// what was found not to be a number, first time per map, for the report
+extern char		r_badsource[128];
+void R_NoteBadSource (const char *fmt, ...);
+
 // r_draw.c: faces left out because a vertex would not project (see r_facebad)
 extern int		r_facesdiscarded;
 extern qboolean	r_badrecorded;

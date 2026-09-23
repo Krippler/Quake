@@ -5,6 +5,62 @@ top section's heading is what the release workflow reads: `## [X.Y.Z] — DATE`
 on the default branch publishes that version, `## [Unreleased]` publishes only
 `edge`.
 
+## [1.9.3] — 2026-09-23
+
+### Fixed
+
+- **Slivers of doors, lifts and walls stretched across the screen.** A brush
+  model that spans more than one part of the world is cut along the world's
+  planes before it is drawn. A face crosses a plane twice or not at all, and
+  the two cut points are joined by a new edge. Each vertex is measured against
+  the plane twice, as the end of one edge and the start of the next, and id
+  wrote that measurement out twice. Under `-ffast-math` the compiler may work
+  the two copies out differently, so a vertex lying on the plane could come out
+  in front one time and behind the other. The face then crossed the plane only
+  once. The closing edge was made from this cut's point and one left over
+  from an earlier face, somewhere else entirely, and the face was drawn
+  stretched out to it.
+
+  This is id's code and id's maps do it too. `timedemo demo2`, which draws the
+  same frames every run, has 71 such cuts, and now has none. The re-release
+  maps have many more brush models crossing the world's planes. Each vertex is
+  now measured once, by one function, so it gets the same answer both times. If
+  a face still crosses an odd number of times, that piece is left out for the
+  frame and the console says so once per map.
+
+- **A crash that 1.9.2's fix could cause.** 1.9.2 leaves out a face whose
+  vertex will not project. When that was the face's first vertex, the next edge
+  was built from a vertex the previous face had left behind. Its slope came out
+  as a NaN, and the scan walked off the edge list into a null pointer. Found by
+  forcing bad clip points; with one in seven forced bad, three demos ran
+  without a crash. After a bad vertex, nothing more is emitted for the face,
+  and an edge whose slope is not a number is handed back.
+
+- **Clip points are kept on their edge.** A cut point's position along its
+  edge is a fraction between 0 and 1, by construction. It is now held there,
+  in all three clippers. The 1.9.2 report of `(inf -nan -nan)` is what an
+  infinite fraction makes from an edge that runs along one axis.
+
+- **Big BSP29 maps read their indices signed.** Node children, face and
+  leaf counts, clipnode children, and a face's plane, texinfo and edge count
+  are unsigned in the file. id read them as signed, so on a map with more than
+  32767 of any of them they pointed before the start of their arrays. They're
+  now read the way the map compilers write them, as QuakeSpasm does. BSP2 maps
+  were already fine.
+
+- **A map that points outside itself is caught on load.** Edges naming
+  vertices the map doesn't have, surfedges naming edges it doesn't have, faces
+  naming planes, texinfo or surfedges past the end, and vertices or planes that
+  aren't numbers are all set to 0 and counted. The console names the first one.
+  id's loader trusted every index and read whatever lay past the end.
+
+### Changed
+
+- The report of a face left out now says what was not a number when one of
+  the inputs is the cause: the world plane doing the cutting, or a brush
+  model's position or angles. A brush model whose position isn't a number is
+  left out rather than drawn from NaNs.
+
 ## [1.9.2] — 2026-09-23
 
 ### Fixed

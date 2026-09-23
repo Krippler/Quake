@@ -97,6 +97,24 @@ qboolean	r_badrecorded;
 vec3_t		r_badvertex, r_badorigin, r_badtransformed;
 char		r_badmodel[64];
 
+// clip fractions R_SafeFrac had to correct, this frame (see r_local.h)
+int			r_clampedfrac;
+
+// the first input found not to be a number on this map, named
+char		r_badsource[128];
+
+void R_NoteBadSource (const char *fmt, ...)
+{
+	va_list		argptr;
+
+	if (r_badsource[0])
+		return;
+
+	va_start (argptr, fmt);
+	vsnprintf (r_badsource, sizeof(r_badsource), fmt, argptr);
+	va_end (argptr);
+}
+
 static qboolean R_NotFinite (const vec3_t v)
 {
 	int				i;
@@ -177,6 +195,20 @@ void R_EmitEdge (mvertex_t *pv0, mvertex_t *pv1)
 	int		v, v2, ceilv0;
 	float	scale, lzi0, u0, v0;
 	int		side;
+
+//
+// Once a vertex of this face has failed, emit nothing more for it: the face is
+// coming out anyway. And it has to stop here, because the cached vertex is no
+// longer to be trusted -- the face loop marks it valid after every edge, so
+// the edge after a bad first vertex would start from whatever vertex the
+// previous face left in r_u1 and r_v1. For a face that ended with a right-hand
+// clip, that is a vertex whose r_ceilv1 was never updated, and an edge built
+// from it steps by a NaN; its u runs off the left of the screen and the scan
+// walks past edge_head into a null pointer. That was a crash, found by forcing
+// bad clip points.
+//
+	if (r_facebad)
+		return;
 
 	if (r_lastvertvalid)
 	{
@@ -339,6 +371,18 @@ void R_EmitEdge (mvertex_t *pv0, mvertex_t *pv1)
 		u = r_u1 + ((float)v - r_v1) * u_step;
 	}
 
+//
+// The same NaN from any other route: an edge whose step is not a number
+// cannot be stepped, and in the active list it corrupts the sort for every
+// edge after it. Hand it back and leave the face out.
+//
+	if (R_BadFloat (u_step) || R_BadFloat (u))
+	{
+		edge_p--;
+		R_RecordBad (pv1->position, transformed);
+		return;
+	}
+
 	edge->u_step = u_step*0x100000;
 	edge->u = u*0x100000 + 0xFFFFF;
 
@@ -431,7 +475,7 @@ void R_ClipEdge (mvertex_t *pv0, mvertex_t *pv1, clipplane_t *clip)
 			// we don't cache clipped edges
 				cacheoffset = 0x7FFFFFFF;
 
-				f = d0 / (d0 - d1);
+				f = R_SafeFrac (d0 / (d0 - d1));
 				clipvert.position[0] = pv0->position[0] +
 						f * (pv1->position[0] - pv0->position[0]);
 				clipvert.position[1] = pv0->position[1] +
@@ -472,7 +516,7 @@ void R_ClipEdge (mvertex_t *pv0, mvertex_t *pv1, clipplane_t *clip)
 			// we don't cache partially clipped edges
 				cacheoffset = 0x7FFFFFFF;
 
-				f = d0 / (d0 - d1);
+				f = R_SafeFrac (d0 / (d0 - d1));
 				clipvert.position[0] = pv0->position[0] +
 						f * (pv1->position[0] - pv0->position[0]);
 				clipvert.position[1] = pv0->position[1] +
@@ -953,7 +997,7 @@ void R_RenderPoly (msurface_t *fa, int clipflags)
 
 			if ((lastdist > 0) != (dist > 0))
 			{
-				frac = dist / (dist - lastdist);
+				frac = R_SafeFrac (dist / (dist - lastdist));
 				verts[newpage][newverts].position[0] =
 						verts[vertpage][i].position[0] +
 						((verts[vertpage][lastvert].position[0] -

@@ -188,6 +188,39 @@ static void R_ReportBmodelShort (void)
 				"fix; there is no cvar for it.\n");
 }
 
+//
+// A brush model cut along a world plane: each edge's two ends are measured
+// against the plane, and a cut point is made where an edge crosses. A convex
+// face crosses a plane twice or not at all, and the two cut points are joined
+// by a new edge that closes each half.
+//
+// Every vertex is measured twice, as the end of one edge and the start of the
+// next, and id wrote the measurement out twice. Under -ffast-math the compiler
+// is free to evaluate the two copies differently -- reassociated, one of them
+// folded into other arithmetic -- and for a vertex lying on the plane the two
+// answers can differ in sign. The face then crosses the plane once. Only one
+// of pfrontenter and pfrontexit was set by this cut, the other still pointed at
+// a cut point from some earlier face, and the closing edge ran from here to
+// there: a sliver of this face stretched across the screen to wherever that
+// was. With no instrumentation other than a counter, id's demo2 does it once
+// in about twelve thousand cuts; the re-release maps, with far more doors and
+// lifts spanning the world's BSP, far more often.
+//
+// Measured once, by one function the compiler may not inline, the same vertex
+// gets the same answer both times. The pointers are also cleared per cut, and
+// a face that still crosses an odd number of times is left out of that frame
+// and counted rather than closed with an edge from nowhere.
+//
+int		r_bmodelodd;	// this frame, for the report in r_main.c
+
+#ifdef __GNUC__
+__attribute__((noinline))
+#endif
+static float R_BPlaneDist (const mvertex_t *v, const mplane_t *plane)
+{
+	return DotProduct (v->position, plane->normal) - plane->dist;
+}
+
 /*
 ================
 R_RecursiveClipBPoly
@@ -205,6 +238,7 @@ void R_RecursiveClipBPoly (bedge_t *pedges, mnode_t *pnode, msurface_t *psurf)
 	psideedges[0] = psideedges[1] = NULL;
 
 	makeclippededge = false;
+	pfrontenter = pfrontexit = NULL;
 
 // transform the BSP plane into model space
 // FIXME: cache these?
@@ -215,6 +249,24 @@ void R_RecursiveClipBPoly (bedge_t *pedges, mnode_t *pnode, msurface_t *psurf)
 	tplane.normal[1] = DotProduct (entity_rotation[1], splitplane->normal);
 	tplane.normal[2] = DotProduct (entity_rotation[2], splitplane->normal);
 
+//
+// A plane that is not a number cuts nothing sensibly, and every point made
+// against it would be a NaN. Say which node and which model, and leave this
+// piece undrawn rather than make them.
+//
+	if (R_BadFloat (tplane.normal[0]) || R_BadFloat (tplane.normal[1])
+		|| R_BadFloat (tplane.normal[2]) || R_BadFloat (tplane.dist))
+	{
+		R_NoteBadSource ("the world plane at node %d, clipping %s at "
+						 "(%g %g %g) angles (%g %g %g)",
+						 (int)(pnode - cl.worldmodel->nodes),
+						 currententity->model->name,
+						 r_entorigin[0], r_entorigin[1], r_entorigin[2],
+						 currententity->angles[0], currententity->angles[1],
+						 currententity->angles[2]);
+		return;
+	}
+
 // clip edges to BSP plane
 	for ( ; pedges ; pedges = pnextedge)
 	{
@@ -223,8 +275,7 @@ void R_RecursiveClipBPoly (bedge_t *pedges, mnode_t *pnode, msurface_t *psurf)
 	// set the status for the last point as the previous point
 	// FIXME: cache this stuff somehow?
 		plastvert = pedges->v[0];
-		lastdist = DotProduct (plastvert->position, tplane.normal) -
-				   tplane.dist;
+		lastdist = R_BPlaneDist (plastvert, &tplane);
 
 		if (lastdist > 0)
 			lastside = 0;
@@ -233,7 +284,7 @@ void R_RecursiveClipBPoly (bedge_t *pedges, mnode_t *pnode, msurface_t *psurf)
 
 		pvert = pedges->v[1];
 
-		dist = DotProduct (pvert->position, tplane.normal) - tplane.dist;
+		dist = R_BPlaneDist (pvert, &tplane);
 
 		if (dist > 0)
 			side = 0;
@@ -250,7 +301,7 @@ void R_RecursiveClipBPoly (bedge_t *pedges, mnode_t *pnode, msurface_t *psurf)
 			}
 
 		// generate the clipped vertex
-			frac = lastdist / (lastdist - dist);
+			frac = R_SafeFrac (lastdist / (lastdist - dist));
 			ptvert = &pbverts[numbverts++];
 			ptvert->position[0] = plastvert->position[0] +
 					frac * (pvert->position[0] -
@@ -309,6 +360,12 @@ void R_RecursiveClipBPoly (bedge_t *pedges, mnode_t *pnode, msurface_t *psurf)
 // plane to both sides (but in opposite directions)
 	if (makeclippededge)
 	{
+		if (!pfrontenter || !pfrontexit)
+		{
+			r_bmodelodd++;
+			return;
+		}
+
 		if (numbedges >= (MAX_BMODEL_EDGES - 2))
 		{
 			R_ReportBmodelShort ();

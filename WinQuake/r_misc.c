@@ -519,6 +519,8 @@ r_refdef.viewangles[2]=    0;
 	r_outofedges = 0;
 	r_edgesoutofrange = 0;
 	r_facesdiscarded = 0;
+	r_clampedfrac = 0;
+	r_bmodelodd = 0;
 
 	D_SetupFrame ();
 }
