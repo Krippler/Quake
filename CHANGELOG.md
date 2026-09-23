@@ -5,6 +5,31 @@ top section's heading is what the release workflow reads: `## [X.Y.Z] — DATE`
 on the default branch publishes that version, `## [Unreleased]` publishes only
 `edge`.
 
+## [Unreleased]
+
+### Fixed
+
+- **The black bars.** 1.9.8's edge list named the cause. The crate face's
+  right-hand edge, the one that closes it on each scanline, is walked by
+  three faces: once forwards and twice backwards (`faces 1+ 2-`). A closed
+  surface has one face each way.
+
+  The renderer makes each screen edge once and shares it between the faces
+  that use it. An edge has two slots: the face it closes and the face it
+  opens. Face 181 got to the edge first and took the "closes" slot, since it
+  walks the edge the same way as the crate. When the crate reused the edge it
+  was put in the only slot left, and opened there instead of closing. Nothing
+  closed it, and it ran on to the right edge of the screen: `surfs 181/182`
+  in the report. id's code assumed a second face always walks an edge the
+  other way, which in id's maps it does.
+
+  An edge now remembers which way the face that made it walked it. It's
+  handed on only to a face walking it the other way, and only while a slot is
+  free. Any other face makes an edge of its own. The console says on load how
+  many edges a map has that more than one face walks the same way. id's maps
+  have none and render as before. A test map with a face doubled on to
+  another's edges has 6, and the old code misdrew it.
+
 ## [1.9.8] — 2026-09-23
 
 ### Added

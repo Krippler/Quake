@@ -1015,6 +1015,33 @@ turns the band into a face missing for one frame. What makes the NaN on those
 maps is still open; the first one per map is reported with its vertex, model
 and viewpoint.
 
+### `r_draw.c` — an edge walked the same way twice
+
+`R_RenderFace` shares screen edges between faces. When a face emits an edge,
+`cachededgeoffset` on the `medge_t` records where. The next face to use that
+`medge_t` in the same frame calls `R_EmitCachedEdge`, which puts it in
+whichever of the `edge_t`'s two surface slots is empty. `surfs[0]` is the
+surface the edge closes on each scanline and `surfs[1]` the one it opens,
+decided by which way the edge runs down the screen. So the free slot is the
+right one only if the second face walks the edge the opposite way. In id's
+maps every edge has exactly one face on each side, so it always does.
+
+The re-release maps don't hold to that. On start.bsp a crate face's closing
+edge is walked by three faces, twice in the crate's own direction. The other
+face that walks it that way got there first and took the "closes" slot. The
+crate was given "opens", so it was opened twice and never closed, and its
+span ran to the right edge of the screen. The `surface` edge list showed it
+directly: `edge 45534 backward, faces 1+ 2-, edge_t 425 surfs 181/182`. A
+third face would have been worse: `R_EmitCachedEdge` writes `surfs[1]` when
+`surfs[0]` is taken, and so takes the edge from a face already on it.
+
+`medge_t` now carries `cachedforward`, the direction of the face that emitted
+the cached edge. `R_CanReuseEdge` hands the edge on only to a face walking it
+the other way, and only while a slot is free. Otherwise the face emits its
+own, and two coincident edges are harmless to the span generator. A load-time
+count reports how many edges a map has that more than one face walks the same
+way.
+
 ### `model.c` — node bounds that do not hold their faces
 
 Two things in the renderer trust a node's bounding box. `R_RecursiveWorldNode`
