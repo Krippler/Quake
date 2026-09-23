@@ -7,7 +7,25 @@ on the default branch publishes that version, `## [Unreleased]` publishes only
 
 ## [Unreleased]
 
+### Added
+
+- **`surface`, a console command for reporting what is drawn wrong.** Aim at
+  it and type `surface`. It names the face under the crosshair and its model
+  (world or door, lift, wall), the texture and how dark its pixels are, and the
+  lightmap at that point: which styles, the samples, and the light that comes
+  out. This separates a gap in the geometry from black texture art from a
+  lightmap that says black.
+
 ### Fixed
+
+- **Faces lit by a light style above 63 were black.** A face can name any
+  style up to 254, but only 0 to 63 are ever set, and the rest stayed at zero
+  brightness in this renderer. GLQuake gives them normal light, as it does an
+  unset style below 64. They now get it here too.
+
+- **A lightmap that runs past the end of the map's light data** is caught on
+  load, counted with the other bad references, and drawn at full brightness.
+  Before, it read whatever followed in memory.
 
 - **A black box behind the version text at the bottom right of the
   console.** id's console art has a dark plate under the id logo, sized for

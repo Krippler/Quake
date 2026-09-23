@@ -227,6 +227,8 @@ void R_Fog_f (void)
 R_Init
 ===============
 */
+void R_Surface_f (void);
+
 void R_Init (void)
 {
 	int		dummy;
@@ -239,6 +241,7 @@ void R_Init (void)
 	Cmd_AddCommand ("timerefresh", R_TimeRefresh_f);	
 	Cmd_AddCommand ("pointfile", R_ReadPointFile_f);	
 	Cmd_AddCommand ("fog", R_Fog_f);
+	Cmd_AddCommand ("surface", R_Surface_f);
 
 	Cvar_RegisterVariable (&r_draworder);
 	Cvar_RegisterVariable (&r_speeds);
