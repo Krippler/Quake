@@ -1452,6 +1452,55 @@ or tested here, so `e1m1`'s entity lump was rewritten with 400 to 4000 extra
 wall torches at origins the map already used, which makes the same demand out
 of data that is present.
 
+### `draw.c`, `screen.c`, `sbar.c`, `menu.c`, `console.c` — a 2D canvas
+
+Everything 2D was drawn one screen pixel per art pixel. That was right at
+320x200 and still fine at 640x480, but at 1920x1080 an 8-pixel character is
+under 1% of the screen's height, and the menus, drawn for 320x200, take a
+sixth of its width.
+
+`vid.conwidth` and `vid.conheight`, which the X11 driver always set equal to
+the screen, are now the size of a canvas the 2D code lays out on:
+`Draw_SetScale`, called at the top of every `SCR_UpdateScreen`, picks the
+largest whole factor that leaves it at least 480x360 (or `scr_scale`'s
+factor), never letting it drop below 320x200. `console.c`, `keys.c`,
+`menu.c`, `sbar.c` and the 2D half of `screen.c` read the canvas size where
+they read the screen size, and `Draw_Character`, `Draw_Pic`,
+`Draw_TransPic`, `Draw_TransPicTranslate`, `Draw_Fill` and `Draw_TileClear`
+take canvas coordinates and draw each art pixel as a block. The 16-bit
+branches in those functions went with the rewrite: `d_init.c` fixes
+`r_pixbytes` at 1.
+
+Where the two sizes meet: `sb_lines` stays in canvas rows, so the refresh is
+told `sb_lines * draw_scale` (`SCR_CalcRefdef`, the warp paths in
+`r_misc.c`, the partial `VID_Update`). When the screen is not a whole
+multiple of the factor, the spare rows go above the canvas, so the status bar
+lands on the bottom edge; fills and tile clears that reach a canvas edge are
+stretched to the screen's edge so the spare rows are never left undrawn. The
+console background and the backdrop tile stay at screen resolution, being
+pictures rather than text. The crosshair and the turtle, net and ram icons
+are positioned from the 3D view in screen pixels and converted.
+
+At 640x480 the factor is 1, and the menu and console screenshots of the old
+and new builds are identical to the pixel. The one deliberate change there
+is the crosshair: id put the character's corner on the centre of the view,
+leaving the plus 4 pixels right and down. At 3x that would be 12, so it is
+centred now.
+
+### `cl_parse.c` — the re-release's achievement message
+
+The 2021 re-release's QuakeC writes `SVC_ACHIEVEMENT` (52) and an id string
+straight into the message stream, with `WriteByte` and `WriteString`: MG1's
+`Killed` does it when a monster dies to another monster, and the expansions do
+it for secrets, bosses and endings. It is the only opcode outside id's and
+FitzQuake's that any of the published progs writes by hand. The client took
+it for an illegible message and stopped the game. It reads the string now,
+and prints it at `developer 1`.
+
+Found from a player's log ("opcode 52 at byte 1 of 30; last good was
+svc_killedmonster") and reproduced by splicing that message into `demo1.dem`:
+the old client stops at the same byte, the new one plays the demo through.
+
 ### `world.c` — a trigger that removes the next trigger
 
 `SV_TouchLinks` walks an area node's list of triggers and runs each one's touch

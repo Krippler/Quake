@@ -50,6 +50,12 @@ typedef struct cachepic_s
 cachepic_t	menu_cachepics[MAX_CACHED_PICS];
 int			menu_numcachepics;
 
+// the 2D canvas; see Draw_SetScale
+cvar_t	scr_scale = {"scr_scale", "0", true};
+int		draw_scale = 1;		// screen pixels per canvas pixel
+int		draw_yoff;			// screen rows above the canvas
+
+
 
 qpic_t	*Draw_PicFromWad (char *name)
 {
@@ -115,6 +121,8 @@ void Draw_Init (void)
 	draw_disc = W_GetLumpName ("disc");
 	draw_backtile = W_GetLumpName ("backtile");
 
+	Cvar_RegisterVariable (&scr_scale);
+
 	r_rectdesc.width = draw_backtile->width;
 	r_rectdesc.height = draw_backtile->height;
 	r_rectdesc.ptexbytes = draw_backtile->data;
@@ -122,6 +130,147 @@ void Draw_Init (void)
 }
 
 
+
+/*
+==============================================================================
+
+THE 2D CANVAS
+
+id drew the console, menus, status bar and centre text one screen pixel per
+art pixel, which is right at 320x200 and unreadable at 1920x1080, where an
+8x8 character is a quarter of a percent of the screen's height. So the 2D
+layer is laid out on a smaller canvas, vid.conwidth by vid.conheight, and
+every pixel of it is drawn draw_scale screen pixels square. Everything that
+lays out 2D (console.c, menu.c, sbar.c, the 2D parts of screen.c) works in
+canvas units; the 3D view keeps the full resolution.
+
+scr_scale picks the factor: 0, the default, chooses the largest whole number
+that leaves the canvas at least 480x360 (3 at 1920x1080, which is a 640x360
+canvas); 1 is id's size. The canvas never falls below the 320x200 the menus
+are drawn for. When the screen is not a whole multiple of the factor, the
+spare rows go at the top, so the status bar still sits on the bottom edge.
+
+==============================================================================
+*/
+
+/*
+================
+Draw_SetScale
+
+Called every frame, before anything is laid out, so that a change of video
+mode or of scr_scale lands on the next frame.
+================
+*/
+void Draw_SetScale (void)
+{
+	extern int	scr_fullupdate;
+	int			s, w, h;
+
+	s = (int)scr_scale.value;
+	if (s <= 0)
+	{
+		s = vid.height / 360;
+		if (s > (int)vid.width / 480)
+			s = vid.width / 480;
+	}
+	while (s > 1 && ((int)vid.width / s < 320 || (int)vid.height / s < 200))
+		s--;
+	if (s < 1)
+		s = 1;
+
+	w = vid.width / s;
+	h = vid.height / s;
+	if (s == draw_scale && w == vid.conwidth && h == vid.conheight)
+		return;
+
+	draw_scale = s;
+	vid.conwidth = w;
+	vid.conheight = h;
+	draw_yoff = vid.height - h * s;
+
+// the status bar's height on screen has changed, and with it the 3D view
+	vid.recalc_refdef = 1;
+	scr_fullupdate = 0;
+	Sbar_Changed ();
+}
+
+/*
+================
+Draw_ScreenRect
+
+A canvas rectangle in screen pixels. An edge on the canvas's own edge goes to
+the screen's, so a fill or tile clear across the whole canvas leaves no
+rows or columns of the remainder untouched.
+================
+*/
+static void Draw_ScreenRect (int x, int y, int w, int h, vrect_t *r)
+{
+	int		x1, y1;
+
+	x1 = x + w;
+	y1 = y + h;
+	r->x = x <= 0 ? 0 : x * draw_scale;
+	r->y = y <= 0 ? 0 : y * draw_scale + draw_yoff;
+	x1 = x1 >= (int)vid.conwidth ? (int)vid.width : x1 * draw_scale;
+	y1 = y1 >= (int)vid.conheight ? (int)vid.height : y1 * draw_scale + draw_yoff;
+	if (r->x > (int)vid.width)
+		r->x = vid.width;
+	if (r->y > (int)vid.height)
+		r->y = vid.height;
+	r->width = x1 > r->x ? x1 - r->x : 0;
+	r->height = y1 > r->y ? y1 - r->y : 0;
+}
+
+/*
+================
+Draw_Blit
+
+Draws w*h art pixels, srcrow apart, at canvas (x, y), each one draw_scale
+screen pixels square, clipped to the screen. A source pixel equal to key is
+left out (-1 draws them all), and translation, if given, recolours the rest.
+================
+*/
+static void Draw_Blit (int x, int y, byte *src, int w, int h, int srcrow,
+	int key, byte *translation)
+{
+	int		s, sx, sy, x0, x1, y0, y1, u, v, px, k, c;
+	byte	*row, *dest;
+
+	s = draw_scale;
+	sx = x * s;
+	sy = y * s + draw_yoff;
+
+	y0 = sy < 0 ? 0 : sy;
+	y1 = sy + h * s;
+	if (y1 > (int)vid.height)
+		y1 = vid.height;
+	x0 = sx < 0 ? 0 : sx;
+	x1 = sx + w * s;
+	if (x1 > (int)vid.width)
+		x1 = vid.width;
+	if (x0 >= x1 || y0 >= y1)
+		return;
+
+	for ( ; y0 < y1 ; y0++)
+	{
+		v = (y0 - sy) / s;
+		row = src + v * srcrow;
+		dest = vid.buffer + y0 * vid.rowbytes;
+
+		u = (x0 - sx) / s;
+		px = sx + u * s;		// first screen column of art pixel u
+		for ( ; px < x1 ; u++, px += s)
+		{
+			c = row[u];
+			if (c == key)
+				continue;
+			if (translation)
+				c = translation[c];
+			for (k = px < x0 ? x0 : px ; k < px + s && k < x1 ; k++)
+				dest[k] = c;
+		}
+	}
+}
 
 /*
 ================
@@ -134,93 +283,13 @@ smoothly scrolled off.
 */
 void Draw_Character (int x, int y, int num)
 {
-	byte			*dest;
-	byte			*source;
-	unsigned short	*pusdest;
-	int				drawline;	
-	int				row, col;
-
 	num &= 255;
-	
+
 	if (y <= -8)
 		return;			// totally off screen
 
-#ifdef PARANOID
-	if (y > vid.height - 8 || x < 0 || x > vid.width - 8)
-		Sys_Error ("Con_DrawCharacter: (%i, %i)", x, y);
-	if (num < 0 || num > 255)
-		Sys_Error ("Con_DrawCharacter: char %i", num);
-#endif
-
-	row = num>>4;
-	col = num&15;
-	source = draw_chars + (row<<10) + (col<<3);
-
-	if (y < 0)
-	{	// clipped
-		drawline = 8 + y;
-		source -= 128*y;
-		y = 0;
-	}
-	else
-		drawline = 8;
-
-
-	if (r_pixbytes == 1)
-	{
-		dest = vid.conbuffer + y*vid.conrowbytes + x;
-	
-		while (drawline--)
-		{
-			if (source[0])
-				dest[0] = source[0];
-			if (source[1])
-				dest[1] = source[1];
-			if (source[2])
-				dest[2] = source[2];
-			if (source[3])
-				dest[3] = source[3];
-			if (source[4])
-				dest[4] = source[4];
-			if (source[5])
-				dest[5] = source[5];
-			if (source[6])
-				dest[6] = source[6];
-			if (source[7])
-				dest[7] = source[7];
-			source += 128;
-			dest += vid.conrowbytes;
-		}
-	}
-	else
-	{
-	// FIXME: pre-expand to native format?
-		pusdest = (unsigned short *)
-				((byte *)vid.conbuffer + y*vid.conrowbytes + (x<<1));
-
-		while (drawline--)
-		{
-			if (source[0])
-				pusdest[0] = d_8to16table[source[0]];
-			if (source[1])
-				pusdest[1] = d_8to16table[source[1]];
-			if (source[2])
-				pusdest[2] = d_8to16table[source[2]];
-			if (source[3])
-				pusdest[3] = d_8to16table[source[3]];
-			if (source[4])
-				pusdest[4] = d_8to16table[source[4]];
-			if (source[5])
-				pusdest[5] = d_8to16table[source[5]];
-			if (source[6])
-				pusdest[6] = d_8to16table[source[6]];
-			if (source[7])
-				pusdest[7] = d_8to16table[source[7]];
-
-			source += 128;
-			pusdest += (vid.conrowbytes >> 1);
-		}
-	}
+	Draw_Blit (x, y, draw_chars + ((num>>4)<<10) + ((num&15)<<3), 8, 8, 128,
+		0, NULL);
 }
 
 /*
@@ -288,47 +357,15 @@ Draw_Pic
 */
 void Draw_Pic (int x, int y, qpic_t *pic)
 {
-	byte			*dest, *source;
-	unsigned short	*pusdest;
-	int				v, u;
-
 	if ((x < 0) ||
-		(x + pic->width > vid.width) ||
+		(x + pic->width > vid.conwidth) ||
 		(y < 0) ||
-		(y + pic->height > vid.height))
+		(y + pic->height > vid.conheight))
 	{
 		Sys_Error ("Draw_Pic: bad coordinates");
 	}
 
-	source = pic->data;
-
-	if (r_pixbytes == 1)
-	{
-		dest = vid.buffer + y * vid.rowbytes + x;
-
-		for (v=0 ; v<pic->height ; v++)
-		{
-			Q_memcpy (dest, source, pic->width);
-			dest += vid.rowbytes;
-			source += pic->width;
-		}
-	}
-	else
-	{
-	// FIXME: pretranslate at load time?
-		pusdest = (unsigned short *)vid.buffer + y * (vid.rowbytes >> 1) + x;
-
-		for (v=0 ; v<pic->height ; v++)
-		{
-			for (u=0 ; u<pic->width ; u++)
-			{
-				pusdest[u] = d_8to16table[source[u]];
-			}
-
-			pusdest += vid.rowbytes >> 1;
-			source += pic->width;
-		}
-	}
+	Draw_Blit (x, y, pic->data, pic->width, pic->height, pic->width, -1, NULL);
 }
 
 
@@ -339,83 +376,14 @@ Draw_TransPic
 */
 void Draw_TransPic (int x, int y, qpic_t *pic)
 {
-	byte	*dest, *source, tbyte;
-	unsigned short	*pusdest;
-	int				v, u;
-
-	if (x < 0 || (unsigned)(x + pic->width) > vid.width || y < 0 ||
-		 (unsigned)(y + pic->height) > vid.height)
+	if (x < 0 || (unsigned)(x + pic->width) > vid.conwidth || y < 0 ||
+		 (unsigned)(y + pic->height) > vid.conheight)
 	{
 		Sys_Error ("Draw_TransPic: bad coordinates");
 	}
-		
-	source = pic->data;
 
-	if (r_pixbytes == 1)
-	{
-		dest = vid.buffer + y * vid.rowbytes + x;
-
-		if (pic->width & 7)
-		{	// general
-			for (v=0 ; v<pic->height ; v++)
-			{
-				for (u=0 ; u<pic->width ; u++)
-					if ( (tbyte=source[u]) != TRANSPARENT_COLOR)
-						dest[u] = tbyte;
-	
-				dest += vid.rowbytes;
-				source += pic->width;
-			}
-		}
-		else
-		{	// unwound
-			for (v=0 ; v<pic->height ; v++)
-			{
-				for (u=0 ; u<pic->width ; u+=8)
-				{
-					if ( (tbyte=source[u]) != TRANSPARENT_COLOR)
-						dest[u] = tbyte;
-					if ( (tbyte=source[u+1]) != TRANSPARENT_COLOR)
-						dest[u+1] = tbyte;
-					if ( (tbyte=source[u+2]) != TRANSPARENT_COLOR)
-						dest[u+2] = tbyte;
-					if ( (tbyte=source[u+3]) != TRANSPARENT_COLOR)
-						dest[u+3] = tbyte;
-					if ( (tbyte=source[u+4]) != TRANSPARENT_COLOR)
-						dest[u+4] = tbyte;
-					if ( (tbyte=source[u+5]) != TRANSPARENT_COLOR)
-						dest[u+5] = tbyte;
-					if ( (tbyte=source[u+6]) != TRANSPARENT_COLOR)
-						dest[u+6] = tbyte;
-					if ( (tbyte=source[u+7]) != TRANSPARENT_COLOR)
-						dest[u+7] = tbyte;
-				}
-				dest += vid.rowbytes;
-				source += pic->width;
-			}
-		}
-	}
-	else
-	{
-	// FIXME: pretranslate at load time?
-		pusdest = (unsigned short *)vid.buffer + y * (vid.rowbytes >> 1) + x;
-
-		for (v=0 ; v<pic->height ; v++)
-		{
-			for (u=0 ; u<pic->width ; u++)
-			{
-				tbyte = source[u];
-
-				if (tbyte != TRANSPARENT_COLOR)
-				{
-					pusdest[u] = d_8to16table[tbyte];
-				}
-			}
-
-			pusdest += vid.rowbytes >> 1;
-			source += pic->width;
-		}
-	}
+	Draw_Blit (x, y, pic->data, pic->width, pic->height, pic->width,
+		TRANSPARENT_COLOR, NULL);
 }
 
 
@@ -426,83 +394,14 @@ Draw_TransPicTranslate
 */
 void Draw_TransPicTranslate (int x, int y, qpic_t *pic, byte *translation)
 {
-	byte	*dest, *source, tbyte;
-	unsigned short	*pusdest;
-	int				v, u;
-
-	if (x < 0 || (unsigned)(x + pic->width) > vid.width || y < 0 ||
-		 (unsigned)(y + pic->height) > vid.height)
+	if (x < 0 || (unsigned)(x + pic->width) > vid.conwidth || y < 0 ||
+		 (unsigned)(y + pic->height) > vid.conheight)
 	{
 		Sys_Error ("Draw_TransPic: bad coordinates");
 	}
-		
-	source = pic->data;
 
-	if (r_pixbytes == 1)
-	{
-		dest = vid.buffer + y * vid.rowbytes + x;
-
-		if (pic->width & 7)
-		{	// general
-			for (v=0 ; v<pic->height ; v++)
-			{
-				for (u=0 ; u<pic->width ; u++)
-					if ( (tbyte=source[u]) != TRANSPARENT_COLOR)
-						dest[u] = translation[tbyte];
-
-				dest += vid.rowbytes;
-				source += pic->width;
-			}
-		}
-		else
-		{	// unwound
-			for (v=0 ; v<pic->height ; v++)
-			{
-				for (u=0 ; u<pic->width ; u+=8)
-				{
-					if ( (tbyte=source[u]) != TRANSPARENT_COLOR)
-						dest[u] = translation[tbyte];
-					if ( (tbyte=source[u+1]) != TRANSPARENT_COLOR)
-						dest[u+1] = translation[tbyte];
-					if ( (tbyte=source[u+2]) != TRANSPARENT_COLOR)
-						dest[u+2] = translation[tbyte];
-					if ( (tbyte=source[u+3]) != TRANSPARENT_COLOR)
-						dest[u+3] = translation[tbyte];
-					if ( (tbyte=source[u+4]) != TRANSPARENT_COLOR)
-						dest[u+4] = translation[tbyte];
-					if ( (tbyte=source[u+5]) != TRANSPARENT_COLOR)
-						dest[u+5] = translation[tbyte];
-					if ( (tbyte=source[u+6]) != TRANSPARENT_COLOR)
-						dest[u+6] = translation[tbyte];
-					if ( (tbyte=source[u+7]) != TRANSPARENT_COLOR)
-						dest[u+7] = translation[tbyte];
-				}
-				dest += vid.rowbytes;
-				source += pic->width;
-			}
-		}
-	}
-	else
-	{
-	// FIXME: pretranslate at load time?
-		pusdest = (unsigned short *)vid.buffer + y * (vid.rowbytes >> 1) + x;
-
-		for (v=0 ; v<pic->height ; v++)
-		{
-			for (u=0 ; u<pic->width ; u++)
-			{
-				tbyte = source[u];
-
-				if (tbyte != TRANSPARENT_COLOR)
-				{
-					pusdest[u] = d_8to16table[tbyte];
-				}
-			}
-
-			pusdest += vid.rowbytes >> 1;
-			source += pic->width;
-		}
-	}
+	Draw_Blit (x, y, pic->data, pic->width, pic->height, pic->width,
+		TRANSPARENT_COLOR, translation);
 }
 
 
@@ -540,7 +439,6 @@ void Draw_ConsoleBackground (int lines)
 {
 	int				x, y, v;
 	byte			*src, *dest;
-	unsigned short	*pusdest;
 	int				f, fstep;
 	qpic_t			*conback;
 	char			ver[100];
@@ -577,59 +475,23 @@ void Draw_ConsoleBackground (int lines)
 		for (x=0 ; x<strlen(ver) ; x++)
 			Draw_CharToConback (ver[x], dest+(x<<3));
 	
-// draw the pic
-	if (r_pixbytes == 1)
-	{
-		dest = vid.conbuffer;
-
-		for (y=0 ; y<lines ; y++, dest += vid.conrowbytes)
-		{
-			v = (vid.conheight - lines + y)*200/vid.conheight;
-			src = conback->data + v*320;
-			if (vid.conwidth == 320)
-				memcpy (dest, src, vid.conwidth);
-			else
-			{
-				f = 0;
-				fstep = 320*0x10000/vid.conwidth;
-				for (x=0 ; x<vid.conwidth ; x+=4)
-				{
-					dest[x] = src[f>>16];
-					f += fstep;
-					dest[x+1] = src[f>>16];
-					f += fstep;
-					dest[x+2] = src[f>>16];
-					f += fstep;
-					dest[x+3] = src[f>>16];
-					f += fstep;
-				}
-			}
-		}
-	}
+// draw the pic, at the screen's own resolution: it is a picture, not text,
+// and scaling it by whole pixels would only make it blockier. lines is in
+// canvas rows, and the whole canvas is the whole screen.
+	if (lines >= (int)vid.conheight)
+		lines = vid.height;
 	else
-	{
-		pusdest = (unsigned short *)vid.conbuffer;
+		lines = lines * draw_scale + draw_yoff;
+	dest = vid.buffer;
+	fstep = 320*0x10000/vid.width;
 
-		for (y=0 ; y<lines ; y++, pusdest += (vid.conrowbytes >> 1))
-		{
-		// FIXME: pre-expand to native format?
-		// FIXME: does the endian switching go away in production?
-			v = (vid.conheight - lines + y)*200/vid.conheight;
-			src = conback->data + v*320;
-			f = 0;
-			fstep = 320*0x10000/vid.conwidth;
-			for (x=0 ; x<vid.conwidth ; x+=4)
-			{
-				pusdest[x] = d_8to16table[src[f>>16]];
-				f += fstep;
-				pusdest[x+1] = d_8to16table[src[f>>16]];
-				f += fstep;
-				pusdest[x+2] = d_8to16table[src[f>>16]];
-				f += fstep;
-				pusdest[x+3] = d_8to16table[src[f>>16]];
-				f += fstep;
-			}
-		}
+	for (y=0 ; y<lines ; y++, dest += vid.rowbytes)
+	{
+		v = (vid.height - lines + y)*200/vid.height;
+		src = conback->data + v*320;
+		f = 0;
+		for (x=0 ; x<vid.width ; x++, f += fstep)
+			dest[x] = src[f>>16];
 	}
 }
 
@@ -755,10 +617,8 @@ void Draw_TileClear (int x, int y, int w, int h)
 	byte			*psrc;
 	vrect_t			vr;
 
-	r_rectdesc.rect.x = x;
-	r_rectdesc.rect.y = y;
-	r_rectdesc.rect.width = w;
-	r_rectdesc.rect.height = h;
+// the tile is backdrop rather than art, so it repeats at screen resolution
+	Draw_ScreenRect (x, y, w, h, &r_rectdesc.rect);
 
 	vr.y = r_rectdesc.rect.y;
 	height = r_rectdesc.rect.height;
@@ -824,26 +684,14 @@ Fills a box of pixels with a single color
 void Draw_Fill (int x, int y, int w, int h, int c)
 {
 	byte			*dest;
-	unsigned short	*pusdest;
-	unsigned		uc;
 	int				u, v;
+	vrect_t			r;
 
-	if (r_pixbytes == 1)
-	{
-		dest = vid.buffer + y*vid.rowbytes + x;
-		for (v=0 ; v<h ; v++, dest += vid.rowbytes)
-			for (u=0 ; u<w ; u++)
-				dest[u] = c;
-	}
-	else
-	{
-		uc = d_8to16table[c];
-
-		pusdest = (unsigned short *)vid.buffer + y * (vid.rowbytes >> 1) + x;
-		for (v=0 ; v<h ; v++, pusdest += (vid.rowbytes >> 1))
-			for (u=0 ; u<w ; u++)
-				pusdest[u] = uc;
-	}
+	Draw_ScreenRect (x, y, w, h, &r);
+	dest = vid.buffer + r.y*vid.rowbytes + r.x;
+	for (v=0 ; v<r.height ; v++, dest += vid.rowbytes)
+		for (u=0 ; u<r.width ; u++)
+			dest[u] = c;
 }
 //=============================================================================
 

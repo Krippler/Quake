@@ -1054,9 +1054,14 @@ void V_RenderView (void)
 	}
 
 #ifndef GLQUAKE
+	// The view is measured in screen pixels and the character in canvas
+	// pixels (see draw.c). id put the glyph's corner on the centre, 4 pixels
+	// off; at 3x that is 12, so it goes on the glyph's own centre now.
 	if (crosshair.value)
-		Draw_Character (scr_vrect.x + scr_vrect.width/2 + cl_crossx.value, 
-			scr_vrect.y + scr_vrect.height/2 + cl_crossy.value, '+');
+		Draw_Character ((scr_vrect.x + scr_vrect.width/2) / draw_scale
+				- 4 + cl_crossx.value,
+			(scr_vrect.y + scr_vrect.height/2 - draw_yoff) / draw_scale
+				- 4 + cl_crossy.value, '+');
 #endif
 		
 }

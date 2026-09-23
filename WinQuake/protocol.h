@@ -185,6 +185,10 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 #define	svc_spawnstatic2		43	// svc_spawnstatic with a flags byte
 #define	svc_spawnstaticsound2	44	// svc_spawnstaticsound, sound as a short
 
+// the 2021 re-release. Its QuakeC writes this one itself, with WriteByte and
+// WriteString, so any server running those progs sends it.
+#define	svc_achievement			52	// [string] achievement id
+
 //
 // client to server
 //

@@ -138,6 +138,10 @@ What to expect:
 - A map with more than 256 models or sounds — MG1 has several — is played over
   FitzQuake's protocol 666, which can count past a byte; everything else stays
   on id's protocol 15. It is decided per map, and `developer 1` says when.
+- The re-release progs unlock Steam achievements by sending their own server
+  message: a monster killed by another monster, a secret found, a level or
+  episode finished. There is nothing here to unlock; `developer 1` shows the
+  achievement's name.
 - `scr_usekfont` is the re-release's scalable font and is not implemented; the
   one "Unknown command" line at startup is accurate.
 - Masked ("fence") textures — the ones named `{something`, used for grates,
@@ -262,6 +266,13 @@ The renderer is in software, so every pixel costs. 640x480 is comfortable
 anywhere; 1280x800 is fine on a modern core; 1920x1200 is a choice. The browser
 scales whatever it is given to fit the window, so a lower number is a softer
 picture rather than a smaller one.
+
+Text, menus and the status bar grow with the resolution so they stay
+readable: they are laid out as if on a screen of at least 480x360 and drawn
+as many whole times larger as fit, which is 3x at 1920x1080 and 1x at 640x480.
+The 3D view keeps the full resolution. `scr_scale` at the console overrides
+the choice: `1` is id's original size, `2`, `3` and so on force a factor, and
+`0` goes back to choosing. It is saved in `config.cfg`.
 
 `QUAKE_WIDTH` and `QUAKE_HEIGHT` are only where it starts. **Options → Video
 Options** in the game lists every mode from 320x240 up to the maximum and
