@@ -69,6 +69,96 @@ int				r_ceilv1;
 
 qboolean	r_lastvertvalid;
 
+//
+// A vertex that projects to something that is not a number.
+//
+// It happens on the re-release maps, a few dozen edges in a frame, and the
+// source is not yet known. What it did is known: every clamp below compared the
+// value and let it through, since a comparison with a NaN is always false, and
+// ceil() of it came out as INT_MIN. The range check further down caught that
+// and dropped the edge -- and an edge is one side of a surface, so the surface
+// was left open on those scanlines and ran on to the far side of the screen,
+// its texture clamped at its own border: a flat band, or a streak.
+//
+// An earlier fix wrote the clamps as "if (!(x > lo))" so that a NaN would take
+// the assignment. That is correct C, and the build's -ffast-math lets the
+// compiler assume there are no NaNs and undo it; a NaN injected into a vertex
+// here went straight through. So this looks at the bits, which no optimisation
+// is entitled to reason away, and treats infinities the same way.
+//
+// Nothing useful can be drawn for a face with such a vertex, and anything
+// drawn for it would be wrong, so the whole face is left out of this frame.
+//
+qboolean	r_facebad;			// set by R_EmitEdge, read by the face callers
+int			r_facesdiscarded;	// this frame, for the report in r_main.c
+
+// what the first bad projection on this map looked like, for the report
+qboolean	r_badrecorded;
+vec3_t		r_badvertex, r_badorigin, r_badtransformed;
+char		r_badmodel[64];
+
+static qboolean R_NotFinite (const vec3_t v)
+{
+	int				i;
+	unsigned int	bits;
+
+	for (i=0 ; i<3 ; i++)
+	{
+		memcpy (&bits, &v[i], sizeof(bits));
+		if ((bits & 0x7F800000) == 0x7F800000)
+			return true;
+	}
+	return false;
+}
+
+static void R_RecordBad (const float *world, const vec3_t transformed)
+{
+	r_facebad = true;
+
+	if (r_badrecorded)
+		return;
+	r_badrecorded = true;
+
+	VectorCopy (world, r_badvertex);
+	VectorCopy (modelorg, r_badorigin);
+	VectorCopy (transformed, r_badtransformed);
+	Q_strncpy (r_badmodel, currententity && currententity->model
+				? currententity->model->name : "?", sizeof(r_badmodel) - 1);
+	r_badmodel[sizeof(r_badmodel) - 1] = 0;
+}
+
+/*
+================
+R_DiscardFace
+
+The face being built has a vertex that would not project. Take back what it
+has put into the edge list so far, so that it opens and closes nothing: an edge
+whose surface slots are both empty is skipped when spans are generated. Its own
+edges also stop being offered to the faces that share them, since the slot it
+held is empty and a sharer would otherwise take the wrong side of it. Called
+only on the rare frame this happens, so walking the frame's edges is fine.
+================
+*/
+static void R_DiscardFace (edge_t *firstown)
+{
+	edge_t	*e;
+	int		self;
+
+	self = surface_p - surfaces;
+
+	for (e = r_edges ; e < edge_p ; e++)
+	{
+		if (e->surfs[0] == self)
+			e->surfs[0] = 0;
+		if (e->surfs[1] == self)
+			e->surfs[1] = 0;
+		if (e >= firstown)
+			e->owner = NULL;
+	}
+
+	r_facesdiscarded++;
+}
+
 
 #if	!id386
 
@@ -102,6 +192,12 @@ void R_EmitEdge (mvertex_t *pv0, mvertex_t *pv1)
 	// transform and project
 		VectorSubtract (world, modelorg, local);
 		TransformVector (local, transformed);
+
+		if (R_NotFinite (transformed))
+		{
+			R_RecordBad (world, transformed);
+			return;
+		}
 	
 	//
 	// The comparisons are negated so that a NaN is caught.
@@ -143,6 +239,13 @@ void R_EmitEdge (mvertex_t *pv0, mvertex_t *pv1)
 // transform and project
 	VectorSubtract (world, modelorg, local);
 	TransformVector (local, transformed);
+
+	if (R_NotFinite (transformed))
+	{
+		R_RecordBad (world, transformed);
+		r_lastvertvalid = false;
+		return;
+	}
 
 // Negated for the same reason as the block above: these clamps are what keeps
 // a NaN out of ceil() and out of the scanline index.
@@ -432,6 +535,7 @@ R_RenderFace
 void R_RenderFace (msurface_t *fa, int clipflags)
 {
 	int			i, lindex;
+	edge_t		*firstown;
 	unsigned	mask;
 	mplane_t	*pplane;
 	float		distinv;
@@ -479,6 +583,8 @@ void R_RenderFace (msurface_t *fa, int clipflags)
 	r_emitted = 0;
 	r_nearzi = 0;
 	r_nearzionly = false;
+	r_facebad = false;
+	firstown = edge_p;
 	makeleftedge = makerightedge = false;
 	pedges = currententity->model->edges;
 	r_lastvertvalid = false;
@@ -598,6 +704,13 @@ void R_RenderFace (msurface_t *fa, int clipflags)
 		R_ClipEdge (&r_rightexit, &r_rightenter, view_clipplanes[1].next);
 	}
 
+// a vertex that would not project: take the face back out (see R_DiscardFace)
+	if (r_facebad)
+	{
+		R_DiscardFace (firstown);
+		return;
+	}
+
 // if no edges made it out, return without posting the surface
 	if (!r_emitted)
 		return;
@@ -637,6 +750,7 @@ R_RenderBmodelFace
 */
 void R_RenderBmodelFace (bedge_t *pedges, msurface_t *psurf)
 {
+	edge_t		*firstown;
 	int			i;
 	unsigned	mask;
 	mplane_t	*pplane;
@@ -680,6 +794,8 @@ void R_RenderBmodelFace (bedge_t *pedges, msurface_t *psurf)
 	r_emitted = 0;
 	r_nearzi = 0;
 	r_nearzionly = false;
+	r_facebad = false;
+	firstown = edge_p;
 	makeleftedge = makerightedge = false;
 // FIXME: keep clipped bmodel edges in clockwise order so last vertex caching
 // can be used?
@@ -711,6 +827,13 @@ void R_RenderBmodelFace (bedge_t *pedges, msurface_t *psurf)
 		r_pedge = &tedge;
 		r_nearzionly = true;
 		R_ClipEdge (&r_rightexit, &r_rightenter, view_clipplanes[1].next);
+	}
+
+// a vertex that would not project: take the face back out (see R_DiscardFace)
+	if (r_facebad)
+	{
+		R_DiscardFace (firstown);
+		return;
 	}
 
 // if no edges made it out, return without posting the surface
@@ -894,6 +1017,13 @@ void R_RenderPoly (msurface_t *fa, int clipflags)
 	// transform and project
 		VectorSubtract (verts[vertpage][i].position, modelorg, local);
 		TransformVector (local, transformed);
+
+	// see r_facebad above: no polygon at all beats one with a NaN corner
+		if (R_NotFinite (transformed))
+		{
+			R_RecordBad (verts[vertpage][i].position, transformed);
+			return;
+		}
 
 		if (transformed[2] < NEAR_CLIP)
 			transformed[2] = NEAR_CLIP;

@@ -5,6 +5,44 @@ top section's heading is what the release workflow reads: `## [X.Y.Z] — DATE`
 on the default branch publishes that version, `## [Unreleased]` publishes only
 `edge`.
 
+## [1.9.2] — 2026-09-23
+
+### Fixed
+
+- **Surfaces smeared across the screen as flat bands or streaks, on and off.**
+  On the re-release maps a vertex now and then projects to a value that is not
+  a number — dozens of edges in a frame on Acid Sanctuary. Every clamp in the
+  projection compared it and let it through, `ceil()` turned it into
+  `-2147483648`, and the range check dropped the edge. An edge is one side of
+  a surface, so the surface was left open on those scanlines and ran on to the
+  far side of the screen with its texture clamped at its own border: the flat
+  band in one screenshot, the streak in another. The console note that said a
+  dropped edge was "usually a seam or two" was wrong.
+
+  1.6.x had already written those clamps so that a NaN would be caught, and it
+  was correct C — but the build uses `-ffast-math`, which lets the compiler
+  assume there are no NaNs and undo it. A NaN injected into a vertex went
+  straight through in the shipped binary. The check now reads the float's bits,
+  which no optimisation can reason away, and a face with such a vertex is left
+  out of that frame whole: its edges are taken back so it opens and closes
+  nothing. A face missing for one frame, where there was a band across the
+  screen.
+
+  With NaNs injected into one vertex in 400, frames that had bands now have
+  the face's own outline missing and nothing drawn anywhere it should not be.
+  With none injected, id's maps render pixel for pixel as before.
+
+  What produces the NaN on those maps is not known yet — id's maps never do
+  it, at any resolution or field of view tried. The first time it happens on a
+  map, the console now says which vertex, of which model, seen from where:
+
+  ```
+  3 face(s) left out of a frame: a vertex projected to a value that is
+  not a number. First one: vertex (x y z) of maps/..., seen from (x y z) ...
+  ```
+
+  That line is what will find it.
+
 ## [1.9.1] — 2026-09-23
 
 ### Fixed

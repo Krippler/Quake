@@ -371,6 +371,7 @@ void R_NewMap (void)
 	r_reportedshort = false;
 	r_reportedrange = false;
 	r_reportedbmodel = false;
+	r_badrecorded = false;
 
 // a map that sets no fog must not inherit the last one's; the level's own
 // fog command, if it has one, runs after this
@@ -1248,18 +1249,40 @@ SetVisibilityByPassages ();
 // version of this did: a handful of these read as "short 4 edges" against a
 // pool of 131072, and the advice that came with it was useless.
 //
-// A few per map is a seam. Thousands means the projection is producing values
-// the scanline arrays cannot hold, which is worth knowing about.
+// Either of these is geometry the projection could not place this frame. The
+// old wording called a dropped edge "a seam", which was wrong: an edge is one
+// side of a surface, and a surface missing a side ran on across the screen as
+// a flat band or a streak of its texture. Faces with a vertex that will not
+// project are now left out whole instead (r_draw.c), which costs a face for a
+// frame and draws nothing false. The first such vertex is reported with where
+// it was and what it belonged to, since what produces it is not yet known.
 //
-	if (!r_reportedrange && r_edgesoutofrange)
+	if (!r_reportedrange && (r_edgesoutofrange || r_facesdiscarded))
 	{
 		r_reportedrange = true;
 
-		Con_Printf ("\n%d edge(s) landed outside the %d scanlines the renderer "
-					"keeps and\nwere dropped -- usually a seam or two, not a "
-					"missing wall. This is not\nthe edge pool; r_maxedges "
-					"does not affect it.\n",
-					r_edgesoutofrange, MAXHEIGHT);
+		if (r_facesdiscarded)
+		{
+			Con_Printf ("\n%d face(s) left out of a frame: a vertex projected "
+						"to a value that is\nnot a number. First one: vertex "
+						"(%g %g %g) of %s,\nseen from (%g %g %g), transformed "
+						"(%g %g %g). Please report this line.\n",
+						r_facesdiscarded,
+						r_badvertex[0], r_badvertex[1], r_badvertex[2],
+						r_badmodel,
+						r_badorigin[0], r_badorigin[1], r_badorigin[2],
+						r_badtransformed[0], r_badtransformed[1],
+						r_badtransformed[2]);
+		}
+
+		if (r_edgesoutofrange)
+		{
+			Con_Printf ("\n%d edge(s) landed outside the %d scanlines the "
+						"renderer keeps and\nwere dropped. Each can leave a "
+						"surface smeared across the screen for\na frame. This "
+						"is not the edge pool; r_maxedges does not affect it.\n",
+						r_edgesoutofrange, MAXHEIGHT);
+		}
 	}
 
 // back to high floating-point precision
