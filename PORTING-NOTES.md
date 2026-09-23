@@ -1015,6 +1015,75 @@ turns the band into a face missing for one frame. What makes the NaN on those
 maps is still open; the first one per map is reported with its vertex, model
 and viewpoint.
 
+### `r_bsp.c` — a face that crossed a plane once
+
+`R_RecursiveClipBPoly` cuts a brush model's faces along the world's BSP planes
+so that the edge list can sort the pieces against the world. It walks a face's
+edges, measures both ends of each against the plane, and makes a cut point
+where an edge crosses. A convex face crosses twice or not at all, and the two
+cut points, `pfrontenter` and `pfrontexit`, are joined by an edge that closes
+each half.
+
+Those two are file statics, and nothing cleared them. If a face crossed only
+once, one of them was this cut's point and the other was whatever an earlier
+cut had left, from another face, perhaps another model. The closing edge ran
+from here to there, and the piece was drawn as a sliver stretched across the
+screen.
+
+A convex face crosses once when the same vertex is measured twice with
+different results. Every vertex is the end of one edge and the start of the
+next, and id wrote `DotProduct (v, normal) - dist` out separately for
+`lastdist` and `dist`. `-ffast-math` lets the compiler reassociate each copy
+on its own terms, so for a vertex lying on the plane the two can differ in the
+last bit, and so in sign. With the frames fixed by `timedemo`, id's demo2 does
+this 71 times. The measurement is now one function the compiler may not inline
+(`R_BPlaneDist`), so the same vertex gets bit-for-bit the same answer, and
+demo2 does it 0 times. The pointers are cleared per cut, and a face still
+crossing an odd number of times is left out for the frame and counted
+(`r_bmodelodd`), not closed with an edge from nowhere.
+
+`R_ClipEdge` has the same pattern for the frustum's left and right planes. On
+all three demos the left plane is always crossed an even number of times. The
+right plane isn't, by design: an edge wholly off the right is cached as fully
+clipped and skipped by the next face that shares it. The right edge only
+supplies the nearest 1/z, not geometry.
+
+### `r_draw.c` — the edge after a bad vertex
+
+1.9.2 returns early from `R_EmitEdge` for a vertex that will not project and
+later takes the face out. `R_RenderFace` marks the cached last vertex valid
+after every edge, whatever happened inside. So when the bad vertex was the
+face's first, the next edge started from the previous face's `r_u1` and `r_v1`.
+If that face ended with a right-hand clip, `r_ceilv1` had never been updated
+for them, because the `r_nearzionly` path returns before that line. The edge
+got a zero height, and its step was a NaN that converts to `INT_MIN`. Once
+stepped, its u ran off the left of the screen past `edge_head`, and
+`R_StepActiveU` followed a null `prev`. Once a face is bad, `R_EmitEdge` now
+emits nothing more for it, and an edge whose step or start is not a number is
+handed back before it reaches the list.
+
+Found by forcing one clip fraction in seven to `x / 0` with the fraction guard
+turned off. That guard, `R_SafeFrac`, holds every cut fraction in [0, 1] and
+maps a non-finite one to the midpoint. The `(inf -nan -nan)` in the 1.9.2
+report is exactly what an infinite fraction makes from an edge along one axis:
+`inf * dx` in x, `inf * 0` in the other two.
+
+### `model.c` — indices that are unsigned in the file
+
+BSP29 stores node children, a node's first face and face count, a leaf's
+first mark-surface and count, clipnode children, and a face's plane, texinfo
+and edge count as 16-bit values. The compilers treat them as unsigned; id's
+loader read them as signed. Past 32767, a face's plane pointed before the
+plane array and a node's child became a leaf that wasn't there. They're read
+unsigned now, with the QuakeSpasm rule for node children: below the node count
+it's a node, otherwise leaf `65535 - p`.
+
+The loader also no longer trusts what it is given. An edge's vertices, a
+surfedge's edge, a face's plane, texinfo and range of surfedges are checked
+against what the map has. Vertices and planes are checked for being numbers.
+Anything out of range is set to 0 and counted, and the first is printed as it
+is found, before any error it might lead to.
+
 ### `r_fence.c` (new) — a hole is not a colour, and the edge list does not know
 
 A texture named `{something` is a fence: palette index 255 is a hole. Grates,

@@ -44,6 +44,40 @@ byte	mod_novis[MAX_MAP_LEAFS/8];
 //
 static qboolean	loadmodel_bsp2;
 
+//
+// References in a map that point outside what the map has, or numbers in it
+// that are not numbers. id's loader trusted every index, so one of these read
+// whatever lay past the end of an array -- and when that was a vertex or a
+// plane, what came back could be anything, NaNs included, which is how a face
+// ends up stretched across the screen. They are set to 0 as they are read,
+// counted, and the first is named once the map has loaded.
+//
+static int		mod_badrefs;
+static char		mod_badfirst[160];
+
+static void Mod_NoteBad (const char *fmt, ...)
+{
+	va_list		argptr;
+
+	if (!mod_badrefs++)
+	{
+		va_start (argptr, fmt);
+		vsnprintf (mod_badfirst, sizeof(mod_badfirst), fmt, argptr);
+		va_end (argptr);
+
+	// said now as well as at the end, in case what it leads to is fatal
+		Con_Printf ("%s: %s\n", loadmodel->name, mod_badfirst);
+	}
+}
+
+static qboolean Mod_BadFloat (float f)
+{
+	unsigned int	bits;
+
+	memcpy (&bits, &f, sizeof(bits));
+	return (bits & 0x7F800000) == 0x7F800000;
+}
+
 // Every model a map precaches takes a slot, a brush model's submodels
 // included, so this has to be comfortably above MAX_MODELS.
 #define	MAX_MOD_KNOWN	4096
@@ -791,6 +825,13 @@ void Mod_LoadVertexes (lump_t *l)
 		out->position[0] = LittleFloat (in->point[0]);
 		out->position[1] = LittleFloat (in->point[1]);
 		out->position[2] = LittleFloat (in->point[2]);
+
+		if (Mod_BadFloat (out->position[0]) || Mod_BadFloat (out->position[1])
+			|| Mod_BadFloat (out->position[2]))
+		{
+			Mod_NoteBad ("vertex %d is not a number", i);
+			out->position[0] = out->position[1] = out->position[2] = 0;
+		}
 	}
 }
 
@@ -866,6 +907,17 @@ void Mod_LoadEdges (lump_t *l)
 
 			out->v[0] = (unsigned short)LittleShort(in->v[0]);
 			out->v[1] = (unsigned short)LittleShort(in->v[1]);
+		}
+
+		if (out->v[0] >= loadmodel->numvertexes
+			|| out->v[1] >= loadmodel->numvertexes)
+		{
+			Mod_NoteBad ("edge %d names vertex %u or %u; the map has %d",
+						 i, out->v[0], out->v[1], loadmodel->numvertexes);
+			if (out->v[0] >= loadmodel->numvertexes)
+				out->v[0] = 0;
+			if (out->v[1] >= loadmodel->numvertexes)
+				out->v[1] = 0;
 		}
 	}
 }
@@ -1038,15 +1090,40 @@ void Mod_LoadFaces (lump_t *l)
 			dface_t		*in = (dface_t *)(inbase + surfnum*recsize);
 
 			out->firstedge = LittleLong(in->firstedge);
-			out->numedges = LittleShort(in->numedges);
-			planenum = LittleShort(in->planenum);
+			// unsigned, as the compilers write them: a big map has more
+			// than 32767 planes, and read signed those point before the array
+			out->numedges = (unsigned short)LittleShort(in->numedges);
+			planenum = (unsigned short)LittleShort(in->planenum);
 			side = LittleShort(in->side);
-			texinfo = LittleShort(in->texinfo);
+			texinfo = (unsigned short)LittleShort(in->texinfo);
 			styles = in->styles;
 			lightofs = LittleLong(in->lightofs);
 		}
 
 		out->flags = 0;
+
+		if (planenum < 0 || planenum >= loadmodel->numplanes)
+		{
+			Mod_NoteBad ("face %d names plane %d; the map has %d",
+						 surfnum, planenum, loadmodel->numplanes);
+			planenum = 0;
+		}
+		if (texinfo < 0 || texinfo >= loadmodel->numtexinfo)
+		{
+			Mod_NoteBad ("face %d names texinfo %d; the map has %d",
+						 surfnum, texinfo, loadmodel->numtexinfo);
+			texinfo = 0;
+		}
+		if (out->firstedge < 0 || out->numedges < 0
+			|| out->firstedge > loadmodel->numsurfedges - out->numedges)
+		{
+			Mod_NoteBad ("face %d uses surfedges %d to %d; the map has %d",
+						 surfnum, out->firstedge,
+						 out->firstedge + out->numedges - 1,
+						 loadmodel->numsurfedges);
+			out->firstedge = 0;
+			out->numedges = 0;
+		}
 
 		if (side)
 			out->flags |= SURF_PLANEBACK;			
@@ -1170,16 +1247,36 @@ void Mod_LoadNodes (lump_t *l)
 			p = LittleLong(in->planenum);
 			out->plane = loadmodel->planes + p;
 
-			out->firstsurface = LittleShort (in->firstface);
-			out->numsurfaces = LittleShort (in->numfaces);
+		//
+		// These are unsigned in the file. Read as signed, a node's face range
+		// past 32767 went negative, and a child number past 32767 was taken
+		// for a leaf -- a wrong one, or one past the end of the leaf array,
+		// which the brush-model clipper then walked into as if it were a node
+		// and read a "plane" out of. The re-release maps are big enough to
+		// have that many. This is QuakeSpasm's (and DarkPlaces') reading: a
+		// child below the node count is a node, anything else counts down
+		// from 65535 as a leaf, and a leaf that does not exist is said so and
+		// pointed at leaf 0, which is solid.
+		//
+			out->firstsurface = (unsigned short)LittleShort (in->firstface);
+			out->numsurfaces = (unsigned short)LittleShort (in->numfaces);
 		
 			for (j=0 ; j<2 ; j++)
 			{
-				p = LittleShort (in->children[j]);
-				if (p >= 0)
+				p = (unsigned short)LittleShort (in->children[j]);
+				if (p < count)
 					out->children[j] = loadmodel->nodes + p;
 				else
-					out->children[j] = (mnode_t *)(loadmodel->leafs + (-1 - p));
+				{
+					p = 65535 - p;
+					if (p >= loadmodel->numleafs)
+					{
+						Con_Printf ("Mod_LoadNodes: node %d names leaf %d; the "
+									"map has %d\n", i, p, loadmodel->numleafs);
+						p = 0;
+					}
+					out->children[j] = (mnode_t *)(loadmodel->leafs + p);
+				}
 			}
 		}
 	}
@@ -1243,9 +1340,10 @@ void Mod_LoadLeafs (lump_t *l)
 
 			out->contents = LittleLong(in->contents);
 
+		// unsigned in the file, like the node fields above
 			out->firstmarksurface = loadmodel->marksurfaces +
-				LittleShort(in->firstmarksurface);
-			out->nummarksurfaces = LittleShort(in->nummarksurfaces);
+				(unsigned short)LittleShort(in->firstmarksurface);
+			out->nummarksurfaces = (unsigned short)LittleShort(in->nummarksurfaces);
 
 			p = LittleLong(in->visofs);
 			ambient = in->ambient_level;
@@ -1322,12 +1420,17 @@ void Mod_LoadClipnodes (lump_t *l)
 		{
 			dclipnode_t		*in = (dclipnode_t *)(inbase + i*recsize);
 
-		// The short is sign-extended before it is stored, so a contents
-		// value -- which is what a negative child is -- keeps its meaning in
-		// the wider field.
+		// Unsigned in the file. A child below the clipnode count is a
+		// clipnode; anything else is a contents value (-1 .. -15), which is
+		// what it read as when the file had fewer than 32768 clipnodes and
+		// the short was simply sign-extended. QuakeSpasm's reading.
 			out->planenum = LittleLong(in->planenum);
-			out->children[0] = LittleShort(in->children[0]);
-			out->children[1] = LittleShort(in->children[1]);
+			out->children[0] = (unsigned short)LittleShort(in->children[0]);
+			out->children[1] = (unsigned short)LittleShort(in->children[1]);
+			if (out->children[0] >= count)
+				out->children[0] -= 65536;
+			if (out->children[1] >= count)
+				out->children[1] -= 65536;
 		}
 	}
 }
@@ -1425,7 +1528,18 @@ void Mod_LoadSurfedges (lump_t *l)
 	loadmodel->numsurfedges = count;
 
 	for ( i=0 ; i<count ; i++)
+	{
 		out[i] = LittleLong (in[i]);
+
+		// the sign is which way round the edge is walked; 0 is never used
+		// negatively, so -numedges is already one too far
+		if (out[i] >= loadmodel->numedges || out[i] <= -loadmodel->numedges)
+		{
+			Mod_NoteBad ("surfedge %d names edge %d; the map has %d",
+						 i, out[i], loadmodel->numedges);
+			out[i] = 0;
+		}
+	}
 }
 
 /*
@@ -1463,6 +1577,17 @@ void Mod_LoadPlanes (lump_t *l)
 		out->dist = LittleFloat (in->dist);
 		out->type = LittleLong (in->type);
 		out->signbits = bits;
+
+		if (Mod_BadFloat (out->normal[0]) || Mod_BadFloat (out->normal[1])
+			|| Mod_BadFloat (out->normal[2]) || Mod_BadFloat (out->dist))
+		{
+			Mod_NoteBad ("plane %d is not a number", i);
+			out->normal[0] = out->normal[1] = 0;
+			out->normal[2] = 1;
+			out->dist = 0;
+			out->type = PLANE_Z;
+			out->signbits = 0;
+		}
 	}
 }
 
@@ -1525,6 +1650,7 @@ void Mod_LoadBrushModel (model_t *mod, void *buffer)
 
 // swap all the lumps
 	mod_base = (byte *)header;
+	mod_badrefs = 0;
 
 	for (i=0 ; i<sizeof(dheader_t)/4 ; i++)
 		((int *)header)[i] = LittleLong ( ((int *)header)[i]);
@@ -1548,6 +1674,11 @@ void Mod_LoadBrushModel (model_t *mod, void *buffer)
 	Mod_LoadSubmodels (&header->lumps[LUMP_MODELS]);
 
 	Mod_MakeHull0 ();
+
+	if (mod_badrefs)
+		Con_Printf ("%s: %d number(s) in the map were out of range or not "
+					"a number,\nand were set to 0. The first is above.\n",
+					mod->name, mod_badrefs);
 	
 	mod->numframes = 2;		// regular and alternate animation
 	mod->flags = 0;
