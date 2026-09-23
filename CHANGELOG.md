@@ -5,6 +5,25 @@ top section's heading is what the release workflow reads: `## [X.Y.Z] — DATE`
 on the default branch publishes that version, `## [Unreleased]` publishes only
 `edge`.
 
+## [1.12.1] — 2026-09-23
+
+### Fixed
+
+- **Candle flames and lantern glass came out pale blue.** The software
+  renderer leaves the last 32 palette colours (fire, lamps, lightning) the
+  same at every light level, which is what makes them glow. That depends on
+  `gfx/colormap.lmp` mapping each of them to itself, as id's does. A colormap
+  that lights them like any other colour turns a flame's bright yellow into
+  the nearest palette colour, which is one of lightning's pale blues. The
+  engine now puts those columns back when it loads the colormap, and the
+  console says so when it has had to.
+- **Pieces of doors and lifts missing for a frame, and a "Please report this
+  line" message.** Some brush model faces in the re-release maps have edges
+  that do not close into a loop. When one of them lies across a plane of the
+  world's BSP it cannot be cut in two the usual way, and it was left out of
+  the frame. It is now drawn uncut instead. The message only appears at
+  `developer 1`, and names the model.
+
 ## [1.12.0] — 2026-09-23
 
 ### Fixed

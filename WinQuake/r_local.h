@@ -307,6 +307,7 @@ void R_FaceEdgeReport (msurface_t *face);
 
 // r_bsp.c: brush-model cuts that crossed a plane only once (see R_BPlaneDist)
 extern int		r_bmodelodd;
+extern char		*r_bmodeloddname;
 
 static inline float R_SafeFrac (float f)
 {

@@ -1326,12 +1326,14 @@ SetVisibilityByPassages ();
 	if (r_probe)
 		R_SurfaceReport ();
 
-	if (r_bmodelodd && !r_reportedodd)
+// a brush model face whose edges do not close met a world plane; it was
+// drawn uncut (see r_bsp.c), which is right, so this is for developers only
+	if (r_bmodelodd && !r_reportedodd && developer.value)
 	{
 		r_reportedodd = true;
-		Con_Printf ("\n%d piece(s) of a door, lift or wall crossed a world plane "
-					"only once\nthis frame, and were left out rather than "
-					"stretched. Please report this line.\n", r_bmodelodd);
+		Con_Printf ("%d face(s) of %s have edges that do not close, and were "
+					"drawn uncut across a world plane\n", r_bmodelodd,
+					r_bmodeloddname ? r_bmodeloddname : "a brush model");
 	}
 
 	if (r_clampedfrac && !r_reportedclamp)
