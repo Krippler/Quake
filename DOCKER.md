@@ -12,12 +12,42 @@ docker run --rm -p 6080:6080 \
 
 Then <http://localhost:6080/play.html>.
 
+### Compose
+
+[`docker-compose.yml`](docker-compose.yml) builds the image and mounts
+`./quakedata` as the game data, with a named volume for the state:
+
+```
+mkdir -p quakedata && cp -r /path/to/quake/id1 quakedata/
+docker compose up --build
+```
+
+The settings below go under `environment:` there.
+
+### Unraid
+
+The Community Applications template is
+[`templates/unraid.xml`](templates/unraid.xml); see
+[PUBLISHING.md](PUBLISHING.md#unraid).
+
 ---
 
 ## Game data
 
 `/quakedata` is your Quake install directory: the one holding `id1/pak0.pak`.
-Nothing is bundled and nothing can be — see [README.md](README.md#your-own-game-data).
+Nothing is bundled and nothing can be — see
+[ABOUT.md](ABOUT.md#no-bundled-game-data). Any of these will do:
+
+- the CD, or the directory a CD install left behind;
+- the Steam or GOG install (`.../Quake/id1/`);
+- the shareware release unpacked, from id's own `quake106.zip`;
+- the 2021 re-release's `rerelease` folder (see
+  [below](#data-from-the-quake-re-release)).
+
+The shareware `pak0.pak` is a complete game as far as this is concerned: it
+holds `progs.dat`, every model and sound, and E1M1 to E1M8, so episode 1 plays
+start to finish. It is also what the port was tested against — see
+[PORTING-NOTES.md](PORTING-NOTES.md#how-this-was-tested).
 
 ```
 /path/to/quake/

@@ -87,13 +87,33 @@ it did. Getting from there to a playable game took:
   `config.cfg`, because Quake binds keys to commands and a pad that presses the
   stock keys goes dead the moment anybody rebinds anything.
 
+## No bundled game data
+
+There is no game data in the image, and there will not be. id's shareware
+licence ([`WinQuake/data/SLICNSE.TXT`](WinQuake/data/SLICNSE.TXT), clause 6)
+permits passing the shareware release along *as a whole*, free of charge, by
+electronic means, in a compressed format, with the agreement attached. A pak
+file lifted out of that archive and baked into a container image is none of
+those things. DOOM's shareware IWAD may be copied unmodified on its own; Quake's
+may not, and that is the one thing this port cannot do the same way.
+
+The same goes for everything from the 2021 re-release: its pak files, its
+`QuakeEX.kpf`, and the message text inside them. The `.gitignore` excludes every
+`*.pak`, so none can be committed or built into an image by accident.
+
+It is also why the image is about 300 MB unpacked, less than half the size of
+the [DOOM container](https://github.com/Krippler/DOOM): that one carries the
+shareware IWAD and a General MIDI soundfont, and neither has an equivalent here.
+
 ## What this is not
 
 It is not a modern source port. There is no OpenGL, no higher-precision
-lightmaps, no protocol extension, no BSP2 support and no fix for the engine's
-own limits — `MAX_EDICTS`, the 64-unit lightmap grid, the eight-bit palette.
-If you want to play a 2024 megawad-equivalent with a modern renderer, use
-QuakeSpasm or Ironwail; they are excellent and this is not trying to be them.
+lightmaps, and nothing about the look of the game has been modernised. What it
+reads has been widened only as far as the 2021 re-release's maps need: BSP2,
+FitzQuake's protocol 666 for maps with more than 256 models or sounds, bigger
+frame and entity limits, fence textures, fog, and the re-release's QuakeC and
+message text. If you want a modern renderer, use QuakeSpasm or Ironwail; they
+are excellent and this is not trying to be them.
 
 **There is no switch between the software renderer and OpenGL, and there cannot
 be one in a menu.** id's release builds two different programs from one tree:

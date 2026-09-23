@@ -5,6 +5,20 @@ top section's heading is what the release workflow reads: `## [X.Y.Z] — DATE`
 on the default branch publishes that version, `## [Unreleased]` publishes only
 `edge`.
 
+## [Unreleased]
+
+### Changed
+
+- **The README is only what it takes to get started.** It now has a quick
+  start, what game data to mount (the re-release included), music, a few common
+  settings, and pointers to the rest. What it used to carry moved:
+  - Where to get game data, Compose and Unraid went to DOCKER.md.
+  - The licence reasoning and the image size went to ABOUT.md.
+  - Building and the smoke test went to a new BUILDING.md.
+- ABOUT.md said there was no BSP2 support, no protocol extension and no raised
+  limits. All three were added in the 1.x releases, and it now says what was
+  widened, and how far.
+
 ## [1.10.2] — 2026-09-23
 
 ### Changed
