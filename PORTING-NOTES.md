@@ -1015,6 +1015,34 @@ turns the band into a face missing for one frame. What makes the NaN on those
 maps is still open; the first one per map is reported with its vertex, model
 and viewpoint.
 
+### `pr_edict.c`, `localize.c` — builtins by name, and messages by key
+
+The 2021 re-release's QuakeC declares its print functions as
+`void(entity client, string s, ...) centerprint = #0:ex_centerprint;`. FTEQCC
+compiles that to a function named `ex_centerprint` with `first_statement` 0,
+and the re-release engine resolves the name to its own builtin. id's engine
+treats a non-negative `first_statement` as QuakeC, and statement 0 is the
+compiler's dummy, so the call ran nothing and returned. The whole symptom was
+silence: a trigger plays `misc/talk.wav` beside its centerprint, so the player
+heard the message arrive and saw nothing.
+
+`PR_PatchRereleaseBuiltins`, at the end of `PR_LoadProgs`, rewrites those
+functions' `first_statement` to builtin numbers, using QuakeSpasm's table:
+the three prints go to id's own 73, 23 and 24, and the rest to 79 to 92, added
+to `pr_builtin`. The table also covers an earlier update that gave the three
+prints the numbers 90 to 92.
+
+The strings they print are keys. `localize.c` loads
+`localization/loc_english.txt`: from the search path, then loose under the
+base directory, then out of `QuakeEX.kpf`. It reads that zip's central
+directory and inflates the one entry with zlib, which is the only new library.
+The file is one `key = "value"` per line with `//` comments and backslash
+escapes. `PF_VarString` looks up its first argument and, if the text has `{}`
+or `{N}`, fills them from the arguments after it. Otherwise it joins the
+pieces, looking each one up, which is what turns a map's `$key` message
+handed to `centerprint` into text. `PF_WriteString` looks up too, for the
+finale.
+
 ### `r_draw.c` — an edge walked the same way twice
 
 `R_RenderFace` shares screen edges between faces. When a face emits an edge,

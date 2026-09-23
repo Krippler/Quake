@@ -48,7 +48,7 @@ XLDFLAGS = -lX11 -lXext -lXrandr
 # -rdynamic puts the engine's own symbols in the dynamic symbol table, which is
 # where backtrace_symbols_fd looks. Without it a crash backtrace is a column of
 # addresses; with it, function names. See Sys_CrashHandler in sys_linux.c.
-LDFLAGS_ALL = $(XLDFLAGS) -rdynamic -lm $(MUSIC_LDFLAGS) $(EXTRA_LDFLAGS)
+LDFLAGS_ALL = $(XLDFLAGS) -rdynamic -lm -lz $(MUSIC_LDFLAGS) $(EXTRA_LDFLAGS)
 
 # Which sound backend to link. "stream" writes the mixed PCM to a pipe for
 # audiostream to pick up, which is how sound reaches the browser; "oss" is the
@@ -114,6 +114,7 @@ COMMON_SRCS = \
 	nonintel.c pr_cmds.c pr_edict.c pr_exec.c r_aclip.c r_alias.c r_bsp.c \
 	r_light.c r_draw.c r_efrag.c r_edge.c r_misc.c r_main.c r_sky.c r_fog.c \
 	r_fence.c \
+	localize.c \
 	r_sprite.c r_surf.c r_part.c r_vars.c screen.c sbar.c sv_main.c \
 	sv_phys.c sv_move.c sv_user.c zone.c view.c wad.c world.c \
 	sys_linux.c vid_x.c

@@ -251,6 +251,8 @@ discover_games() {
         # an empty mod called "music" in the engine's search path, which is
         # confusing in the log and would shadow a mod of that name.
         [ "$name" = music ] && continue
+        # Nor is the re-release's message text, linked whole below.
+        [ "$name" = localization ] && continue
 
         if link_game_dir "$d" "$name"; then
             FOUND_GAMES="$FOUND_GAMES $name"
@@ -278,6 +280,20 @@ discover_games() {
             fi
         fi
     done
+
+    #
+    # The re-release's progs prints keys, not text -- "$qc_need_gold_key" -- and
+    # the text is in localization/loc_english.txt, which it keeps inside
+    # QuakeEX.kpf, a zip beside id1. The engine looks in the base directory for
+    # either, so both are linked there when the mount has them.
+    #
+    for f in "$DATADIR"/*.kpf "$DATADIR"/*.KPF "$DATADIR"/*.Kpf; do
+        [ -f "$f" ] || continue
+        ln -sfn "$f" "$BASEDIR/$(basename "$f" | tr 'A-Z' 'a-z')"
+    done
+    if [ -d "$DATADIR/localization" ]; then
+        ln -sfn "$DATADIR/localization" "$BASEDIR/localization"
+    fi
 
     #
     # Paks sitting directly in the mount, with no id1 around them. A common

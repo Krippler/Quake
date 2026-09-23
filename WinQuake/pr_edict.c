@@ -1181,6 +1181,77 @@ string_t PR_SetEngineString (char *s)
 
 /*
 ===============
+PR_PatchRereleaseBuiltins
+
+The 2021 re-release's progs reach its print functions, and a few of its own,
+by name: "centerprint = #0:ex_centerprint" compiles to a function called
+ex_centerprint whose first statement is 0. The re-release engine looks the name
+up; id's had never heard of it, took the 0 for a QuakeC function starting at
+statement 0, ran it, and returned. So every centerprint, sprint and bprint the
+re-release makes did nothing -- the gate prompts, the keys, the pickups, the
+obituaries -- and the only sign was the "talk" sound a trigger plays beside
+its message.
+
+This points each one at a builtin, by the numbers QuakeSpasm uses. An earlier
+re-release update gave its three prints new numbers, 90 to 92, instead; those
+are pointed back at id's.
+===============
+*/
+typedef struct
+{
+	char	*name;
+	int		first_statement;	// what the progs has
+	int		patch_statement;	// what it gets
+} exbuiltin_t;
+
+static exbuiltin_t pr_exbuiltins[] =
+{
+	{"centerprint", -90, -73},
+	{"bprint", -91, -23},
+	{"sprint", -92, -24},
+
+	{"ex_centerprint", 0, -73},
+	{"ex_bprint", 0, -23},
+	{"ex_sprint", 0, -24},
+	{"ex_finaleFinished", 0, -79},
+	{"ex_localsound", 0, -80},
+	{"ex_draw_point", 0, -81},
+	{"ex_draw_line", 0, -82},
+	{"ex_draw_arrow", 0, -83},
+	{"ex_draw_ray", 0, -84},
+	{"ex_draw_circle", 0, -85},
+	{"ex_draw_bounds", 0, -86},
+	{"ex_draw_worldtext", 0, -87},
+	{"ex_draw_sphere", 0, -88},
+	{"ex_draw_cylinder", 0, -89},
+	{"ex_CheckPlayerEXFlags", 0, -90},
+	{"ex_walkpathtogoal", 0, -91},
+	{"ex_bot_movetopoint", 0, -92},
+	{"ex_bot_followentity", 0, -92},
+	{NULL, 0, 0}
+};
+
+static void PR_PatchRereleaseBuiltins (void)
+{
+	exbuiltin_t	*ex;
+	dfunction_t	*f;
+	int			n = 0;
+
+	for (ex = pr_exbuiltins ; ex->name ; ex++)
+	{
+		f = ED_FindFunction (ex->name);
+		if (f && f->first_statement == ex->first_statement)
+		{
+			f->first_statement = ex->patch_statement;
+			n++;
+		}
+	}
+	if (n)
+		Con_DPrintf ("PR_LoadProgs: %d re-release builtin(s) found by name\n", n);
+}
+
+/*
+===============
 PR_LoadProgs
 ===============
 */
@@ -1265,6 +1336,8 @@ void PR_LoadProgs (void)
 
 	for (i=0 ; i<progs->numglobals ; i++)
 		((int *)pr_globals)[i] = LittleLong (((int *)pr_globals)[i]);
+
+	PR_PatchRereleaseBuiltins ();
 }
 
 

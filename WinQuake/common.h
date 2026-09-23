@@ -173,6 +173,14 @@ extern	char	com_basedir[MAX_OSPATH];
 void COM_WriteFile (char *filename, void *data, int len);
 int COM_OpenFile (char *filename, int *hndl);
 int COM_FOpenFile (char *filename, FILE **file);
+
+// localize.c: the re-release's "$key" message strings
+void LOC_Init (void);
+const char *LOC_GetRaw (const char *key);
+const char *LOC_GetString (const char *key);
+qboolean LOC_HasPlaceholders (const char *s);
+void LOC_Format (const char *format, const char *(*getarg) (int n, void *data),
+				 void *data, char *out, int outsize);
 void COM_CloseFile (int h);
 
 byte *COM_LoadStackFile (char *path, void *buffer, int bufsize);
