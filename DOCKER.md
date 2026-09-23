@@ -154,7 +154,9 @@ light here 53, where 0 is black and 255 is full
 The first line is what the map says is there; `drawn at the crosshair` is
 what the renderer put on that pixel. `NO SURFACE` there is a gap in the
 geometry, and `NOT that face` is the renderer sorting the wrong face in front.
-Either one means the renderer is at fault. A texture that is mostly palette 0
+Either one means the renderer is at fault, and the lines after it say where
+the right face was lost: not marked visible, not in the edge list, or sorted
+behind. A texture that is mostly palette 0
 is black art, and a `light here` near 0 is the lightmap. Bind it to a key
 (`bind p surface`) to use it without the console covering the view.
 
