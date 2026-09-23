@@ -287,10 +287,21 @@ discover_games() {
     # QuakeEX.kpf, a zip beside id1. The engine looks in the base directory for
     # either, so both are linked there when the mount has them.
     #
-    for f in "$DATADIR"/*.kpf "$DATADIR"/*.KPF "$DATADIR"/*.Kpf; do
-        [ -f "$f" ] || continue
-        ln -sfn "$f" "$BASEDIR/$(basename "$f" | tr 'A-Z' 'a-z')"
-    done
+    # It is looked for below the top of the mount too, a few levels down and
+    # in any case: a Steam install keeps it in rerelease/ beside id1, and a
+    # mount of the whole Quake folder, or a copy that put it one folder off,
+    # should still find it. The shallowest wins.
+    #
+    kpf=$(find "$DATADIR" -maxdepth 4 -type f -iname 'quakeex.kpf' \
+               -printf '%d %p\n' 2>/dev/null | sort -n | head -n 1 | cut -d' ' -f2-)
+    if [ -n "$kpf" ]; then
+        if [ "$(readlink "$BASEDIR/quakeex.kpf" 2>/dev/null)" != "$kpf" ]; then
+            log "re-release message text: $kpf"
+        fi
+        ln -sfn "$kpf" "$BASEDIR/quakeex.kpf"
+    elif [ -L "$BASEDIR/quakeex.kpf" ]; then
+        rm -f "$BASEDIR/quakeex.kpf"
+    fi
     if [ -d "$DATADIR/localization" ]; then
         ln -sfn "$DATADIR/localization" "$BASEDIR/localization"
     fi

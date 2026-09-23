@@ -9,6 +9,12 @@ on the default branch publishes that version, `## [Unreleased]` publishes only
 
 ### Changed
 
+- **`QuakeEX.kpf` is found in subfolders of the mount.** It used to be linked
+  only from the top. The container now looks up to four folders down, in any
+  case, takes the shallowest copy, and logs where it found it. So a mount of
+  the whole Quake folder, with the file in `rerelease/`, works. A link left
+  from a file since removed is cleared.
+
 - **Every localization file found is read, not just the first.** A mod's own
   `localization/loc_english.txt` used to hide the base game's in
   `QuakeEX.kpf`. Now all are merged: game directories in search order, then

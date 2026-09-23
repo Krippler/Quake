@@ -82,11 +82,15 @@ Pak files from the 2021 re-release work, **BSP2 maps included** — so
 same fifteen lumps as the original format with the indices and bounds widened
 past what a short holds, and six of them are read both ways now.
 
-Mount the re-release's folder as it is, `QuakeEX.kpf` included. That zip,
-beside `id1`, holds the text for every message the re-release shows: gate
-prompts, keys, pickups, deaths. Its progs and maps name the messages by key
-(`$qc_need_gold_key`) and the engine looks the text up there. Without it, the
-messages come out as their keys, and the console says so once.
+Mount the re-release's folder as it is, `QuakeEX.kpf` included. That zip
+(beside `id1` in a Steam install, in `steamapps/common/Quake/rerelease/`)
+holds the text for every message the re-release shows: gate prompts, keys,
+pickups, deaths. Its progs and maps name the messages by key
+(`$qc_need_gold_key`) and the engine looks the text up there. The container
+finds it anywhere up to four folders down in the mount, in any case, and logs
+where. Without it the messages come out as their keys, and the console says so
+once. It is part of the paid re-release, like the pak files, so the image
+cannot include it.
 
 What to expect:
 
