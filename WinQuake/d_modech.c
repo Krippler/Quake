@@ -24,7 +24,7 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 
 int	d_vrectx, d_vrecty, d_vrectright_particle, d_vrectbottom_particle;
 
-int	d_y_aspect_shift, d_pix_min, d_pix_max, d_pix_shift;
+int	d_y_aspect_shift, d_pix_min, d_pix_max, d_pix_shift, d_pix_mul;
 
 int		d_scantable[MAXHEIGHT];
 short	*zspantable[MAXHEIGHT]; 
@@ -78,6 +78,19 @@ void D_ViewChanged (void)
 
 	d_pix_max = (int)((float)r_refdef.vrect.width / (320.0 / 4.0) + 0.5);
 	d_pix_shift = 8 - (int)((float)r_refdef.vrect.width / 320.0 + 0.5);
+
+//
+// How big a particle is at a given distance: izi >> 7 at 320 wide, and in
+// proportion to the width above that, as everything else on screen is. id's
+// d_pix_shift above takes a shift of one less for every 320 pixels, which
+// doubles the size each time: right at 320 and 640, and at 1920 wide six
+// shifts down where two and a half would do -- particles 32 times their 320
+// size instead of 6, the smallest clamped at d_pix_min, so a gunshot on a far
+// wall was a fistful of 6-pixel blocks. This multiplies instead: the 320 size,
+// times the width over 320, in 16.16. The C drawer uses it; the shift is left
+// for the i386 assembler, which this build does not use.
+//
+	d_pix_mul = (int)(65536.0 / 128.0 * r_refdef.vrect.width / 320.0 + 0.5);
 	if (d_pix_max < 1)
 		d_pix_max = 1;
 

@@ -5,6 +5,21 @@ top section's heading is what the release workflow reads: `## [X.Y.Z] — DATE`
 on the default branch publishes that version, `## [Unreleased]` publishes only
 `edge`.
 
+## [Unreleased]
+
+### Fixed
+
+- **Particles were far too big at high resolutions.** Gunshot sparks, blood
+  and the teleporter swirl came out as clusters of big blocks at 1920x1080,
+  and distant ones looked no smaller than near ones. id's code sizes a
+  particle by shifting its depth right by `8 - width/320` bits. That is one bit
+  less for every 320 pixels of width, which doubles the size each time. It's
+  right at 320 and 640 wide, but at 1920 it draws particles 32 times their
+  320-wide size where 6 would be in proportion, and most of them then hit the
+  upper and lower size clamps. The size now scales with the width by a
+  multiply, so a particle takes the same share of the screen at every
+  resolution. At 320 and 640 wide nothing changes.
+
 ## [1.11.0] — 2026-09-23
 
 ### Changed
