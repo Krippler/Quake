@@ -276,6 +276,12 @@ extern float		r_aliastransition, r_resfudge;
 extern int		r_outofsurfaces;
 extern int		r_outofedges;
 extern int		r_edgesoutofrange;
+
+// r_draw.c: faces left out because a vertex would not project (see r_facebad)
+extern int		r_facesdiscarded;
+extern qboolean	r_badrecorded;
+extern vec3_t	r_badvertex, r_badorigin, r_badtransformed;
+extern char		r_badmodel[64];
 extern qboolean	r_reportedshort;
 extern qboolean	r_reportedrange;
 extern qboolean	r_reportedbmodel;

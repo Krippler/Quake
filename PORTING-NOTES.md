@@ -991,6 +991,30 @@ replayed the Return that opened the question, which opened it again, and the
 engine had to be killed. Stepping past the event before handing it on is the
 whole fix.
 
+### `r_draw.c` — `-ffast-math` and the NaN it was told could not exist
+
+A NaN guard written as `if (!(x > lo)) x = lo;` is correct C: any comparison
+with a NaN is false, so the NaN takes the assignment. It is also the first thing
+`-ffast-math` removes, because that flag tells the compiler NaNs do not occur
+and so `!(x > lo)` is the same as `x <= lo`. A test program with the same
+flags kept the guard; the renderer, compiled in context, did not — a NaN
+injected into one vertex came out of the clamps as a NaN, `ceil()` made it
+`INT_MIN`, and the range check dropped the edge.
+
+The consequence is not a seam, which is what the console said it was. An edge
+is the side of a surface where the span generator turns it on or off. Without
+it the surface stays on until the next edge on that scanline, and draws its
+texture there, clamped at its border. On the re-release maps this was the flat
+band across the middle of the screen.
+
+The guard now inspects the bits, and a face with a vertex that will not project
+is left out of the frame: `R_DiscardFace` clears the face's surface from every
+edge it touched this frame (an edge with both surface slots empty is skipped)
+and disowns its own edges so the cache does not hand them to a neighbour. That
+turns the band into a face missing for one frame. What makes the NaN on those
+maps is still open; the first one per map is reported with its vertex, model
+and viewpoint.
+
 ### `r_fence.c` (new) — a hole is not a colour, and the edge list does not know
 
 A texture named `{something` is a fence: palette index 255 is a hole. Grates,
