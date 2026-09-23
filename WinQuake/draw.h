@@ -23,6 +23,12 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 
 extern	qpic_t		*draw_disc;	// also used on sbar
 
+// the 2D canvas: see draw.c
+extern	int			draw_scale;		// screen pixels per canvas pixel
+extern	int			draw_yoff;		// screen rows above the canvas
+
+void Draw_SetScale (void);
+
 void Draw_Init (void);
 void Draw_Character (int x, int y, int num);
 void Draw_DebugChar (char num);

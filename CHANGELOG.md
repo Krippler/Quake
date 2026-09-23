@@ -5,6 +5,30 @@ top section's heading is what the release workflow reads: `## [X.Y.Z] — DATE`
 on the default branch publishes that version, `## [Unreleased]` publishes only
 `edge`.
 
+## [1.12.0] — 2026-09-23
+
+### Fixed
+
+- **"Illegible server message" when monsters fought each other.** The
+  re-release's QuakeC unlocks Steam achievements by writing its own message
+  type (52) straight into the network stream, followed by the achievement's
+  name. A monster killed by another monster does it (`ACH_FRIENDLY_FIRE`), and
+  so do secrets and level ends in the expansions. The client did not know the
+  message, so it lost its place in the stream and the game stopped, back to
+  the demos. It now reads and skips it; `developer 1` shows the name.
+
+### Changed
+
+- **Text, menus and the status bar scale with the resolution.** They were
+  drawn one screen pixel per art pixel, which is right at 320x200 and tiny at
+  1920x1080. The 2D layer is now laid out on a smaller canvas, at least
+  480x360, and drawn as many whole times larger as fit: 3x at 1920x1080, 2x
+  at 1280x800, 1x at 640x480, where the picture is the same as before. The 3D
+  view keeps the full resolution. `scr_scale` sets the factor by hand (`1` is
+  id's size, `0` chooses). The crosshair also sits on the centre of the view
+  now; id drew it 4 pixels to the right of and below it, which at 3x would be
+  12.
+
 ## [1.11.2] — 2026-09-23
 
 ### Fixed

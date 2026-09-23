@@ -74,7 +74,9 @@ char *svc_strings[] =
 	"svc_fog",				// 41, 666
 	"svc_spawnbaseline2",	// 42, 666
 	"svc_spawnstatic2",		// 43, 666
-	"svc_spawnstaticsound2"	// 44, 666
+	"svc_spawnstaticsound2",	// 44, 666
+	"", "", "", "", "", "", "",	// 45-51
+	"svc_achievement"		// 52, the re-release
 };
 
 #define	NUM_SVC_STRINGS	((int)(sizeof(svc_strings) / sizeof(svc_strings[0])))
@@ -865,6 +867,7 @@ void CL_ParseServerMessage (void)
 {
 	int			cmd;
 	int			i;
+	char		*str;
 	
 //
 // if recording demos, copy the message out
@@ -1157,6 +1160,18 @@ void CL_ParseServerMessage (void)
 
 		case svc_spawnstaticsound2:
 			CL_ParseStaticSound (2);
+			break;
+
+	//
+	// The re-release's QuakeC unlocks Steam achievements by writing this
+	// opcode and an id string straight into the message: a monster killed by
+	// another monster, a secret found, a level finished. There is nothing here
+	// to unlock, but the string has to be read, or the rest of the message is
+	// misread and the game stops with "illegible server message".
+	//
+		case svc_achievement:
+			str = MSG_ReadString ();
+			Con_DPrintf ("achievement: %s\n", str);
 			break;
 		}
 	}
