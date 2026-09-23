@@ -1633,6 +1633,105 @@ float RadiusFromBounds (vec3_t mins, vec3_t maxs)
 	return Length (corner);
 }
 
+//
+// Node and leaf bounds are how the renderer decides which screen edges a face
+// has to be clipped against: a node wholly inside one edge's plane hands its
+// faces no clip for it. It also shares edges between faces within a frame, and
+// an edge one face found wholly off-screen is skipped by every other face that
+// uses it. Both are right only if every face lies inside its node's bounds.
+//
+// id's compiler guaranteed that by cutting every face along the tree. Modern
+// ones have faces the tree does not cut -- ericw-tools' func_detail_wall and
+// func_detail_illusionary exist to make them -- and those can stick out of
+// the node they hang on. Such a face goes unclipped against an edge it
+// crosses; a neighbour that did clip marks their shared edge as off-screen;
+// the face skips it and has nothing to close it, and its span runs on across
+// the screen as a bar of its texture. GL engines have neither mechanism and
+// never notice.
+//
+// So each node's bounds are widened here to hold every vertex of its own faces
+// and the bounds of the nodes below it, which is what its clip flags promise.
+// Leaves are left alone: they hold no faces, only references to them.
+//
+static int		mod_widened;		// nodes that grew by more than a unit
+static float	mod_widest;			// the most any of them grew
+
+static void Mod_AddFaceToBounds (msurface_t *surf, float *mins, float *maxs)
+{
+	int		i, j, lindex;
+	medge_t	*edge;
+	float	*v;
+
+	for (i=0 ; i<surf->numedges ; i++)
+	{
+		lindex = loadmodel->surfedges[surf->firstedge + i];
+		edge = &loadmodel->edges[lindex > 0 ? lindex : -lindex];
+		v = loadmodel->vertexes[edge->v[lindex > 0 ? 0 : 1]].position;
+		for (j=0 ; j<3 ; j++)
+		{
+			if (v[j] < mins[j])
+				mins[j] = v[j];
+			if (v[j] > maxs[j])
+				maxs[j] = v[j];
+		}
+	}
+}
+
+static void Mod_WidenBounds (mnode_t *node)
+{
+	int			i, j;
+	float		mins[3], maxs[3], grew;
+	float		*box;
+
+	for (j=0 ; j<3 ; j++)
+	{
+		mins[j] = node->minmaxs[j];
+		maxs[j] = node->minmaxs[3+j];
+	}
+
+	if (node->contents < 0)
+		return;
+	else
+	{
+		for (i=0 ; i<2 ; i++)
+		{
+		// a leaf holds no faces of its own, and every solid leaf is leaf 0,
+		// whose box is not this node's business
+			if (node->children[i]->contents < 0)
+				continue;
+			Mod_WidenBounds (node->children[i]);
+			box = node->children[i]->minmaxs;
+			for (j=0 ; j<3 ; j++)
+			{
+				if (box[j] < mins[j])
+					mins[j] = box[j];
+				if (box[3+j] > maxs[j])
+					maxs[j] = box[3+j];
+			}
+		}
+		for (i=0 ; i<node->numsurfaces ; i++)
+			Mod_AddFaceToBounds (loadmodel->surfaces + node->firstsurface + i,
+								 mins, maxs);
+	}
+
+	grew = 0;
+	for (j=0 ; j<3 ; j++)
+	{
+		if (node->minmaxs[j] - mins[j] > grew)
+			grew = node->minmaxs[j] - mins[j];
+		if (maxs[j] - node->minmaxs[3+j] > grew)
+			grew = maxs[j] - node->minmaxs[3+j];
+		node->minmaxs[j] = mins[j];
+		node->minmaxs[3+j] = maxs[j];
+	}
+	if (grew > 1)
+	{
+		mod_widened++;
+		if (grew > mod_widest)
+			mod_widest = grew;
+	}
+}
+
 /*
 =================
 Mod_LoadBrushModel
@@ -1716,6 +1815,18 @@ void Mod_LoadBrushModel (model_t *mod, void *buffer)
 //
 	if (COM_CheckParm ("-bspchecksum"))
 		Mod_BspChecksum (mod);
+
+// after the checksum, which is of what the file says
+	mod_widened = 0;
+	mod_widest = 0;
+	for (i=0 ; i<mod->numsubmodels ; i++)
+		if (mod->submodels[i].headnode[0] >= 0
+			&& mod->submodels[i].headnode[0] < mod->numnodes)
+			Mod_WidenBounds (mod->nodes + mod->submodels[i].headnode[0]);
+	if (mod_widened)
+		Con_Printf ("%s: %d BSP node(s) had faces outside their bounds, by up "
+					"to %.0f units.\nWidened, so those faces are clipped to the "
+					"screen.\n", mod->name, mod_widened, mod_widest);
 	
 //
 // set up the submodels (FIXME: this is confusing)

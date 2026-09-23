@@ -1015,6 +1015,35 @@ turns the band into a face missing for one frame. What makes the NaN on those
 maps is still open; the first one per map is reported with its vertex, model
 and viewpoint.
 
+### `model.c` — node bounds that do not hold their faces
+
+Two things in the renderer trust a node's bounding box. `R_RecursiveWorldNode`
+drops a frustum plane from `clipflags` for a node wholly inside it, and every
+face below inherits that: it is not clipped against that plane. And
+`R_ClipEdge` caches an edge it found wholly outside a plane as
+`FULLY_CLIPPED_CACHED` for the frame, so the next face that shares the edge
+skips it without looking.
+
+If a face lies outside its node's box, those two disagree. The face isn't
+clipped against a plane it crosses. Its neighbour, whose node did keep the
+plane, finds their shared edge off-screen and caches that. The face then skips
+the edge and gets no clipped replacement, because it has no clip for that
+plane. Its span opens on some scanlines and never closes, so the face runs on
+sideways across the screen.
+
+id's qbsp never produced such a face: every face is cut along the tree, so it
+lies inside the node it hangs on. On e1m1 all 2750 nodes hold their faces and
+their child nodes. Modern compilers leave some faces uncut on purpose. The
+report that found this was a `crate0_side` face on the re-release start map,
+covering a pixel 300 units in front of where the ray met its plane, outside
+the crate.
+
+`Mod_WidenBounds` grows each node's box, after the checksum, to hold every
+vertex of its own faces and the boxes of the nodes below it. Leaves are left
+out: they own no faces, and in BSP29 every solid leaf is leaf 0, whose box
+folded into its parents would have widened nearly every node on id's maps by
+thousands of units. That was the first version.
+
 ### `r_bsp.c` — a face that crossed a plane once
 
 `R_RecursiveClipBPoly` cuts a brush model's faces along the world's BSP planes
