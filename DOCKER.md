@@ -340,9 +340,14 @@ starting stop the container rather than loop.
 | --- | --- | --- |
 | `QUAKE_X_DEPTH` | `24` | Bit depth of the X screen. `8` uses the colour-mapped visual the renderer was written for: slightly cheaper in the engine, but the palette then has to survive a trip through x11vnc, which is where wrong-colour pictures came from |
 | `QUAKE_VNC_8TO24` | `1` | Only read at `QUAKE_X_DEPTH=8`. `0` sends the picture as colour-mapped depth 8: 64 colours in a browser, not 256. A diagnostic, not a way to play |
-| `QUAKE_VNC_WAIT` | `5` | x11vnc poll interval, ms |
-| `QUAKE_VNC_DEFER` | `5` | x11vnc update defer, ms |
+| `QUAKE_VNC_WAIT` | `1` | x11vnc poll interval, ms |
+| `QUAKE_VNC_DEFER` | `1` | x11vnc update defer, ms |
 | `QUAKE_VNC_ARGS` | | Extra x11vnc options. Each must start with a dash, and the container checks — x11vnc answers an option it does not recognise by exiting, which leaves the game running and the browser saying "connection lost" with nothing to explain it |
+
+x11vnc also runs with `-noxdamage`: it scans the screen itself rather than
+following the X server's damage reports, which a game changing most of the
+screen every frame gains nothing from and which stalled a request for up to half
+a second at a time. See [The picture stutters](#the-picture-stutters-or-lags).
 
 `-wireframe` and `-scrollcopyrect` are off. Both are on by x11vnc's default and
 both are for a desktop: they watch for a window being dragged or a pane
@@ -479,6 +484,26 @@ actually sent — so `docker logs` answers the question on its own.
 ---
 
 ## Troubleshooting
+
+### The picture stutters or lags
+
+The picture reaches the browser through x11vnc, which captures the screen,
+compresses it and sends it; the engine renders far faster than that. The
+browser log's `picture gap ... x11vnc answered N ms later` lines are this
+stage falling behind. Measured at 1920x1200, with the defaults below, x11vnc
+delivers about 34 pictures a second at 10 to 12 MB/s; at 1280x800 and below
+about 36, at a quarter of the bandwidth or less.
+
+Resolution is the biggest lever: the cost is per pixel, and the browser scales
+the picture to the window either way. After that, the page takes two options:
+
+| | | |
+| --- | --- | --- |
+| `play.html?compression=N` | `1` | How hard each picture is compressed, 0-9. Higher saves bandwidth for a slow link but costs x11vnc time: at `2`, noVNC's own default, 1920x1200 managed 14 pictures a second |
+| `play.html?quality=N` | `6` | JPEG quality for the busy parts of the picture, 0-9. Lower saves bandwidth; it barely changes the rate |
+
+`play.html?encoding=hextile` is the older switch: it avoids the browser's image
+decoder altogether at roughly three times the bandwidth.
 
 ### The sound lags behind the picture
 

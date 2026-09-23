@@ -9,6 +9,35 @@ on the default branch publishes that version, `## [Unreleased]` publishes only
 
 ### Changed
 
+- **The picture reaches the browser more than twice as often, without the
+  half-second stalls.** The engine renders far faster than the picture was
+  getting out. On the player's machine that's 115 fps at 1920x1200 against the
+  72 fps cap. The bottleneck was x11vnc. Measured at 1920x1200 with a client
+  that asks for each picture as the last one arrives, as noVNC does:
+  - **Before:** 14 pictures a second, and every so often a request answered
+    470 ms late. Those are the `picture gap ... x11vnc answered N ms later`
+    lines in the browser log.
+  - **After:** 34 a second, with the worst answer 131 to 167 ms.
+
+  Three changes did it:
+  - **x11vnc runs with `-noxdamage`.** It scans the screen instead of
+    following the X server's damage reports, which is where the long stalls
+    came from.
+  - **It polls every 1 ms instead of 5.**
+  - **The page asks for compression level 1 instead of noVNC's 2.** At level
+    2, x11vnc spent most of each frame in zlib.
+
+  The cost is bandwidth: about 12 MB/s at 1920x1200 against 5, and 2 MB/s at
+  640x480. `play.html?compression=N` and `?quality=N` override the page's
+  choices for a slow link. x11vnc's `-threads` also smoothed the stalls, but
+  froze the picture the first time the Video Options menu resized the screen,
+  so it isn't used.
+
+  In noVNC itself, in Chromium, at 1920x1200, the page drew 13.7 pictures a
+  second before and 30.4 after. At levels 2, 4 and 6 it drew about 16, and
+  Hextile about 20. Resizing through the Video Options menu still works with
+  the new flags: the client was told of both size changes and kept drawing.
+
 - **The README is only what it takes to get started.** It now has a quick
   start, what game data to mount (the re-release included), music, a few common
   settings, and pointers to the rest. What it used to carry moved:

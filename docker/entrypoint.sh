@@ -745,13 +745,28 @@ done
 # x11vnc rebuild its framebuffer and tell the client through NewFBSize, which
 # noVNC handles by resizing its canvas -- visible as a brief reconnect.
 #
+#
+# -noxdamage, -wait 1, -defer 1: measured at 1920x1200 with a client that asks
+# for each picture the moment the last arrives, as noVNC does. With X DAMAGE
+# x11vnc took up to 470 ms to answer a request, a few times a minute -- the
+# "picture gap ... x11vnc answered N ms later" lines players see -- and
+# without it the worst was 97 to 167 ms: a game changes most of the screen
+# every frame, and scanning it outright costs less than following the damage
+# reports. Polling every 1 ms instead of 5 took it from 28 pictures a second
+# to 34. With the client's compression at level 1 (play.html), today's 14
+# pictures a second became 34, and x11vnc's CPU stayed about where it was.
+#
+# -threads was tried as well: it smoothed the spikes too, but froze the picture
+# for good the first time the screen was resized, which the Video Options menu
+# does. It is not used.
+#
 log "starting x11vnc on port $VNC_PORT"
 # shellcheck disable=SC2086
 x11vnc -display "$DISP" -rfbport "$VNC_PORT" -forever -shared -quiet \
        $vnc_8to24 \
-       -nowireframe -noscrollcopyrect \
+       -nowireframe -noscrollcopyrect -noxdamage \
        -xrandr resize \
-       -nonap -wait "${QUAKE_VNC_WAIT:-5}" -defer "${QUAKE_VNC_DEFER:-5}" \
+       -nonap -wait "${QUAKE_VNC_WAIT:-1}" -defer "${QUAKE_VNC_DEFER:-1}" \
        ${QUAKE_VNC_ARGS:-} \
        $vnc_auth >"$STATE/x11vnc.log" 2>&1 &
 VNC_PID=$!
