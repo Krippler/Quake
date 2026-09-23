@@ -91,24 +91,41 @@ static unsigned LOC_Get32 (const byte *p)
 	return p[0] | (p[1] << 8) | (p[2] << 16) | ((unsigned)p[3] << 24);
 }
 
+static unsigned long long LOC_Get64 (const byte *p)
+{
+	return LOC_Get32 (p) | ((unsigned long long)LOC_Get32 (p + 4) << 32);
+}
+
+static char	loc_ziperror[128];	// why the last LOC_ReadFromZip found nothing
+
 //
 // One file out of a zip: the end record gives the central directory, the
 // central directory gives the entry, and the entry is stored or deflated.
 //
+// QuakeEX.kpf holds the whole re-release, and past 65535 entries or 4 GB a zip
+// keeps its counts and offsets in ZIP64 records instead: a second end record,
+// found through a locator just before the first, and an extra field on each
+// entry carrying whichever of its sizes and offset did not fit. Both are read.
+//
 static char *LOC_ReadFromZip (const char *zippath, const char *name)
 {
 	FILE		*f;
-	long		size, tail, i;
-	byte		*buf = NULL, *cd = NULL, *p, *comp = NULL;
-	byte		hdr[30];
-	unsigned	cdsize, cdoff, count, n;
-	unsigned	method, csize, usize, namelen, extralen, commentlen, lhoff;
+	long		size, tail, i, eocd;
+	byte		*buf = NULL, *cd = NULL, *p, *x, *comp = NULL;
+	byte		hdr[56];
+	unsigned long long	cdsize, cdoff, count, n, csize, usize, lhoff;
+	unsigned	method, namelen, extralen, commentlen, id, len;
 	char		*out = NULL;
 	z_stream	z;
+	int			r;
 
+	loc_ziperror[0] = 0;
 	f = fopen (zippath, "rb");
 	if (!f)
+	{
+		sprintf (loc_ziperror, "cannot be opened");
 		return NULL;
+	}
 
 	fseek (f, 0, SEEK_END);
 	size = ftell (f);
@@ -116,20 +133,51 @@ static char *LOC_ReadFromZip (const char *zippath, const char *name)
 	buf = malloc (tail);
 	if (!buf || fseek (f, size - tail, SEEK_SET)
 		|| fread (buf, 1, tail, f) != (size_t)tail)
+	{
+		sprintf (loc_ziperror, "cannot be read");
 		goto done;
+	}
 
-	for (i = tail - 22 ; i >= 0 ; i--)
-		if (LOC_Get32 (buf + i) == 0x06054b50)
+	for (eocd = tail - 22 ; eocd >= 0 ; eocd--)
+		if (LOC_Get32 (buf + eocd) == 0x06054b50)
 			break;
-	if (i < 0)
+	if (eocd < 0)
+	{
+		sprintf (loc_ziperror, "is not a zip");
 		goto done;
-	count = LOC_Get16 (buf + i + 10);
-	cdsize = LOC_Get32 (buf + i + 12);
-	cdoff = LOC_Get32 (buf + i + 16);
+	}
+	count = LOC_Get16 (buf + eocd + 10);
+	cdsize = LOC_Get32 (buf + eocd + 12);
+	cdoff = LOC_Get32 (buf + eocd + 16);
 
-	cd = malloc (cdsize);
-	if (!cd || fseek (f, cdoff, SEEK_SET) || fread (cd, 1, cdsize, f) != cdsize)
+	// ZIP64: a locator 20 bytes before the end record points at the real one
+	if (eocd >= 20 && LOC_Get32 (buf + eocd - 20) == 0x07064b50)
+	{
+		unsigned long long	z64 = LOC_Get64 (buf + eocd - 20 + 8);
+
+		if (fseek (f, (long)z64, SEEK_SET) || fread (hdr, 1, 56, f) != 56
+			|| LOC_Get32 (hdr) != 0x06064b50)
+		{
+			sprintf (loc_ziperror, "has a broken ZIP64 end record");
+			goto done;
+		}
+		count = LOC_Get64 (hdr + 32);
+		cdsize = LOC_Get64 (hdr + 40);
+		cdoff = LOC_Get64 (hdr + 48);
+	}
+
+	if (cdsize > 256*1024*1024 || (long)(cdoff + cdsize) > size)
+	{
+		sprintf (loc_ziperror, "has a central directory out of range");
 		goto done;
+	}
+	cd = malloc (cdsize);
+	if (!cd || fseek (f, (long)cdoff, SEEK_SET)
+		|| fread (cd, 1, cdsize, f) != cdsize)
+	{
+		sprintf (loc_ziperror, "has a central directory that cannot be read");
+		goto done;
+	}
 
 	for (p = cd, n = 0 ; n < count && p + 46 <= cd + cdsize ; n++)
 	{
@@ -146,15 +194,43 @@ static char *LOC_ReadFromZip (const char *zippath, const char *name)
 		if (namelen == strlen (name) && p + 46 + namelen <= cd + cdsize
 			&& !Q_strncasecmp ((char *)p + 46, (char *)name, namelen))
 		{
-			if (fseek (f, lhoff, SEEK_SET) || fread (hdr, 1, 30, f) != 30
-				|| LOC_Get32 (hdr) != 0x04034b50)
+			// the ZIP64 extra field holds, in order, whichever did not fit
+			for (x = p + 46 + namelen ; x + 4 <= p + 46 + namelen + extralen
+				 && x + 4 <= cd + cdsize ; x += 4 + len)
+			{
+				id = LOC_Get16 (x);
+				len = LOC_Get16 (x + 2);
+				if (id != 0x0001)
+					continue;
+				i = 4;
+				if (usize == 0xFFFFFFFF && i + 8 <= 4 + len)
+					usize = LOC_Get64 (x + i), i += 8;
+				if (csize == 0xFFFFFFFF && i + 8 <= 4 + len)
+					csize = LOC_Get64 (x + i), i += 8;
+				if (lhoff == 0xFFFFFFFF && i + 8 <= 4 + len)
+					lhoff = LOC_Get64 (x + i), i += 8;
+			}
+
+			if (usize > 64*1024*1024 || csize > 64*1024*1024)
+			{
+				sprintf (loc_ziperror, "holds %s at an unlikely size", name);
 				goto done;
+			}
+			if (fseek (f, (long)lhoff, SEEK_SET) || fread (hdr, 1, 30, f) != 30
+				|| LOC_Get32 (hdr) != 0x04034b50)
+			{
+				sprintf (loc_ziperror, "has a broken entry for %s", name);
+				goto done;
+			}
 			fseek (f, LOC_Get16 (hdr + 26) + LOC_Get16 (hdr + 28), SEEK_CUR);
 
 			comp = malloc (csize ? csize : 1);
 			out = malloc (usize + 1);
 			if (!comp || !out || fread (comp, 1, csize, f) != csize)
+			{
+				sprintf (loc_ziperror, "cannot be read at %s", name);
 				goto fail;
+			}
 
 			if (method == 0 && csize == usize)
 				memcpy (out, comp, usize);
@@ -167,19 +243,28 @@ static char *LOC_ReadFromZip (const char *zippath, const char *name)
 				z.avail_in = csize;
 				z.next_out = (byte *)out;
 				z.avail_out = usize;
-				i = inflate (&z, Z_FINISH);
+				r = inflate (&z, Z_FINISH);
 				inflateEnd (&z);
-				if (i != Z_STREAM_END)
+				if (r != Z_STREAM_END)
+				{
+					sprintf (loc_ziperror, "holds %s, but it does not inflate",
+							 name);
 					goto fail;
+				}
 			}
 			else
+			{
+				sprintf (loc_ziperror, "holds %s compressed by method %u, "
+						 "which is not deflate", name, method);
 				goto fail;
+			}
 
 			out[usize] = 0;
 			goto done;
 		}
 		p += 46 + namelen + extralen + commentlen;
 	}
+	sprintf (loc_ziperror, "has no %s among its %llu files", name, n);
 
 fail:
 	free (out);
@@ -339,6 +424,14 @@ static void LOC_AddText (char *text, char *where)
 
 	Con_Printf ("Localization: %d strings from %s\n", loc_numentries - before,
 				where);
+
+	// the current re-release's QuakeEX.kpf carries only this, in every language
+	if (loc_numentries - before == 1
+		&& !strcmp (loc_entries[before].key, "placeholder"))
+		Con_Printf ("Localization: that is a placeholder with no messages in "
+					"it. This version of\nthe re-release keeps the text "
+					"elsewhere; any loc_english.txt in the\ngame directories "
+					"is read.\n");
 }
 
 // the hash over every entry; where two define a key, the first read wins
@@ -381,13 +474,15 @@ void LOC_Init (void)
 
 	sprintf (path, "%s/quakeex.kpf", com_basedir);
 	text = LOC_ReadFromZip (path, LOC_FILE);
-	if (!text)
+	if (!text && !strcmp (loc_ziperror, "cannot be opened"))
 	{
 		sprintf (path, "%s/QuakeEX.kpf", com_basedir);
 		text = LOC_ReadFromZip (path, LOC_FILE);
 	}
 	if (text)
 		LOC_AddText (text, path);
+	else if (strcmp (loc_ziperror, "cannot be opened"))
+		Con_Printf ("Localization: %s %s\n", path, loc_ziperror);
 
 	if (loc_numentries)
 		LOC_BuildIndex ();

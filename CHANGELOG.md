@@ -5,6 +5,22 @@ top section's heading is what the release workflow reads: `## [X.Y.Z] — DATE`
 on the default branch publishes that version, `## [Unreleased]` publishes only
 `edge`.
 
+## [Unreleased]
+
+### Changed
+
+- **The current re-release's `QuakeEX.kpf` has no message text.** Its
+  `localization/loc_english.txt`, like every language beside it, is the single
+  line `placeholder = "placeholder"`. The console now says so when that is what
+  it read, instead of leaving the only clue as `no text for $qc_entered`. Any
+  `loc_english.txt` in the game directories, loose or in a pak, is read ahead
+  of it.
+- **The `QuakeEX.kpf` reader handles ZIP64 archives and gives reasons.** A
+  zip past 65535 files or 4 GB keeps its counts and offsets in ZIP64 records,
+  which are now read. When the text can't be taken out, the console says why:
+  "is not a zip", "has no localization/loc_english.txt among its N files", or
+  an unknown compression method. Tested with an archive of 70,000 files.
+
 ## [1.10.1] — 2026-09-23
 
 ### Changed
