@@ -5,6 +5,23 @@ top section's heading is what the release workflow reads: `## [X.Y.Z] — DATE`
 on the default branch publishes that version, `## [Unreleased]` publishes only
 `edge`.
 
+## [1.15.3] — 2026-09-24
+
+### Fixed
+
+- **Spinning fans still flashed, a few blades at a time.** A player's second
+  recording showed the fan evenly lit as intended, with some of its blades
+  going bright for a frame or two. That was dynamic light -- muzzle flashes,
+  glowing items, anything that lights its surroundings for a moment -- and it
+  was landing on the fan from the wrong place. id's renderer lights a brush
+  model with each light's position in the world, but the model's faces are
+  stored where the map compiler left them. For a door that has slid a little,
+  the error is the distance it slid. MG1's rotating objects are built around
+  the centre of the map and moved into place, so its fans were lit by
+  whatever flashed near the middle of the level, on the blades that happened
+  to face it. A dynamic light is now moved into the model's own space, offset
+  and rotation both, before it is tested against its faces.
+
 ## [1.15.2] — 2026-09-24
 
 ### Fixed
