@@ -1857,6 +1857,57 @@ the engine in `lib/quake`, and a menu entry and id's icon (from `quake.ico`)
 in `share`. The release tarball is built on Ubuntu 22.04, for a glibc 2.34
 floor.
 
+### `WinQuake/in_pad.c` — a game controller, in both builds
+
+The container's controller used to live entirely in the browser: the page
+turned buttons into key presses and the sticks into mouse motion, with its own
+bindings panel, saved in the browser. None of that could reach the desktop
+build, and none of it was in the game's menus, where the re-release keeps it.
+
+It is the engine's now.
+- **Buttons** are keys: `PAD_A` to `PAD_GUIDE`, in the first seventeen of id's
+  `K_AUX` slots. `keys.c` names them, before the AUX names, so they save
+  under the new names and old configs still load. They bind like any other
+  key, and the controls screen shows them as the pad labels them.
+- **Start** is hard-wired to `K_ESCAPE`, as `Esc` is, so it can never be
+  unbound.
+- **In a menu,** A, B, Y and the D-pad arrive as Return, Escape, Delete and
+  the arrows. The exception is while Customize is waiting for a key
+  (`M_KeysGrabbing`), when a button binds as itself. The left stick steps
+  through a menu, repeating while held.
+- **Releases:** a button comes up as whatever key it went down as, so a
+  trigger held for `+attack` and let go in a menu does not leave the player
+  firing.
+- **Sticks:** `IN_PadMove` makes the left stick a speed rather than a key,
+  running at a full push (`joy_pushrun`). The right stick turns and pitches
+  at `joy_lookspeed` degrees a second on a curve (`joy_lookcurve`). The stick
+  deadzone is radial.
+- **Default binds,** the browser panel's layout, are applied the first time a
+  pad turns up and again after Reset Defaults (`joy_bound`).
+
+Where the state comes from is the only difference:
+- **The container:** a TCP listener on `QUAKE_PAD_PORT`. websockify connects
+  the page's `token=pad` WebSocket to it. Each message is 16 bytes: buttons,
+  four sticks and two triggers; a name message says which pad.
+- **The desktop:** SDL2's game controller API, opened with `dlopen` and
+  declared locally, so building needs no SDL headers and a machine without
+  SDL still runs. SDL knows the layout of nearly every pad, which reading
+  `/dev/input` directly would have to learn pad by pad.
+
+Tested both ways:
+- **Browser path:** a script stood in for the page, then the same through
+  the container's own WebSocket. Menus navigated from the pad, the sticks
+  moved and turned the view in E1M1, and the default binds were saved.
+- **SDL path:** SDL's virtual joystick, attached inside the engine by a
+  preloaded helper, since this machine has no uinput. It went from the
+  engine noticing the pad to the Controls page naming it.
+
+`menu.c`'s `M_FindKeysForCommand` and `M_UnbindCommand` compared a binding
+with `strncmp` on the command's length, so "impulse 1" matched "impulse 10"
+and "impulse 12". The Axe's row showed the next-weapon key, and clearing it
+cleared weapon switching. They compare exactly now, and a row shows three
+bindings, not two.
+
 ### `WinQuake/cd_stream.c` — music from files
 
 `CDAudio_Play(track, looping)` opens `<musicdir>/track02.ogg` and friends,

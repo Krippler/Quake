@@ -35,6 +35,8 @@ cd quake-linux-x86_64-*/
 quake                 # or Quake in the desktop's menu
 ```
 
+A game controller works in both, set up in the game's own Options → Controls.
+
 It finds a Steam or GOG copy by itself, and prefers the re-release. Otherwise
 run `quake --data /path/to/quake` once, and it will remember. Your game files
 are only read. Settings and saves go in `~/.local/share/quake`. The tarball's

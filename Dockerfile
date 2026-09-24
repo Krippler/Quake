@@ -111,18 +111,11 @@ ARG QUAKE_VERSION=dev
 COPY docker/play.html /usr/share/novnc/play.html
 COPY docker/quake-ring.js /usr/share/novnc/quake-ring.js
 COPY docker/quake-audio.js /usr/share/novnc/quake-audio.js
-# Controller support, which is entirely client side: the engine is sent the
-# same keysyms and pointer reports either way. It sits beside noVNC's own
-# modules because it imports the keysym table from them rather than hardcoding
-# numbers.
+# The controller: the page reads the pad and passes its state to the engine,
+# which does everything else with it (WinQuake/in_pad.c).
 COPY docker/quake-gamepad.js /usr/share/novnc/quake-gamepad.js
 COPY docker/index.html /usr/share/novnc/index.html
 
-# The engine's key bindings, for the controller in the page. The entrypoint
-# writes them into the state directory, which it owns whatever PUID it runs as;
-# this symlink is how they reach the browser without the web root having to be
-# writable at runtime. websockify serves through it.
-RUN ln -sfn /quake/state/quake-keys.json /usr/share/novnc/quake-keys.json
 
 # Not sed: the stamp is whatever the build was told, and a branch name with a
 # slash in it ends the s/// early. Python replaces the placeholder literally,
@@ -149,6 +142,7 @@ ENV QUAKE_VERSION=${QUAKE_VERSION} \
     QUAKE_STATE=/quake/state \
     QUAKE_VNC_PORT=5900 \
     QUAKE_AUDIO_PORT=5901 \
+    QUAKE_PAD_PORT=5902 \
     QUAKE_WEB_PORT=6080 \
     QUAKE_DISPLAY=:99 \
     HOME=/quake/state

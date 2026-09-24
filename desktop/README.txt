@@ -24,6 +24,9 @@ has:
     Fedora:          sudo dnf install alsa-lib libsndfile libXrandr
     Arch:            sudo pacman -S alsa-lib libsndfile libxrandr
 
+Game controllers need SDL2 as well (libsdl2-2.0-0, SDL2, sdl2), which is
+installed wherever Steam is. Without it the game runs, without a controller.
+
 Game files
 ----------
 
@@ -47,6 +50,11 @@ scales that up to fill the monitor.
 The mouse is captured while you play, and let go in the menus and the
 console, and when another window has the focus. `_windowed_mouse 0` at the
 console turns capture off.
+
+A game controller works as soon as it is plugged in. Its buttons are bound
+with the keyboard's in Options -> Controls -> Customize Controls, and its
+sticks are set up on the Controls page, under Controller. In the menus, A
+chooses, B goes back and the Menu button opens and closes them.
 
 Sound goes to ALSA's default device, which is PipeWire or PulseAudio on a
 desktop that runs either. -alsadevice NAME picks another.

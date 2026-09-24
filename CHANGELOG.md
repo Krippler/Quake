@@ -26,6 +26,30 @@ on the default branch publishes that version, `## [Unreleased]` publishes only
   - **Game / Mod:** picking another game restarts on it, as in the container.
 
   `make -C WinQuake SOUND=alsa install` does the same from source.
+- **Game controllers, in the game itself, the same in the browser and on the
+  desktop.**
+  - **Bindings:** a controller's buttons are keys (`PAD_A`, `PAD_RT`…),
+    bound in **Options → Controls → Customize Controls** with the keyboard's
+    and saved in `config.cfg`.
+  - **Sticks:** look speed, invert, deadzone, swapping the sticks and a full
+    push to run are on the Controls page, under **Controller**, which also
+    names the connected pad.
+  - **Menus:** in the menus A chooses, B goes back, the D-pad and left stick
+    move, and Menu opens and closes them. The right stick now looks up and
+    down as well as turning.
+  - **Where it comes from:** in the container the page passes the pad's state
+    to the engine over the same port as the picture and the sound. On the
+    desktop the engine reads it through SDL2, where that is installed. The
+    page's own controller panel has gone. The defaults are its defaults, but
+    anything changed there needs changing once more in the game.
+
+### Fixed
+
+- **The Axe's row on Customize Controls showed the next-weapon key,** and
+  clearing it cleared weapon switching too. id matched a binding by its first
+  letters, so "impulse 1" also found "impulse 10" and "impulse 12". Bindings
+  are matched exactly now. Each action shows up to three keys, not two, so a
+  keyboard key, a spare and a controller button all fit.
 
 ## [1.17.0] — 2026-09-24
 

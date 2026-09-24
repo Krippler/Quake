@@ -92,91 +92,7 @@
   #choices button:hover { background: #262626; border-color: #b33; }
   #choices button:focus-visible { outline: 2px solid #b33; outline-offset: 2px; }
   #play-fullscreen { border-color: #b33; }
-  /* The controller panel. An ordinary flex child of the start screen rather
-     than a dialog: it can only be open while that screen is up, which is the
-     one time the game is not reading the pad anyway. */
-  #pad-panel {
-    display: flex;
-    flex-direction: column;
-    gap: 10px;
-    width: min(540px, 100%);
-    max-height: min(68vh, 560px);
-    overflow-y: auto;
-    text-align: left;
-    background: #111;
-    border: 1px solid #4a4a4a;
-    border-radius: 6px;
-    padding: 14px 16px;
-    cursor: default;
-  }
-  #pad-panel[hidden] { display: none; }
-  #pad-panel h2 {
-    margin: 0; font-size: 12px; letter-spacing: 0.14em;
-    color: #b33; text-transform: uppercase; font-weight: normal;
-  }
-  #pad-note b { color: #d8a; font-weight: normal; }
-  #pad-note button, #pad-panel button {
-    font: inherit; font-size: 12px; color: #d8d8d8; background: #1a1a1a;
-    border: 1px solid #4a4a4a; border-radius: 3px; padding: 2px 8px;
-    cursor: pointer;
-  }
-  #pad-note button:hover, #pad-panel button:hover {
-    background: #262626; border-color: #b33;
-  }
-  #pad-note button:focus-visible, #pad-panel button:focus-visible {
-    outline: 2px solid #b33; outline-offset: 1px;
-  }
-  #pad-panel button.waiting { border-color: #b33; color: #b33; }
-  #pad-binds { width: 100%; border-collapse: collapse; font-size: 13px; }
-  #pad-binds td { padding: 3px 0; vertical-align: baseline; }
-  #pad-binds td.key { color: #d8d8d8; width: 7.5em; }
-  #pad-binds td.key.none { color: #666; }
-  #pad-binds td.act { width: 1%; white-space: nowrap; text-align: right; }
-  #pad-binds td.sends { color: #9a9a9a; width: 6em;
-                        font-family: ui-monospace, Menlo, Consolas, monospace;
-                        font-size: 11px; }
-  #pad-binds td.sends.custom { color: #d8a; }
-  #pad-binds td.sends.engine { color: #8b9; }
-  #pad-panel #pad-keys-hint { font-size: 12px; }
-  #pad-panel #pad-keys-hint b { color: #d8d8d8; }
-  #pad-panel #pad-keys-hint .k-eng { color: #8b9; }
-  #pad-panel #pad-keys-hint .k-own { color: #d8a; }
-  #pad-binds small { color: #666; }
-  #pad-sticks {
-    display: grid; grid-template-columns: auto 1fr auto;
-    gap: 7px 10px; align-items: center; font-size: 13px;
-  }
-  #pad-sticks label { color: #b0b0b0; }
-  #pad-sticks input[type=range] { width: 100%; }
-  #pad-sticks .val { color: #808080; font-size: 12px; min-width: 3em; }
-  #pad-sticks .wide { grid-column: 1 / -1; color: #b0b0b0; }
-  #pad-raw {
-    margin: 0; font-family: ui-monospace, Menlo, Consolas, monospace;
-    font-size: 11px; line-height: 1.5; color: #9a9a9a; white-space: pre-wrap;
-    word-break: break-word; background: #0b0b0b; border: 1px solid #2a2a2a;
-    border-radius: 4px; padding: 8px;
-  }
-  #pad-raw b { color: #d8d8d8; font-weight: normal; }
-  #pad-copy-row { display: flex; gap: 8px; align-items: center; }
-  #pad-copy-row .dim { color: #808080; font-size: 12px; }
-  #pad-foot { display: flex; gap: 8px; justify-content: flex-end; }
-  /* The controller strip, on screen while playing.
-     The panel cannot answer "why did that button do nothing": it is only
-     visible when the game is not, so the one moment worth watching is the one
-     moment it is hidden. This sits over the picture instead. */
-  #pad-live {
-    position: absolute;
-    top: 0; left: 0;
-    max-width: 100%;
-    padding: 4px 8px;
-    background: rgba(0, 0, 0, 0.78);
-    font-family: ui-monospace, Menlo, Consolas, monospace;
-    font-size: 11px; line-height: 1.5; color: #9a9a9a;
-    white-space: pre-wrap; word-break: break-word;
-    pointer-events: none;
-  }
-  #pad-live[hidden] { display: none; }
-  #pad-live b { color: #d8d8d8; font-weight: normal; }
+  #pad-note b { color: #d8d8d8; font-weight: normal; }
   #status {
     position: absolute;
     left: 0; right: 0; bottom: 0;
@@ -203,40 +119,15 @@
      screen back — which is why <b>Game menu</b> is here rather than on a key:
      the browser takes <kbd>Esc</kbd> while the mouse is captured, and
      <kbd>Esc</kbd> is what opens Quake's menu. The <kbd>`</kbd> key opens the
-     console. Keys, the mouse and the sound are all configured in the game's
-     own Options.</p>
+     console. Keys, the mouse, a game controller and the sound are all set up
+     in the game's own Options.</p>
   <p class="dim" id="pad-note" hidden></p>
-  <div id="pad-panel" hidden>
-    <h2>Buttons</h2>
-    <p class="dim" id="pad-which"></p>
-    <p class="dim" id="pad-keys-hint">Each action presses a <b>key</b>, so it has
-       to be the key your game listens for. Those are read from the game's own
-       config and shown below — <span class="k-eng">green</span> came from there,
-       <span class="k-own">pink</span> was set here by hand, grey is the engine
-       default. If one is wrong, press <b>Key</b> on its row and then the key you
-       actually use.</p>
-    <table id="pad-binds"><tbody></tbody></table>
-    <h2>Sticks</h2>
-    <div id="pad-sticks"></div>
-    <h2>What the pad is reporting</h2>
-    <pre id="pad-raw"></pre>
-    <div id="pad-copy-row">
-      <button type="button" id="pad-copy">Copy this</button>
-      <span class="dim" id="pad-copied"></span>
-    </div>
-    <div id="pad-foot">
-      <button type="button" id="pad-reset">Reset to defaults</button>
-      <button type="button" id="pad-done">Done</button>
-    </div>
-  </div>
   <p class="dim" id="audio-note">Sound: not started.</p>
   <!-- Hidden until asked for: videoNote() shows it when ?stats=1, and its
        first tick is 500 ms away, which is long enough to be seen. -->
   <p class="dim" id="video-note" hidden>Picture: not started.</p>
   <p class="dim" id="build-note">__QUAKE_VERSION__</p>
 </div>
-
-<div id="pad-live" hidden></div>
 
 <div id="status" hidden></div>
 
@@ -246,7 +137,7 @@
 
 <script type="module">
 import RFB from './core/rfb.js';
-import { QuakeGamepad, ACTIONS, keyName, inputName } from './quake-gamepad.js';
+import { QuakePadBridge, padName } from './quake-gamepad.js';
 // noVNC's own DOM-event-to-keysym translation, so a key learned from the
 // keyboard here sends exactly what pressing that key sends.
 import { getKeysym, getKeycode } from './core/input/util.js';
@@ -341,6 +232,9 @@ let videoHeldWorst = 0;       // ... of which this much was after it had a
   window.WebSocket = function (...a) {
     const sock = new Native(...a);
     const isAudio = String(a[0]).indexOf('token=audio') >= 0;
+
+    // The controller's socket carries neither sound nor picture.
+    if (String(a[0]).indexOf('token=pad') >= 0) return sock;
 
     //
     // When this page asks for the next frame.
@@ -839,9 +733,7 @@ function resetPointer() {
 //
 function flushMouse() {
   flushQueued = false;
-  // A captured pointer is the usual driver, but not the only one: the gamepad
-  // turns by feeding this same queue, and a phone has no pointer to lock.
-  if (!locked() && !padMayTurn()) return;
+  if (!locked()) return;
   if (pendingX === 0 && pendingY === 0) return;
 
   const c = canvas();
@@ -862,7 +754,7 @@ function flushMouse() {
   // re-bases where the next delta is measured from.
   if (vx + dx < cx - edgeX || vx + dx > cx + edgeX ||
       vy + dy < cy - edgeY || vy + dy > cy + edgeY) {
-    rfb._sendMouse(cx, cy, buttons | padMouseMask);
+    rfb._sendMouse(cx, cy, buttons);
     vx = cx;
     vy = cy;
   }
@@ -877,7 +769,7 @@ function flushMouse() {
   if (nx !== vx || ny !== vy) {
     vx = nx;
     vy = ny;
-    rfb._sendMouse(vx, vy, buttons | padMouseMask);
+    rfb._sendMouse(vx, vy, buttons);
   }
 
   if (pendingX !== 0 || pendingY !== 0) queueFlush();
@@ -889,10 +781,6 @@ function queueFlush() {
   requestAnimationFrame(flushMouse);
 }
 
-// What the controller is holding, kept apart from the real mouse's own state so
-// that releasing one does not release the other.
-let padMouseMask = 0;
-
 // A button change on its own. Sent at the centre, which the engine ignores for
 // movement, so pressing fire cannot also nudge the view.
 function sendButtons() {
@@ -901,7 +789,7 @@ function sendButtons() {
   const [cx, cy] = centreOf(c);
   vx = cx;
   vy = cy;
-  rfb._sendMouse(cx, cy, buttons | padMouseMask);
+  rfb._sendMouse(cx, cy, buttons);
 }
 
 // Let go of everything. Losing the capture with a button held would otherwise
@@ -959,156 +847,40 @@ const AUDIO_VIA_ELEMENT =
 //
 // The controller.
 //
-// It presses the same keys a keyboard would and moves the view with the same
-// relative pointer reports the captured mouse produces, so the engine is told
-// nothing new and needed no change for any of this. quake-gamepad.js holds the
-// bindings and the stick maths; this is the part that needs the connection.
+// Read here, because the pad is plugged into this machine, and handed to the
+// engine, which does everything else with it: its buttons are bound in the
+// game's Options -> Controls -> Customize Controls and its sticks are set up on
+// the Controls page, the same as in the Linux desktop build. This page only
+// passes its state across; see quake-gamepad.js and WinQuake/in_pad.c.
 //
-const gamepad = new QuakeGamepad({
-  // The code name is passed through, so this is the same call the keyboard
-  // handler makes for the same key -- same branch inside sendKey, same bytes on
-  // the wire. Leaving it off worked in the lab and made this path the only one
-  // in the page that could not be compared against a keyboard that is known to
-  // work, which is not a difference worth keeping.
-  press:    (keysym, code) => rfb.sendKey(keysym, code, true),
-  release:  (keysym, code) => rfb.sendKey(keysym, code, false),
-  turn:     (dx) => { pendingX += dx; queueFlush(); },
-  //
-  // The pad's mouse buttons, folded into the same mask the real mouse uses.
-  //
-  // The engine reads fire as `gamekeydown[key_fire] || mousebuttons[mousebfire]`,
-  // so a player whose fire is the mouse has no key for it and a controller
-  // sending only keys can never fire, whatever it is bound to. The pad's bits sit
-  // above the real mouse's so neither clears the other.
-  mouse:    (mask) => { padMouseMask = mask; sendButtons(); },
-  onChange: () => renderPad(),
+const gamepad = new QuakePadBridge({
+  url: `${scheme}://${location.host}/websockify?token=pad`,
+  onChange: () => { renderPadNote(); reportPad(); },
 });
 
-// Whether the pad should be reaching the game at all: play is on, and this tab
-// is in front. A pad knocked off the desk while the start screen is up should
-// not empty a nailgun into a room nobody is looking at.
+// Whether the game is being played: the start screen is down and this tab is
+// in front. Otherwise the pad is reported with nothing held, so a pad knocked
+// off the desk while the start screen is up does not empty a nailgun into a
+// room nobody is looking at.
 function padActive() {
   return !!overlayEl && overlayEl.hidden && !document.hidden;
 }
 
-function padMayTurn() {
-  return gamepad.settings.enabled && gamepad.available() && padActive();
-}
-
 //
-// Its own frame loop.
-//
-// The Gamepad API has no events -- button state only exists in the snapshot
-// getGamepads() hands back -- so something has to look every frame. It cannot
-// share the measuring loop above, which stops while the start screen is up;
-// binding a button needs polling to carry on precisely then.
+// Its own frame loop: the Gamepad API has no events, so something has to look
+// every frame, and the pad has to reach the game's menus while the start
+// screen is down whatever else is going on.
 //
 (function padLoop() {
   function step() {
     gamepad.poll(padActive());
-    reportPad();
-    padWatch();
-    padLive();
     refreshNoMouse();
     requestAnimationFrame(step);
   }
   requestAnimationFrame(step);
 })();
 
-//
-// The strip, updated ten times a second while playing.
-//
-// Only with `?stats=1`, which is already this page's switch for "show me the
-// instruments". It answers the one question the panel cannot, because it is
-// readable at the instant a button fails: did the page see the button, and did
-// it put a key on the wire? If both, whatever is wrong is past this page. If
-// neither, the pad is not reaching the page and nothing here can rebind it.
-//
-const padLiveEl = document.getElementById('pad-live');
-let padLiveAt = 0;
-let padSentTotal = 0;
-
-function padLive() {
-  if (!padLiveEl) return;
-  if (!SHOW_STATS || !padActive()) {
-    if (!padLiveEl.hidden) padLiveEl.hidden = true;
-    return;
-  }
-
-  const now = performance.now();
-  if (now - padLiveAt < 100) return;
-  padLiveAt = now;
-
-  const s = gamepad.snapshot();
-  padSentTotal = Math.max(padSentTotal, s.log.length);
-
-  const bits = ['pads ' + s.pads];
-  if (s.pads) {
-    bits.push('layout ' + s.mapping);
-    bits.push('pressed ' + (s.down.length ? s.down.map(inputName).join(',') : '\u2014'));
-    bits.push('holding ' + (s.held.length ? s.held.map(keyName).join(',') : '\u2014'));
-    const last = s.log[s.log.length - 1];
-    bits.push('last key ' + (last
-      ? keyName(last.keysym) + (last.down ? ' down' : ' up')
-      : 'none sent yet'));
-  }
-
-  padLiveEl.textContent = '';
-  const b = document.createElement('b');
-  b.textContent = bits.join('  \u00b7  ');
-  padLiveEl.append(b);
-  padLiveEl.hidden = false;
-}
-
-// Same hazard as a held mouse button: a key the pad is holding when the tab
-// goes away is a key the engine goes on obeying.
-window.addEventListener('blur', () => gamepad.releaseAll());
-document.addEventListener('visibilitychange', () => {
-  if (document.hidden) gamepad.releaseAll();
-});
-
-//
-// Binding it, on the start screen.
-//
-// The bindings cannot live in the game's own Options → Customize controls:
-// that menu writes `config.cfg` in the container, and the container has never heard of
-// a controller. So the panel is here, and what it saves stays in this browser
-// -- which is also the right place for it, because the pad on a phone and the
-// pad on a desk want different layouts and they are different browsers.
-//
-const padNoteEl   = document.getElementById('pad-note');
-const padPanelEl  = document.getElementById('pad-panel');
-const padWhichEl  = document.getElementById('pad-which');
-const padBindsEl  = document.querySelector('#pad-binds tbody');
-const padSticksEl = document.getElementById('pad-sticks');
-
-// "Xbox Wireless Controller (STANDARD GAMEPAD Vendor: 045e Product: 0b13)"
-// is the name the browser gives; the useful half is in front of the bracket.
-function padName(id) {
-  const s = String(id || '');
-  const cut = s.indexOf(' (');
-  return (cut > 0 ? s.slice(0, cut) : s).trim() || 'controller';
-}
-
-function renderPad() {
-  renderPadNote();
-  if (padPanelEl && !padPanelEl.hidden) {
-    renderPadWhich();
-    renderPadBinds();
-    renderPadSticks();
-  }
-}
-
-//
-// One line, and only once there is a controller to say it about.
-//
-// Not a word before then. The alternative was a line explaining that a browser
-// reports no gamepad until a button on it has been pressed -- true, and the
-// reason a paired, charged, idle pad is invisible -- but that is a sentence
-// every keyboard player would read for ever to spare a pad owner one press of
-// a button that they are about to make anyway. It is in DOCKER.md instead.
-//
-let padNoteState = null;
+const padNoteEl = document.getElementById('pad-note');
 
 //
 // "No mouse to capture", while that is still true.
@@ -1146,461 +918,44 @@ function refreshNoMouse() {
   else if (statusMain === NO_MOUSE_NOTE) status('');
 }
 
+//
+// One line on the start screen, once there is a controller to say it about.
+//
 function renderPadNote() {
   if (!padNoteEl) return;
-
   const pad = gamepad.pad();
-
-  // With ?stats=1 the line is there whether a pad was found or not, because
-  // that is the switch for "show me the instruments" -- and a pad that is not
-  // being seen at all is precisely the fault the readout has to explain.
-  if (!pad && !SHOW_STATS) {
+  if (!pad) {
     padNoteEl.hidden = true;
     padNoteEl.textContent = '';
-    padNoteState = null;
     return;
   }
 
-  // Anything that cannot work is named here rather than left in the panel.
-  // Six releases went by with a controller half working and this screen saying
-  // only that a controller was present, which was the least useful true thing
-  // it could have said.
-  const bad = pad ? gamepad.troubled() : [];
-  const state = (pad ? pad.id : 'none') + '|'
-              + (padPanelEl && !padPanelEl.hidden ? 'open' : 'shut') + '|'
-              + bad.map(b => b.id + b.why).join(',');
-  if (state === padNoteState) return;
-  padNoteState = state;
-
-  padNoteEl.textContent = '';
-  padNoteEl.append(pad
-    ? 'Controller: ' + padName(pad.id) + '. '
-    : 'Controller: none seen \u2014 press a button on it. ');
-
-  if (bad.length) {
-    // Named, but never at length: this screen is meant to be read at a glance,
-    // and a pad that reports almost nothing as buttons could otherwise fill it.
-    const say = document.createElement('b');
-    const shown = bad.slice(0, 3).map(b => b.label).join(', ');
-    const rest  = bad.length > 3 ? ' and ' + (bad.length - 3) + ' more' : '';
-    say.textContent = bad.every(b => b.why === 'button')
-      ? shown + rest + ': no such button on this pad. '
-      : shown + rest + ': needs a key. ';
-    padNoteEl.append(say);
-  }
-
-  const open = document.createElement('button');
-  open.type = 'button';
-  open.textContent = padPanelEl && !padPanelEl.hidden ? 'Close' : 'Buttons';
-  open.addEventListener('click', () => {
-    if (padPanelEl.hidden) openPad(); else closePad();
-  });
-  padNoteEl.append(open);
+  padNoteEl.textContent = 'Controller: ' + padName(pad.id) + '. ';
+  const b = document.createElement('b');
+  b.textContent = gamepad.connected()
+    ? 'Set it up in the game: Options \u2192 Controls.'
+    : 'Waiting for the game to take it\u2026';
+  padNoteEl.append(b);
   padNoteEl.hidden = false;
 }
 
-function renderPadWhich() {
-  if (!padWhichEl) return;
-  const pad = gamepad.pad();
-  if (!pad) {
-    padWhichEl.textContent = 'No controller seen yet. Press a button on it and'
-                           + ' this will fill in.';
-    return;
-  }
-  padWhichEl.textContent = pad.mapping === 'standard'
-    ? padName(pad.id) + ' \u2014 standard layout, so the names below are the'
-      + ' names on the pad.'
-    : padName(pad.id) + ' \u2014 this browser does not report a standard'
-      + ' layout for it, so the button names below are guesses. Rebinding still'
-      + ' works: bind by pressing.';
-}
-
-let padBinding = null;
-let padButtons = 0;      // how many buttons this pad admits to having
-
-function renderPadBinds() {
-  if (!padBindsEl) return;
-  padBindsEl.textContent = '';
-  padButtons = gamepad.snapshot().buttonsPresent;
-
-  for (const a of ACTIONS) {
-    const tr = document.createElement('tr');
-
-    const name = document.createElement('td');
-    name.textContent = a.label;
-    if (a.note) {
-      const s = document.createElement('small');
-      s.textContent = ' \u2014 ' + a.note;
-      name.append(s);
-    }
-
-    const i = gamepad.inputFor(a.id);
-    const key = document.createElement('td');
-    key.className = 'key' + (i === null ? ' none' : '');
-    const all = gamepad.inputsFor(a.id);
-    key.textContent = all.length ? all.map(inputName).join(' or ') : 'not bound';
-    // A layout naming a button this pad does not have is worth saying out loud:
-    // it is exactly what a trigger reported as an axis looks like.
-    const bm = i && /^b(\d+)$/.exec(i);
-    if (bm && padButtons && Number(bm[1]) >= padButtons) {
-      key.classList.add('none');
-      key.textContent = inputName(i) + ' \u2014 not on this pad';
-    }
-
-    // Which key this action actually presses. The whole point of the panel is
-    // that this is a key and not an intention, so it is on screen rather than
-    // implied.
-    const sends = document.createElement('td');
-    const src = gamepad.keySource(a.id);
-    sends.className = 'sends' + (src === 'learned' ? ' custom' : '')
-                              + (src === 'engine' ? ' engine' : '');
-    const mb = gamepad.mouseFor(a.id);
-    const rawv = gamepad.rawFor(a.id);
-    // The mouse button is only a fallback, so it is only mentioned where it is
-    // actually what gets sent -- the branch below handles that case.
-    sends.textContent = gamepad.keysFor(a.id).map(([sym]) => keyName(sym)).join('+')
-      + (rawv !== null ? ' (' + rawv + ')' : '');
-    if (gamepad.wasAutoBound(a.id)) {
-      const s2 = document.createElement('small');
-      s2.textContent = ' \u2014 found as a trigger axis';
-      name.append(s2);
-    }
-    sends.title = src === 'learned' ? 'set here by hand'
-                : src === 'engine'  ? "from the game's own config"
-                : 'the engine default';
-
-    // A setting this page could not turn into a keysym is worth saying out
-    // loud, because the alternative is pressing the default at an engine that
-    // is listening for something else and looking broken for no stated reason.
-    const unknown = gamepad.unknownKeyFor(a.id);
-    if (unknown !== null) {
-      if (mb !== null) {
-        // There is still a way to do it: the engine accepts a mouse button for
-        // this one, and that is what gets sent.
-        sends.textContent = 'mouse ' + (mb + 1) + ' (key ' + unknown + ' unusable)';
-        sends.title = 'The engine has no usable key for this, but it accepts'
-                    + ' mouse button ' + (mb + 1) + ', which is what the pad sends.';
-      } else {
-        sends.classList.add('none');
-        sends.textContent = 'key ' + unknown + ' \u2014 nothing to send';
-        sends.title = 'The engine is bound to key number ' + unknown + ', which'
-                    + ' this page cannot express, and there is no mouse button for'
-                    + ' it. Press Key and press the key you use.';
-      }
-    }
-
-    const act = document.createElement('td');
-    act.className = 'act';
-    const bind = document.createElement('button');
-    bind.type = 'button';
-    bind.textContent = padBinding === a.id ? 'press or squeeze\u2026' : 'Bind';
-    if (padBinding === a.id) bind.classList.add('waiting');
-    bind.addEventListener('click', () => beginBind(a.id));
-    act.append(bind);
-
-    const learn = document.createElement('button');
-    learn.type = 'button';
-    learn.textContent = padLearning === a.id ? 'press a key\u2026' : 'Key';
-    if (padLearning === a.id) learn.classList.add('waiting');
-    learn.addEventListener('click', () => beginLearn(a.id));
-    act.append(' ', learn);
-
-    if (i !== null) {
-      const clear = document.createElement('button');
-      clear.type = 'button';
-      clear.textContent = 'Clear';
-      clear.addEventListener('click', () => gamepad.bindAction(a.id, null));
-      act.append(' ', clear);
-    }
-    if (gamepad.isCustomKey(a.id)) {
-      const rev = document.createElement('button');
-      rev.type = 'button';
-      rev.textContent = 'Default key';
-      rev.addEventListener('click', () => gamepad.clearKey(a.id));
-      act.append(' ', rev);
-    }
-
-    tr.append(name, key, sends, act);
-    padBindsEl.append(tr);
-  }
-}
-
 //
-// Learning a key from the keyboard.
-//
-// Capture phase and preventDefault, so the keypress is consumed here rather
-// than reaching the game behind the overlay or the page's own Escape handler --
-// otherwise learning Escape would close the start screen instead of being
-// learned.
-//
-let padLearning = null;
-
-function beginLearn(actionId) {
-  padLearning = padLearning === actionId ? null : actionId;
-  renderPadBinds();
-}
-
-window.addEventListener('keydown', (e) => {
-  if (!padLearning) return;
-  e.preventDefault();
-  e.stopPropagation();
-
-  const keysym = getKeysym(e);
-  const action = padLearning;
-  padLearning = null;
-  if (keysym) gamepad.setKey(action, keysym, getKeycode(e));
-  else renderPadBinds();
-}, true);
-
-async function beginBind(actionId) {
-  padLearning = null;
-  gamepad.cancelCapture();
-  padBinding = actionId;
-  renderPadBinds();
-  const i = await gamepad.captureButton();
-  padBinding = null;
-  // bindAction re-renders through onChange; a cancelled capture does not.
-  if (i === null) renderPadBinds();
-  else gamepad.bindAction(actionId, i);
-}
-
-function renderPadSticks() {
-  if (!padSticksEl) return;
-  padSticksEl.textContent = '';
-  const s = gamepad.settings;
-
-  const check = (key, label) => {
-    const wrap = document.createElement('label');
-    wrap.className = 'wide';
-    const box = document.createElement('input');
-    box.type = 'checkbox';
-    box.checked = !!s[key];
-    box.addEventListener('change', () => gamepad.set(key, box.checked));
-    wrap.append(box, ' ' + label);
-    padSticksEl.append(wrap);
-  };
-
-  const slider = (key, label, min, max, step, fmt) => {
-    const l = document.createElement('label');
-    l.textContent = label;
-    const r = document.createElement('input');
-    r.type = 'range';
-    r.min = min; r.max = max; r.step = step; r.value = s[key];
-    const v = document.createElement('span');
-    v.className = 'val';
-    v.textContent = fmt(s[key]);
-    r.addEventListener('input', () => {
-      v.textContent = fmt(Number(r.value));
-      // Straight onto settings while dragging; saved on release, so a drag is
-      // not a hundred writes to localStorage.
-      s[key] = Number(r.value);
-    });
-    r.addEventListener('change', () => gamepad.set(key, Number(r.value)));
-    padSticksEl.append(l, r, v);
-  };
-
-  check('enabled', 'Use the controller');
-  slider('turnSpeed', 'Turn speed', 2, 40, 1, v => String(Math.round(v)));
-  slider('deadzone', 'Deadzone', 0, 0.5, 0.01, v => Math.round(v * 100) + '%');
-  check('invertTurn', 'Invert turning');
-  check('swapSticks', 'Swap sticks (left turns, right moves)');
-  check('autoRun', 'Push the stick all the way to run');
-}
-
-//
-// The readout.
-//
-// Live, because the useful question is "does this button reach the page at
-// all", and the answer has to be visible while the button is being held. The
-// key log is not live -- it cannot be, since nothing is sent while this panel
-// is up -- so it is kept from the last spell of play: press things, press
-// Escape, open this, read what actually went out.
-//
-const padRawEl = document.getElementById('pad-raw');
-let padRawTimer = 0;
-
-function renderPadRaw() {
-  if (!padRawEl || !padPanelEl || padPanelEl.hidden) return;
-  const s = gamepad.snapshot();
-  const line = (label, value) => {
-    padRawEl.append(label + ' ');
-    const b = document.createElement('b');
-    b.textContent = value;
-    padRawEl.append(b, '\n');
-  };
-
-  padRawEl.textContent = '';
-  line('pads seen  ', String(s.pads));
-  if (!s.pads) {
-    padRawEl.append('\nNothing is being reported. A browser hides a gamepad'
-      + ' until a button on it has been pressed, so press one now. If this'
-      + ' stays at 0 the page is not being given the pad at all and no'
-      + ' binding here can help.\n');
-    return;
-  }
-  line('name       ', String(s.id));
-  line('layout     ', String(s.mapping));
-  line('buttons    ', s.buttonCount + ' reported');
-  line('axes       ', s.axisCount + ': ' + s.axes.join(', '));
-  line('pressed now', s.down.length ? s.down.map(inputName).join('  ') : '\u2014');
-  line('raw buttons', s.active.length
-    ? s.active.map(b => b.i + (b.pressed ? '' : ' (' + b.value + ')')).join('  ')
-    : '\u2014');
-  line('enabled    ', s.enabled ? 'yes' : 'no \u2014 switch it on above');
-  line('holding    ', s.held.length ? s.held.map(keyName).join(' ') : '\u2014');
-
-  padRawEl.append('\nkeys sent while last playing\n');
-  if (!s.log.length) {
-    padRawEl.append('  nothing. If a button showed up as "pressed now" but'
-      + ' nothing is listed here after a spell of play, the page saw the'
-      + ' button and did not send a key. If keys are listed and the game did'
-      + ' not react, they reached the far end and the engine ignored them.\n');
-  } else {
-    for (const e of s.log)
-      padRawEl.append('  ' + keyName(e.keysym) + (e.down ? ' down' : ' up') + '\n');
-  }
-}
-
-function openPad() {
-  if (!padPanelEl) return;
-  padPanelEl.hidden = false;
-  renderPad();
-  renderPadRaw();
-  if (!padRawTimer) padRawTimer = setInterval(renderPadRaw, 120);
-}
-
-function closePad() {
-  if (!padPanelEl) return;
-  gamepad.cancelCapture();
-  padBinding = null;
-  padLearning = null;
-  padPanelEl.hidden = true;
-  if (padRawTimer) { clearInterval(padRawTimer); padRawTimer = 0; }
-  renderPad();
-}
-
-document.getElementById('pad-copy').addEventListener('click', async () => {
-  const said = document.getElementById('pad-copied');
-  const text = (padRawEl && padRawEl.textContent) || '';
-  try {
-    await navigator.clipboard.writeText(text);
-    said.textContent = 'copied';
-  } catch (e) {
-    // A clipboard a browser will not give up is not worth an error: select it
-    // instead and let the ordinary copy do it.
-    const r = document.createRange();
-    r.selectNodeContents(padRawEl);
-    const sel = getSelection();
-    sel.removeAllRanges();
-    sel.addRange(r);
-    said.textContent = 'selected \u2014 copy it';
-  }
-  setTimeout(() => { said.textContent = ''; }, 2500);
-});
-
-document.getElementById('pad-done').addEventListener('click', closePad);
-document.getElementById('pad-reset').addEventListener('click', () => {
-  gamepad.reset();
-  renderPad();
-});
-
-//
-// The engine's own key bindings, which the container reads out of `config.cfg` and
-// serves beside this page because only it can see them.
-//
-// This is what makes a controller work in a level rather than only in the
-// menus. Fetched rather than baked in because it is per-installation: the
-// engine writes that file whenever anybody changes a binding under Options →
-// Customize controls, and a pad pressing the built-in defaults goes dead the
-// moment they do.
-//
-// A failure here is not worth interrupting anybody over: the defaults stand,
-// and the panel still says which key each action sends and still lets it be
-// set by hand.
-//
-// It is worth a line in the container's log, though, and so is success. A page
-// quietly running the built-in defaults at an engine that was rebound behaves
-// exactly like a controller that does not work, and from the log of a
-// container that is serving the file perfectly well the two look identical.
-//
-let padKeysSettled = false;
-
-// One line per page load, whether or not there is ever a controller: which
-// build the browser is actually running, and what it believes the engine's
-// bindings to be. A report that begins "the pad does nothing" against a log
-// with no line here at all is a browser that never loaded this page.
-function padKeysDone(note) {
-  if (padKeysSettled) return;
-  padKeysSettled = true;
-  // Two lines, not one: together they run past what a single log line carries,
-  // and the keymap is the half that was getting cut off.
-  padLog('client __QUAKE_VERSION__, pointerlock ' + (canLock() ? 'yes' : 'no'));
-  padLog('keymap ' + note);
-}
-
-fetch('quake-keys.json', { cache: 'no-store' })
-  .then(r => (r.ok ? r.json() : null))
-  .then(cfg => {
-    if (!cfg) return padKeysDone('unreadable, built-in defaults stand');
-    gamepad.useEngineKeys(cfg);
-    const seen = Object.entries(cfg)
-      .map(([k, v]) => k + '=' + v).sort().join(' ');
-    padKeysDone(seen ? 'from the engine: ' + seen : 'empty, built-in defaults stand');
-  })
-  .catch(() => padKeysDone('could not be fetched, built-in defaults stand'));
-
-// A request that never answers would otherwise hold back the plan below for
-// ever, and the plan is the half of the log worth having.
-setTimeout(() => padKeysDone('did not arrive in five seconds, carrying on'), 5000);
-
-//
-// Tell the container's log which controller this is, and what it will do.
-//
-// Every controller report so far has come down to a question only the pad can
-// answer -- how many buttons does it claim, where do its axes rest, which key
-// is each one going to send -- and none of it is visible from the container.
-// So it is written into the container's log, which is the thing somebody
-// actually pastes when a controller misbehaves.
-//
-// Once per pad, and nothing leaves the machine: it goes to the same container
-// that is serving this page, over the same connection.
+// Which pad, into the container's log, once each time the answer changes: the
+// first question about a controller that does nothing is whether the game was
+// ever handed it.
 //
 let padReported = null;
-let padPlanned = null;
 
 function reportPad() {
-  const r = gamepad.padReport();
-  if (!r) return;
-
-  if (r.id !== padReported) {
-    padReported = r.id;
-    padLog('found id=' + r.id + ' mapping=' + r.mapping
-           + ' buttons=' + r.buttons + ' axes=' + r.axes
-           + (padActive() ? '' : ' (start screen, nothing sent yet)'));
-  }
-
-  // The plan waits for the engine's bindings. Printed any earlier it describes
-  // the built-in defaults and then the page goes and does something else, which
-  // is precisely the sort of wrong log that costs a release to believe.
-  if (padKeysSettled && r.id !== padPlanned) {
-    padPlanned = r.id;
-    if (gamepad.filledIn.length)
-      padLog('filled in from the defaults, saved layout had no button for: '
-             + gamepad.filledIn.join(' '));
-    for (const line of gamepad.plan()) padLog('plan ' + line);
-
-    // A control the engine has on a key it eats itself cannot work at all --
-    // Enter, Tab, Escape, the F-keys and Pause never reach the code that reads
-    // gamekeydown. Said outright, because the panel row alone is not where
-    // anybody looks, and because the engine's own Controls screen used to let
-    // Enter bind itself, so a config can carry one without anybody choosing it.
-    for (const a of ACTIONS) {
-      const raw = gamepad.rawFor(a.id);
-      if (raw !== null && gamepad.unknownKeyFor(a.id) === raw)
-        padLog('note ' + a.id + ' is key ' + raw + ' in the engine, which the'
-               + ' game never sees -- rebind it in Options > Customize controls');
-    }
-  }
+  const p = gamepad.pad();
+  const now = p ? p.id + '|' + p.mapping + '|' + gamepad.connected() : 'none';
+  if (now === padReported) return;
+  padReported = now;
+  padLog(p
+    ? 'pad ' + p.id + ', ' + (p.mapping === 'standard' ? 'standard' : 'non-standard')
+      + ' layout, ' + p.buttons.length + ' buttons, ' + p.axes.length + ' axes, '
+      + (gamepad.connected() ? 'passed to the game' : 'not reaching the game yet')
+    : 'no pad');
 }
 
 //
@@ -1677,47 +1032,7 @@ function padLogFlush() {
   if (padLogQueue.length) padLogTimer = setTimeout(padLogFlush, 400);
 }
 
-//
-// Watch what the pad is doing and write down the changes.
-//
-// Buttons always, so a press that is bound to nothing still shows up. Axes only
-// where something is bound to them, or the sticks would log continuously.
-//
-let padWasDown = [];
-let padWasKeys = 0;
-let padWasMouse = 0;
-
-function padWatch() {
-  if (!gamepad.available()) return;
-  const s = gamepad.snapshot();
-
-  const interesting = t => /^b/.test(t) || gamepad.bindings[t];
-  const now = s.down.filter(interesting);
-  for (const t of now)
-    if (!padWasDown.includes(t))
-      padLog('down ' + t + ' -> ' + (gamepad.bindings[t] || 'nothing bound')
-             + (padActive() ? '' : ' (start screen, not sent)'));
-  for (const t of padWasDown)
-    if (!now.includes(t)) padLog('up   ' + t);
-  padWasDown = now;
-
-  // And what actually went on the wire because of it. By sequence number, since
-  // the module's own log is a ring and its length says nothing about what is new.
-  for (const e of s.log)
-    if (e.seq > padWasKeys) padLog('sent ' + keyName(e.keysym) + (e.down ? ' down' : ' up'));
-  padWasKeys = s.logSeq;
-
-  // The mouse mask too, which is how fire works for anybody without a fire key.
-  if (s.mouseMask !== padWasMouse) {
-    padLog('mouse mask ' + padWasMouse + ' -> ' + s.mouseMask);
-    padWasMouse = s.mouseMask;
-  }
-}
-
-// The pad appears and disappears without a page load, so the line has to be
-// kept honest on a timer as well as on the connect and disconnect events --
-// Safari has been known not to fire them.
-renderPad();
+renderPadNote();
 setInterval(renderPadNote, 1000);
 
 
@@ -2489,7 +1804,6 @@ function enterPlay(fullscreen) {
   rfb.focus();
   fitCanvas();
   retireEscNote();
-  closePad();
 
   //
   // Start playing on a device that cannot lock the pointer.

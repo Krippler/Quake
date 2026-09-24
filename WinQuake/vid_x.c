@@ -2482,6 +2482,7 @@ void IN_Init (void)
 {
 	Cvar_RegisterVariable (&_windowed_mouse);
 	Cvar_RegisterVariable (&m_filter);
+	IN_PadInit ();
 
 // On a desktop the pointer is held while playing, and let go of in the menus,
 // the console and another window (VID_UpdateGrab). The container reads an
@@ -2497,13 +2498,16 @@ void IN_Init (void)
 
 void IN_Shutdown (void)
 {
+	IN_PadShutdown ();
    mouse_avail = 0;
 }
 
 void IN_Commands (void)
 {
 	int i;
-   
+
+	IN_PadCommands ();
+
 	if (!mouse_avail) return;
    
 	for (i=0 ; i<mouse_buttons ; i++) {
@@ -2518,6 +2522,8 @@ void IN_Commands (void)
 
 void IN_Move (usercmd_t *cmd)
 {
+	IN_PadMove (cmd);
+
 	if (!mouse_avail)
 		return;
    

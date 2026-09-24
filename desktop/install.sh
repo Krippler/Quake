@@ -55,6 +55,13 @@ if [ -n "$missing" ]; then
     exit 1
 fi
 
+# Controllers come through SDL2, loaded when the game starts if it is there;
+# the game runs without it, so this is a word rather than a refusal.
+if ! ldconfig -p 2>/dev/null | grep -q 'libSDL2-2.0.so.0'; then
+    echo "Note: SDL2 is not installed, so game controllers will not work."
+    echo "      (libsdl2-2.0-0 on Debian/Ubuntu, SDL2 on Fedora, sdl2 on Arch)"
+fi
+
 install -d "$prefix/bin" "$prefix/lib/quake" "$prefix/share/applications" \
            "$prefix/share/icons/hicolor/48x48/apps"
 install -m 755 "$here/lib/quake/xquake" "$prefix/lib/quake/xquake"
