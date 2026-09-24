@@ -24,8 +24,16 @@ RESTART="${QUAKE_RESTART:-1}"
 # audiostream are told the same number the engine produces.
 AUDIO_RATE=22050
 
-log() { printf '[quake] %s\n' "$*" >&2; }
-die() { printf '[quake] error: %s\n' "$*" >&2; exit 1; }
+# Every line carries the seconds since this script started, so a slow start
+# says which step it was slow in: scanning a mount of spun-down disks shows up
+# as a gap before "game data:", and so on.
+T0=$(date +%s%N)
+elapsed() {
+    e=$(( ($(date +%s%N) - T0) / 100000000 ))
+    printf '%d.%d' $((e / 10)) $((e % 10))
+}
+log() { printf '[quake %ss] %s\n' "$(elapsed)" "$*" >&2; }
+die() { printf '[quake %ss] error: %s\n' "$(elapsed)" "$*" >&2; exit 1; }
 
 ##############################################################################
 # Drop privileges.
@@ -330,6 +338,7 @@ discover_games() {
     FOUND_GAMES=$(printf '%s' "$FOUND_GAMES" | sed 's/^ *//')
 }
 
+log "looking for game data in $DATADIR"
 discover_games
 
 if [ -z "$FOUND_GAMES" ]; then
