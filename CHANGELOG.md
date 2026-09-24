@@ -5,7 +5,7 @@ top section's heading is what the release workflow reads: `## [X.Y.Z] — DATE`
 on the default branch publishes that version, `## [Unreleased]` publishes only
 `edge`.
 
-## [Unreleased]
+## [1.15.1] — 2026-09-24
 
 ### Fixed
 
