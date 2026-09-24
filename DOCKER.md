@@ -140,10 +140,11 @@ What to expect:
   progs have an `alpha` field (MG1 and MG3), because only 666 can carry it.
   Everything else stays on id's protocol 15. It is decided per map, and
   `developer 1` says when.
-- Models and sprites the progs make translucent are drawn translucent: MG1's
-  gas flares are a soft blue glow, and things fade in and out. Alpha is
-  rounded to eighths. Brush models (doors, walls) with an alpha are still
-  drawn solid; the software renderer's edge list has no way to blend them.
+- Models, sprites and brush models the progs make translucent are drawn
+  translucent: MG1's gas flares are a soft blue glow, its lanterns have grey
+  glass with the flame showing through, and things fade in and out. Alpha is
+  rounded to eighths. Sky and water faces on a translucent brush model are
+  still drawn solid.
 - The re-release progs unlock Steam achievements by sending their own server
   message: a monster killed by another monster, a secret found, a level or
   episode finished. There is nothing here to unlock; `developer 1` shows the

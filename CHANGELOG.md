@@ -5,6 +5,18 @@ top section's heading is what the release workflow reads: `## [X.Y.Z] — DATE`
 on the default branch publishes that version, `## [Unreleased]` publishes only
 `edge`.
 
+## [Unreleased]
+
+### Added
+
+- **Translucent brush models.** Doors, walls and other brush models the progs
+  make translucent were still drawn solid. MG1's hanging lanterns are one:
+  grey glass around a flame, which came out as a solid blue-grey box with the
+  flame hidden inside. Their faces now leave the renderer's edge list, the way
+  see-through fence textures already do, and are blended over the finished
+  frame after the models behind them. Sky and water faces on such a model are
+  still drawn solid.
+
 ## [1.13.1] — 2026-09-24
 
 ### Changed

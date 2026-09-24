@@ -1466,7 +1466,7 @@ of data that is present.
 
 The re-release's progs (MG1's and MG3's) give entities an `.alpha`: gas flares
 drawn twice at 0.6 and 0.4, ghosts and runes that fade, and walls that
-fade, which are brush models and stay solid here. None of it
+fade, which are brush models. None of it
 reached the screen: the server did not send it, the client read 666's alpha
 bytes and dropped them, and the renderer had nothing to blend with.
 
@@ -1491,9 +1491,18 @@ drawn by `R_DrawTranslucentEntities` after the particles, far to near, when
 everything they blend with is already on screen. Their pixels test the
 z-buffer and do not write it. The model rasteriser writes pixels in three
 places (span, subdivided triangle, lone vertex) and the sprite drawer in one;
-each blends through `d_blendmap` when it is set. Brush models go through the
-edge list, which decides visibility before anything is drawn, and are still
-drawn solid.
+each blends through `d_blendmap` when it is set.
+
+Brush models were the harder half, because they go through the edge list,
+which decides visibility before anything is drawn: a translucent wall left in
+it deletes the room behind it. That is the problem fences had, and it has the
+fences' answer. `R_DeferFace` sends every face of a translucent brush entity
+to the fence list instead of the edge list (sky and liquids aside, which have
+their own drawers), and `R_DrawFenceFaces` runs twice: once where it always
+has, for the opaque entries, and once at the start of the translucent pass,
+blending, after the models behind the glass are drawn. MG1's hanging lanterns
+are the case that showed it: brush models of blue-grey `wmet3_3` at an alpha,
+with a flame model inside, which came out as solid blue-grey boxes.
 
 Tested without MG1's data by adding a `.float alpha` field to the shareware
 `progs.dat` and `"alpha"` keys to items and a static flame in a copy of E1M1:

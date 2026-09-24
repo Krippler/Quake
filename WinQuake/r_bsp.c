@@ -492,8 +492,7 @@ void R_DrawSolidClippedSubmodelPolygons (model_t *pmodel)
 		// world. The fence pass sorts with the z-buffer instead and needs none
 		// of it, so the whole face goes to it here, before it is cut.
 		//
-			if ((psurf->flags & SURF_DRAWMASKED)
-				&& R_FenceDeferFace (psurf, r_clipflags))
+			if (R_DeferFace (psurf) && R_FenceDeferFace (psurf, r_clipflags))
 				continue;
 
 		// FIXME: use bounding-box-based frustum clipping info?

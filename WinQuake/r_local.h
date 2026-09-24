@@ -366,7 +366,8 @@ void R_FogClear (void);
 //
 void		R_FenceClearFrame (void);
 qboolean	R_FenceDeferFace (msurface_t *fa, int clipflags);
-void		R_DrawFenceFaces (void);
+void		R_DrawFenceFaces (qboolean translucent);
+qboolean	R_DeferFace (msurface_t *fa);
 
 //
 // Depth to fog row. d is in world units. Written here so the drawers all agree

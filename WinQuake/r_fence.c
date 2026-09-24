@@ -95,6 +95,29 @@ void R_FenceClearFrame (void)
 
 /*
 ================
+R_DeferFace
+
+Whether a face goes to this pass rather than the edge list: a fence, or any
+face of a brush model the progs have made translucent (r_alpha.c), which has
+to leave the edge list for the same reason a fence does -- it must not hide
+what is behind it -- and is blended instead of holed when it is drawn. Sky and
+liquids are drawn by their own span drawers and stay where they are.
+================
+*/
+qboolean R_DeferFace (msurface_t *fa)
+{
+	if (fa->flags & SURF_DRAWMASKED)
+		return true;
+	if (!insubmodel || currententity->alpha == ENTALPHA_DEFAULT)
+		return false;
+	if (fa->flags & (SURF_DRAWSKY | SURF_DRAWTURB))
+		return false;
+	return R_BlendMap (currententity->alpha) != NULL;
+}
+
+
+/*
+================
 R_FenceDeferFace
 
 Called from R_RenderFace. Returns true if the face has been taken over, in
@@ -295,16 +318,19 @@ void D_DrawPoly (void)
 ================
 R_DrawFenceFaces
 
-Called once the world and the brush models have written the frame. Each face
-goes through R_RenderPoly, which frustum-clips and projects it and then calls
+Called once the world and the brush models have written the frame, for the
+opaque faces, and again from R_DrawTranslucentEntities for the faces of
+translucent brush models, blended over everything else. Each face goes
+through R_RenderPoly, which frustum-clips and projects it and then calls
 D_DrawPoly above.
 ================
 */
-void R_DrawFenceFaces (void)
+void R_DrawFenceFaces (qboolean translucent)
 {
 	int			i;
 	entity_t	*saveentity;
 	vec3_t		saveorigin;
+	byte		*blend;
 
 	if (!numfencefaces)
 		return;
@@ -316,6 +342,11 @@ void R_DrawFenceFaces (void)
 	{
 		msurface_t	*fa = fencefaces[i].face;
 		entity_t	*ent = fencefaces[i].entity;
+
+		blend = ent ? R_BlendMap (ent->alpha) : NULL;
+		if ((blend != NULL) != translucent || blend == r_blendinvisible)
+			continue;
+		d_blendmap = blend;
 
 		if (ent)
 		{
@@ -358,6 +389,7 @@ void R_DrawFenceFaces (void)
 		}
 	}
 
+	d_blendmap = NULL;
 	currententity = saveentity;
 	VectorCopy (saveorigin, modelorg);
 }

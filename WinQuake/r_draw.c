@@ -624,7 +624,7 @@ void R_RenderFace (msurface_t *fa, int clipflags)
 // which is the room its holes are supposed to show. R_DrawFenceFaces draws it
 // over the finished frame instead.
 //
-	if ((fa->flags & SURF_DRAWMASKED) && R_FenceDeferFace (fa, clipflags))
+	if (R_DeferFace (fa) && R_FenceDeferFace (fa, clipflags))
 		return;
 
 // skip out if no more surfs

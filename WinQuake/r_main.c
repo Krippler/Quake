@@ -776,6 +776,9 @@ void R_DrawTranslucentEntities (void)
 {
 	int		i;
 
+// translucent brush models first: their faces went to the fence list
+	R_DrawFenceFaces (true);
+
 	for (i=0 ; i<r_numtranslucent ; i++)
 	{
 		currententity = r_translucent[i];
@@ -1250,7 +1253,7 @@ SetVisibilityByPassages ();
 // were held back out of that so they would not hide what is behind them; they
 // go on now, over the top, against the z they can now be tested against.
 //
-	R_DrawFenceFaces ();
+	R_DrawFenceFaces (false);
 
 	if (!r_dspeeds.value)
 	{
