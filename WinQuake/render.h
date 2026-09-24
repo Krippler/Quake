@@ -57,6 +57,7 @@ typedef struct entity_s
 	int						effects;		// light, particals, etc
 	int						skinnum;		// for Alias models
 	int						alpha;			// ENTALPHA_ encoded (protocol.h)
+	qboolean				turned;			// a brush model seen rotated (r_surf.c)
 	int						visframe;		// last frame this entity was
 											//  found in an active leaf
 											

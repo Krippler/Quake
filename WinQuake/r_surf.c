@@ -58,17 +58,20 @@ unsigned		blocklights[18*18];
 ===============
 R_EntityTurning, R_TurningLight
 
-A brush model's lightmaps were baked with it standing still. Rotated, each
-face carries the light and shadow of where it was, not where it is: a fan's
-blades were lit on one side and shadowed on the other when the map was built,
-and spinning they trade places every few frames, bright and dark -- a flicker
-that is not in the map. So while a brush model is turning, every face of it is
-lit with the model's average, grey and colour, and when it stops it goes back
-to its lightmaps. The shadows a fan throws cannot come back this way; the
-flicker at least goes.
+A brush model's lightmaps were baked with it at angle zero. Rotated, each face
+carries the light and shadow of where it was, not where it is: a fan's blades
+were lit on one side and shadowed on the other when the map was built, and
+spinning they trade places every few frames, bright and dark -- a flicker that
+is not in the map. So a brush model that has been seen at any other angle is
+lit, every face of it, with the light of its lit side: the average of those of
+its samples brighter than its overall average, grey and colour. The shadows a
+fan throws cannot come back this way; the flicker at least goes.
 
-Turning means its last two angle updates differ. A model placed at an angle
-and left there is not turning, and keeps its lightmaps.
+It stays that way for the rest of the map (entity_t.turned, cleared with the
+entities on a map change). 1.15.1 asked instead whether the last two angle
+updates differed, and a slow fan -- angles go as whole 1.4-degree steps --
+often sends the same one twice: its baked light came back for a fraction of a
+second at a time, which was the flicker again.
 ===============
 */
 qboolean	r_surfturning;
@@ -78,7 +81,9 @@ qboolean R_EntityTurning (entity_t *ent)
 	if (!ent || ent == &cl_entities[0] || !ent->model
 		|| ent->model->type != mod_brush)
 		return false;
-	return !VectorCompare (ent->msg_angles[0], ent->msg_angles[1]);
+	if (ent->angles[0] || ent->angles[1] || ent->angles[2])
+		ent->turned = true;
+	return ent->turned;
 }
 
 static void R_TurningLight (model_t *m, unsigned *mono, int *tint)
@@ -99,6 +104,13 @@ static void R_TurningLight (model_t *m, unsigned *mono, int *tint)
 		return;
 	}
 
+// twice over the samples: the average, then the average of those above it
+	{
+	double	mean = 0;
+	int		pass;
+
+	for (pass=0 ; pass<2 ; pass++)
+	{
 	sum = r = g = b = 0;
 	count = 0;
 	s = m->surfaces + m->firstmodelsurface;
@@ -109,6 +121,8 @@ static void R_TurningLight (model_t *m, unsigned *mono, int *tint)
 		size = ((s->extents[0]>>4)+1) * ((s->extents[1]>>4)+1);
 		for (j=0 ; j<size ; j++)
 		{
+			double	v = 0, sr = 0, sg = 0, sb = 0;
+
 			lm = s->samples + j;
 			rgb = s->rgbsamples ? s->rgbsamples + j*3 : NULL;
 			for (maps = 0 ; maps < MAXLIGHTMAPS && s->styles[maps] != 255 ;
@@ -116,17 +130,26 @@ static void R_TurningLight (model_t *m, unsigned *mono, int *tint)
 			{
 				unsigned	scale = d_lightstylevalue[s->styles[maps]];
 
-				sum += *lm * scale;
+				v += *lm * scale;
 				if (rgb)
 				{
-					r += rgb[0] * scale;
-					g += rgb[1] * scale;
-					b += rgb[2] * scale;
+					sr += rgb[0] * scale;
+					sg += rgb[1] * scale;
+					sb += rgb[2] * scale;
 					rgb += size*3;
 				}
 			}
+			if (pass == 1 && v < mean)
+				continue;
+			sum += v;
+			r += sr;
+			g += sg;
+			b += sb;
+			count++;
 		}
-		count += size;
+	}
+	mean = count ? sum / count : 0;
+	}
 	}
 
 	lastmono = count ? (unsigned)(sum / count) : 0;
