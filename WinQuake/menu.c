@@ -3150,6 +3150,13 @@ void M_Menu_GameOptions_f (void)
 
 int gameoptions_cursor_table[] = {40, 56, 64, 72, 80, 88, 96, 112, 120};
 #define	NUM_GAMEOPTIONS	9
+
+// id right-aligned these labels to end at 136, which started "Max players" at
+// 48, touching the plaque (x = 16 to 48). They are 8 further right, and the
+// cursor moves from 144 to 148, between the labels and the values. The values
+// stay at 160, so "Nightmare difficulty" still fits on the screen.
+#define	GAMEOPT_LABEL_X		8
+#define	GAMEOPT_CURSOR_X	148
 int		gameoptions_cursor;
 
 void M_GameOptions_Draw (void)
@@ -3164,16 +3171,16 @@ void M_GameOptions_Draw (void)
 	M_DrawTextBox (152, 32, 10, 1);
 	M_Print (160, 40, "begin game");
 
-	M_Print (0, 56, "      Max players");
+	M_Print (GAMEOPT_LABEL_X, 56, "      Max players");
 	M_Print (160, 56, va("%i", maxplayers) );
 
-	M_Print (0, 64, "        Game Type");
+	M_Print (GAMEOPT_LABEL_X, 64, "        Game Type");
 	if (coop.value)
 		M_Print (160, 64, "Cooperative");
 	else
 		M_Print (160, 64, "Deathmatch");
 
-	M_Print (0, 72, "        Teamplay");
+	M_Print (GAMEOPT_LABEL_X, 72, "        Teamplay");
 	if (rogue)
 	{
 		char *msg;
@@ -3203,7 +3210,7 @@ void M_GameOptions_Draw (void)
 		M_Print (160, 72, msg);
 	}
 
-	M_Print (0, 80, "            Skill");
+	M_Print (GAMEOPT_LABEL_X, 80, "            Skill");
 	if (skill.value == 0)
 		M_Print (160, 80, "Easy difficulty");
 	else if (skill.value == 1)
@@ -3213,19 +3220,19 @@ void M_GameOptions_Draw (void)
 	else
 		M_Print (160, 80, "Nightmare difficulty");
 
-	M_Print (0, 88, "       Frag Limit");
+	M_Print (GAMEOPT_LABEL_X, 88, "       Frag Limit");
 	if (fraglimit.value == 0)
 		M_Print (160, 88, "none");
 	else
 		M_Print (160, 88, va("%i frags", (int)fraglimit.value));
 
-	M_Print (0, 96, "       Time Limit");
+	M_Print (GAMEOPT_LABEL_X, 96, "       Time Limit");
 	if (timelimit.value == 0)
 		M_Print (160, 96, "none");
 	else
 		M_Print (160, 96, va("%i minutes", (int)timelimit.value));
 
-	M_Print (0, 112, "         Episode");
+	M_Print (GAMEOPT_LABEL_X, 112, "         Episode");
    //MED 01/06/97 added hipnotic episodes
    if (hipnotic)
       M_Print (160, 112, hipnoticepisodes[startepisode].description);
@@ -3235,7 +3242,7 @@ void M_GameOptions_Draw (void)
    else
       M_Print (160, 112, episodes[startepisode].description);
 
-	M_Print (0, 120, "           Level");
+	M_Print (GAMEOPT_LABEL_X, 120, "           Level");
    //MED 01/06/97 added hipnotic episodes
    if (hipnotic)
    {
@@ -3255,7 +3262,7 @@ void M_GameOptions_Draw (void)
    }
 
 // line cursor
-	M_DrawCharacter (144, gameoptions_cursor_table[gameoptions_cursor], 12+((int)(realtime*4)&1));
+	M_DrawCharacter (GAMEOPT_CURSOR_X, gameoptions_cursor_table[gameoptions_cursor], 12+((int)(realtime*4)&1));
 
 	if (m_serverInfoMessage)
 	{

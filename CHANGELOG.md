@@ -5,6 +5,17 @@ top section's heading is what the release workflow reads: `## [X.Y.Z] — DATE`
 on the default branch publishes that version, `## [Unreleased]` publishes only
 `edge`.
 
+## [Unreleased]
+
+### Fixed
+
+- **"Max players" touched the QUAKE / id plaque** on the multiplayer game
+  options screen (New Game, then OK). That is id's own layout: its labels end
+  in a column at the cursor, and the longest starts where the plaque ends.
+  The labels move 8 pixels right, and the cursor moves into the space in front
+  of the values, which stay where they were. The rest of the menus were
+  checked the same way and keep clear of it.
+
 ## [1.16.0] — 2026-09-24
 
 ### Added
