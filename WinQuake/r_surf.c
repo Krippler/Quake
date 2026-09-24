@@ -173,13 +173,40 @@ static byte		*r_tintptr;
 R_AddDynamicLights
 ===============
 */
+/*
+===============
+R_DlightOrigin
+
+Where a dynamic light is in the space the current surface's model was built
+in. For the world that is where it is. A brush model's surfaces are stored
+where the map compiler left them -- for one built to rotate, around its own
+centre near the world's origin -- and the entity's origin and angles carry
+it to where it is drawn. id lit brush models with the light's world position
+all the same: a door that had slid 64 units was lit as if it had not moved,
+and a fan spinning at the far end of a map was lit by whatever flashed near
+the middle of it, on and off, blade by blade. So the light is brought into
+the model's space the way the view is, by R_RotateBmodel's matrix, which is
+the current entity's whenever its surfaces are being cached.
+===============
+*/
+void R_DlightOrigin (dlight_t *dl, vec3_t out)
+{
+	VectorCopy (dl->origin, out);
+	if (currententity && currententity != &cl_entities[0]
+		&& currententity->model && currententity->model->type == mod_brush)
+	{
+		VectorSubtract (out, currententity->origin, out);
+		R_EntityRotate (out);
+	}
+}
+
 void R_AddDynamicLights (void)
 {
 	msurface_t *surf;
 	int			lnum;
 	int			sd, td;
 	float		dist, rad, minlight;
-	vec3_t		impact, local;
+	vec3_t		impact, local, origin;
 	int			s, t;
 	int			i;
 	int			smax, tmax;
@@ -195,8 +222,9 @@ void R_AddDynamicLights (void)
 		if ( !(surf->dlightbits & (1<<lnum) ) )
 			continue;		// not lit by this light
 
+		R_DlightOrigin (&cl_dlights[lnum], origin);
 		rad = cl_dlights[lnum].radius;
-		dist = DotProduct (cl_dlights[lnum].origin, surf->plane->normal) -
+		dist = DotProduct (origin, surf->plane->normal) -
 				surf->plane->dist;
 		rad -= fabs(dist);
 		minlight = cl_dlights[lnum].minlight;
@@ -206,7 +234,7 @@ void R_AddDynamicLights (void)
 
 		for (i=0 ; i<3 ; i++)
 		{
-			impact[i] = cl_dlights[lnum].origin[i] -
+			impact[i] = origin[i] -
 					surf->plane->normal[i]*dist;
 		}
 

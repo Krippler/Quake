@@ -1064,8 +1064,15 @@ void R_DrawBEntitiesOnList (void)
 							continue;
 						}
 
-						R_MarkLights (&cl_dlights[k], 1<<k,
-							clmodel->nodes + clmodel->hulls[0].firstclipnode);
+					// in the model's own space, as R_AddDynamicLights
+					// will light it (see R_DlightOrigin)
+						{
+							dlight_t	local = cl_dlights[k];
+
+							R_DlightOrigin (&cl_dlights[k], local.origin);
+							R_MarkLights (&local, 1<<k,
+								clmodel->nodes + clmodel->hulls[0].firstclipnode);
+						}
 					}
 				}
 

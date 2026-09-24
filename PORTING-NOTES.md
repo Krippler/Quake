@@ -1462,6 +1462,27 @@ or tested here, so `e1m1`'s entity lump was rewritten with 400 to 4000 extra
 wall torches at origins the map already used, which makes the same demand out
 of data that is present.
 
+### `r_surf.c`, `r_main.c` — dynamic light on a brush model, from the wrong place
+
+`R_MarkLights` and `R_AddDynamicLights` test a dynamic light against a
+surface's plane using the light's world position. For the world that is right.
+A brush model's faces are stored where the compiler put them, and the entity's
+origin and angles place them: a door that has slid 64 units was lit as if it
+had not, and a model built to rotate -- MG1's `rotate_object_continuously`,
+like Scourge of Armagon's rotating objects, is compiled around the map's origin
+and moved to `pos2` -- was lit by whatever flashed near the middle of the map.
+A player's recordings of a spinning fan on 1.15.2 showed exactly that: the fan
+evenly lit as intended, and a few of its blades at a time going bright for a
+frame or two, a different few each time.
+
+`R_DlightOrigin` brings a light into the current brush model's space the way
+the view already is: subtract the entity's origin, then `R_EntityRotate` with
+the matrix `R_RotateBmodel` left, which is the current entity's both where
+lights are marked in `R_DrawBEntitiesOnList` and where surfaces are cached in
+`D_DrawSurfaces` and the fence pass. The marking gets a copy of the light with
+the moved origin. The world is untouched, and id's three demos -- all doors and
+lifts, with muzzle flashes and rockets -- play as before.
+
 ### `r_surf.c`, `d_surf.c` — a fan that flickered
 
 A brush model's lightmaps are baked with it standing where the map put it.
