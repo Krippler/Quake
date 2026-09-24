@@ -78,7 +78,7 @@ files.
 ### Mission packs and mods
 
 Everything beside `id1` in the mount is offered in the menu, under **Options →
-Game / mod**. Pick one and Quake restarts on it — the container brings
+Game / Mod**. Pick one and Quake restarts on it — the container brings
 the engine straight back and the page reconnects on its own, so it looks like a
 few dark seconds. The choice is kept in the state volume and survives a restart
 of the container.
@@ -148,7 +148,7 @@ What to expect:
 - Coloured light is drawn where the map has it, from a `.lit` file beside the
   map or an `RGBLIGHTING` lump inside it. Walls take the colour of the light
   on them, and monsters, items and your weapon the colour of the light they
-  stand in. **Options → Coloured light** turns it on and off, and
+  stand in. **Options → Display → Coloured Light** turns it on and off, and
   `r_rgblight` at the console sets how much: `1` is the map's colours, `0` is
   id's grey light, and anything between is paler. Maps without coloured light
   look exactly as they did.
@@ -173,8 +173,8 @@ What to expect:
   reports the current values and whether it is drawing. It is approximate by
   construction — a palette blend table sampled every eight pixels — and
   measures as costing nothing. `r_fogscale` multiplies the density a map sets,
-  if it comes out thicker or thinner than it should — it is on the Options menu
-  as **Fog thickness**, so you can turn it while looking at the fog.
+  if it comes out thicker or thinner than it should — it is on **Options →
+  Display** as **Fog Thickness**, so you can turn it while looking at the fog.
 - The re-release campaigns are much larger than anything from 1996, and the
   renderer holds one frame's worth of geometry in fixed pools. Those are sized
   for the re-release now — 65536 surfaces and 131072 edges, against id's 800 and
@@ -284,12 +284,14 @@ picture rather than a smaller one.
 Text, menus and the status bar grow with the resolution so they stay
 readable: they are laid out as if on a screen of at least 480x360 and drawn
 as many whole times larger as fit, which is 3x at 1920x1080 and 1x at 640x480.
-The 3D view keeps the full resolution. `scr_scale` at the console overrides
-the choice: `1` is id's original size, `2`, `3` and so on force a factor, and
-`0` goes back to choosing. It is saved in `config.cfg`.
+The 3D view keeps the full resolution. The menus are sized on their own, the
+way the re-release sizes them: as large as fills the height of the screen,
+which is 2x at 1280x720 and 3x at 1920x1080. `scr_scale` at the console
+overrides both choices: `1` is id's original size, `2`, `3` and so on force a
+factor, and `0` goes back to choosing. It is saved in `config.cfg`.
 
-`QUAKE_WIDTH` and `QUAKE_HEIGHT` are only where it starts. **Options → Video
-Options** in the game lists every mode from 320x240 up to the maximum and
+`QUAKE_WIDTH` and `QUAKE_HEIGHT` are only where it starts. **Options → Display
+→ Video Modes** in the game lists every mode from 320x240 up to the maximum and
 switches to the one you pick, and the choice is written to `config.cfg` — so
 after the first run it is the config that decides, not these variables. Setting
 `vid_width` and `vid_height` at the console does the same thing.
@@ -436,13 +438,13 @@ the menu is on a button rather than moved onto `` ` ``. The console is how you
 load a map, change the skill or start the music, and it is worth more than a
 second way to reach a menu.
 
-**Options → Customize controls** rebinds everything, and what you set there is
+**Options → Controls → Customize Controls** rebinds everything, and what you set there is
 also what the page's controller panel reads. "Everything" is thirty-one
 actions now, including the weapon keys, the console, the scoreboard, pause and
 the screenshot key: the 1996 menu stopped at eighteen because eighteen rows is
 all that fits on a 320x200 screen, so the rest could only be bound by typing
-`bind` at the console. The list scrolls, with `^ more above` and `v more below`
-to say which way there is more.
+`bind` at the console. The list scrolls, with a scrollbar down the right to
+say where you are in it.
 
 **Options** holds the settings, not just a handful of them: the field of view,
 mouse look, smooth mouse, the crosshair, whether the weapon is drawn, view bob,
@@ -455,7 +457,7 @@ Two of those are worth knowing about on a machine that is struggling:
 ahead the engine mixes — see the troubleshooting note below before shortening
 it.
 
-**Options → Video Options** changes the resolution while the game is running:
+**Options → Display → Video Modes** changes the resolution while the game is running:
 twenty modes from 320x240 up to `QUAKE_MAX_WIDTH`/`QUAKE_MAX_HEIGHT`, applied
 as soon as you pick one and remembered in `config.cfg`. The X11 build never had
 this menu — `menu.c` hides the line unless the video driver claims it, and the
@@ -572,8 +574,8 @@ that is then most of what you hear. It says so in the container log:
         sending late -- a lower resolution is what shortens it.
 ```
 
-If you see that line, the answer is a lower resolution in **Options → Video
-Options**, not a sound setting. The same shortage shows up in the picture as
+If you see that line, the answer is a lower resolution in **Options → Display
+→ Video Modes**, not a sound setting. The same shortage shows up in the picture as
 `picture gap` lines.
 
 ### The colours went wrong after quitting to the title screen

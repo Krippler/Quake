@@ -26,7 +26,7 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 void (*vid_menudrawfn)(void);
 void (*vid_menukeyfn)(int key);
 
-enum {m_none, m_main, m_singleplayer, m_load, m_save, m_multiplayer, m_setup, m_net, m_options, m_video, m_keys, m_help, m_quit, m_game, m_serialconfig, m_modemconfig, m_lanconfig, m_gameoptions, m_search, m_slist} m_state;
+enum {m_none, m_main, m_singleplayer, m_load, m_save, m_multiplayer, m_setup, m_net, m_options, m_video, m_keys, m_help, m_quit, m_game, m_serialconfig, m_modemconfig, m_lanconfig, m_gameoptions, m_search, m_slist, m_optpage} m_state;
 
 void M_Menu_Main_f (void);
 	void M_Menu_SinglePlayer_f (void);
@@ -92,6 +92,8 @@ qboolean	m_entersound;		// play after drawing a frame, so caching
 								// won't disrupt the sound
 qboolean	m_recursiveDraw;
 
+static int	opt_resume;		// the options page a submenu goes back to; see there
+
 int			m_return_state;
 qboolean	m_return_onerror;
 char		m_return_reason [32];
@@ -106,15 +108,217 @@ char		m_return_reason [32];
 void M_ConfigureNetSubsystem(void);
 
 /*
+==============================================================================
+
+THE MENU CANVAS
+
+The re-release lays its menus out as one picture that fills the height of the
+screen: id's plaque, the vertical QUAKE and id, runs from near the top to
+near the bottom along the left edge; the title plaque sits at the top in the
+middle; lists start just right of the plaque; and a line along the bottom
+says which keys do what. Everything in it is sized against the text, and the
+art is drawn larger than the text -- the plaque at twice the size of a letter
+pixel, the title plaques at about one and a half.
+
+Measured off the re-release at 1129x702, where a letter pixel is two screen
+pixels, that picture is 564 by 351 letter pixels. So that is the box the menus
+here are laid out in: MBOX_W by MBOX_H, in the same units, and drawn at
+whatever whole number of screen pixels per unit makes it fill the most of the
+screen's height (M_BeginCanvas). A screen of another shape has the box in its
+middle. The plaque is drawn at twice the scale, as there; the title plaques at
+id's own size, since one and a half is not a whole number of pixels.
+
+id's menus were drawn in a 320x200 space. The ones that have not been redrawn
+for the box still are: M_Print, M_DrawPic and the rest take id's coordinates
+and place them at m_ox, m_oy, which puts id's text column, x = 56 on its
+screen, at the box's, and its first line under the title where the box's
+first line is.
+
+==============================================================================
+*/
+
+#define	MBOX_W		564
+#define	MBOX_H		351
+#define	MBOX_MINH	310		// as short as it may be squeezed
+
+extern cvar_t	scr_scale;
+
+int			m_bx, m_by, m_bw, m_bh;		// the box, on the canvas
+static int	m_ox, m_oy;					// where id's 320x200 starts
+
+static int	m_depth;
+static int	m_oldscale, m_oldwidth, m_oldheight, m_oldyoff;
+
+// Colours for text in the re-release's scheme: id's white characters, run
+// through a table that keeps their shading and changes their colour.
+static byte	m_tint_dim[256];		// headings, and slots with nothing in
+static byte	m_tint_orange[256];		// the cursor, and rows that do something
+static byte	m_tint_foot[256];		// the key hints along the bottom
+static int	m_col_rule, m_col_box, m_col_track, m_col_thumb;
+static qboolean	m_tints_built;
+
+static int M_NearestColor (int r, int g, int b)
+{
+	int		i, best, bestdist, dist, dr, dg, db;
+	byte	*pal = host_basepal;
+
+	best = 1;
+	bestdist = 0x7fffffff;
+	for (i = 1 ; i < 255 ; i++)
+	{
+		dr = r - pal[i*3+0];
+		dg = g - pal[i*3+1];
+		db = b - pal[i*3+2];
+		dist = dr*dr + dg*dg + db*db;
+		if (dist < bestdist)
+		{
+			bestdist = dist;
+			best = i;
+		}
+	}
+	return best;
+}
+
+static int M_TintChannel (int c, int l, int lmax)
+{
+	c = c * l / lmax;
+	return c > 255 ? 255 : c;
+}
+
+static void M_BuildTint (byte *table, int r, int g, int b, int lmax)
+{
+	int		c, l;
+	byte	*pal = host_basepal;
+
+	for (c = 0 ; c < 256 ; c++)
+	{
+		l = (pal[c*3+0] + pal[c*3+1] + pal[c*3+2]) / 3;
+		table[c] = M_NearestColor (M_TintChannel (r, l, lmax),
+			M_TintChannel (g, l, lmax), M_TintChannel (b, l, lmax));
+	}
+}
+
+static void M_BuildTints (void)
+{
+	extern byte	*draw_chars;
+	int			i, c, l, lmax;
+	byte		*pal = host_basepal;
+
+// the brightest pixel in id's white characters: the tints give that one
+// their colour, and the rest in proportion
+	lmax = 1;
+	for (i = 0 ; i < 128*64 ; i++)
+	{
+		c = draw_chars[i];
+		if (!c)
+			continue;
+		l = (pal[c*3+0] + pal[c*3+1] + pal[c*3+2]) / 3;
+		if (l > lmax)
+			lmax = l;
+	}
+
+	M_BuildTint (m_tint_dim, 138, 118, 100, lmax);
+	M_BuildTint (m_tint_orange, 222, 128, 40, lmax);
+	M_BuildTint (m_tint_foot, 150, 150, 156, lmax);
+	m_col_rule = M_NearestColor (68, 58, 48);
+	m_col_box = M_NearestColor (40, 27, 18);
+	m_col_track = M_NearestColor (30, 23, 17);
+	m_col_thumb = M_NearestColor (112, 70, 36);
+	m_tints_built = true;
+}
+
+/*
+================
+M_BeginCanvas
+
+The canvas M_Draw draws on. Nested calls (the quit prompt draws the menu it
+was opened from underneath it) leave the outermost one in charge.
+================
+*/
+static void M_BeginCanvas (void)
+{
+	int		s;
+
+	if (m_depth++)
+		return;
+
+	m_oldscale = draw_scale;
+	m_oldwidth = vid.conwidth;
+	m_oldheight = vid.conheight;
+	m_oldyoff = draw_yoff;
+
+// As large as fits, allowing the box to lose some of its height: the plaque
+// moves up into its top margin to keep clear of the key hints (M_DrawFrame),
+// and a page shows fewer rows. A browser window is often a little short of a
+// whole multiple of the box -- 1920x969 is 323 rows at three pixels -- and
+// the menus are better a size larger and a little tighter than a size smaller.
+// scr_scale set by hand is the size somebody asked for, and the menus keep
+// to it.
+	if (scr_scale.value > 0)
+		s = draw_scale;
+	else
+	{
+		s = vid.height / MBOX_MINH;
+		while (s > 1 && (int)vid.width / s < 400)
+			s--;
+		if (s < 1)
+			s = 1;
+	}
+
+	draw_scale = s;
+	vid.conwidth = vid.width / s;
+	vid.conheight = vid.height / s;
+	draw_yoff = (vid.height - vid.conheight * s) / 2;
+
+	m_bw = vid.conwidth < MBOX_W ? vid.conwidth : MBOX_W;
+	m_bh = vid.conheight < MBOX_H ? vid.conheight : MBOX_H;
+	m_bx = (vid.conwidth - m_bw) / 2;
+	m_by = (vid.conheight - m_bh) / 2;
+
+	m_ox = m_bx + 38;
+	m_oy = m_by + 40;
+
+	if (!m_tints_built)
+		M_BuildTints ();
+}
+
+static void M_EndCanvas (void)
+{
+	if (--m_depth)
+		return;
+
+	draw_scale = m_oldscale;
+	vid.conwidth = m_oldwidth;
+	vid.conheight = m_oldheight;
+	draw_yoff = m_oldyoff;
+}
+
+/*
+================
+M_Centre320
+
+For the screens that are id's 320x200 pictures, or boxes drawn to sit in the
+middle of one (help, the quit prompt, the video modes): id's space in the
+middle of the canvas, rather than under the title.
+================
+*/
+void M_Centre320 (void)
+{
+	m_ox = (vid.conwidth - 320) / 2;
+	m_oy = (vid.conheight - 200) / 2;
+}
+
+
+/*
 ================
 M_DrawCharacter
 
-Draws one solid graphics character
+Draws one solid graphics character, in id's coordinates
 ================
 */
 void M_DrawCharacter (int cx, int line, int num)
 {
-	Draw_Character ( cx + ((vid.conwidth - 320)>>1), line, num);
+	Draw_CharacterEx (cx + m_ox, line + m_oy, num, 1, NULL);
 }
 
 void M_Print (int cx, int cy, char *str)
@@ -139,12 +343,18 @@ void M_PrintWhite (int cx, int cy, char *str)
 
 void M_DrawTransPic (int x, int y, qpic_t *pic)
 {
-	Draw_TransPic (x + ((vid.conwidth - 320)>>1), y, pic);
+	Draw_PicPart (x + m_ox, y + m_oy, pic, 0, pic->height, 1, NULL);
 }
 
 void M_DrawPic (int x, int y, qpic_t *pic)
 {
-	Draw_Pic (x + ((vid.conwidth - 320)>>1), y, pic);
+	x += m_ox;
+	y += m_oy;
+	if (x >= 0 && y >= 0 && x + pic->width <= (int)vid.conwidth
+		&& y + pic->height <= (int)vid.conheight)
+		Draw_Pic (x, y, pic);
+	else
+		Draw_PicPart (x, y, pic, 0, pic->height, 1, NULL);
 }
 
 byte identityTable[256];
@@ -177,7 +387,266 @@ void M_BuildTranslationTable(int top, int bottom)
 
 void M_DrawTransPicTranslate (int x, int y, qpic_t *pic)
 {
-	Draw_TransPicTranslate (x + ((vid.conwidth - 320)>>1), y, pic, translationTable);
+	Draw_PicPart (x + m_ox, y + m_oy, pic, 0, pic->height, 1,
+		translationTable);
+}
+
+
+/*
+==============================================================================
+
+DRAWING IN THE BOX
+
+Coordinates in the box, 0,0 its top left.
+
+==============================================================================
+*/
+
+// where things go, measured off the re-release
+#define	MB_PLAQUE_X		22
+#define	MB_PLAQUE_Y		24
+#define	MB_TITLE_Y		29
+#define	MB_LIST_X		106		// big lettering
+#define	MB_LIST_Y		73
+#define	MB_LIST_ROW		26
+#define	MB_DOT_X		84		// the spinning Quake symbol, left of a row
+#define	MB_LABEL_X		94		// small lettering
+#define	MB_ARROW_X		84		// the arrow, left of a row of it
+#define	MB_FOOT_X		20		// the key hints, this far from the sides
+#define	MB_FOOT_Y		11		// and this far up from the bottom
+
+static void M_BoxText (int x, int y, char *s, byte *tint)
+{
+	for ( ; *s ; s++, x += 8)
+		Draw_CharacterEx (m_bx + x, m_by + y, *s, 1, tint);
+}
+
+static void M_BoxTextRight (int right, int y, char *s, byte *tint)
+{
+	M_BoxText (right - 8 * strlen (s), y, s, tint);
+}
+
+// id's gold characters at twice the size, for a list in big lettering that id
+// has no picture of; white for the one to pick out
+static void M_BoxBigText (int x, int y, char *s, qboolean white)
+{
+	for ( ; *s ; s++, x += 16)
+		Draw_CharacterEx (m_bx + x, m_by + y, white ? *s : (*s) | 128, 2,
+			NULL);
+}
+
+static void M_BoxFill (int x, int y, int w, int h, int c)
+{
+	Draw_Fill (m_bx + x, m_by + y, w, h, c);
+}
+
+static void M_BoxPic (int x, int y, qpic_t *pic, int mult)
+{
+	Draw_PicPart (m_bx + x, m_by + y, pic, 0, pic->height, mult, NULL);
+}
+
+/*
+================
+M_DrawFrame
+
+The plaque, and the title if there is one.
+================
+*/
+static void M_DrawFrame (char *title)
+{
+	qpic_t	*p;
+	int		y;
+
+	p = Draw_CachePic ("gfx/qplaque.lmp");
+	y = m_bh - MB_FOOT_Y - 3 - 2 * p->height;
+	M_BoxPic (MB_PLAQUE_X, y < MB_PLAQUE_Y ? y : MB_PLAQUE_Y, p, 2);
+
+	if (title)
+	{
+		p = Draw_CachePic (title);
+		M_BoxPic ((m_bw + 18 - p->width) / 2, MB_TITLE_Y, p, 1);
+	}
+}
+
+/*
+================
+M_DrawFooter
+
+What the keys do, along the bottom: going back on the left, going on on the
+right. Either may be NULL.
+================
+*/
+static void M_DrawFooter (char *left, char *right)
+{
+	if (left)
+		M_BoxText (MB_FOOT_X, m_bh - MB_FOOT_Y, left, m_tint_foot);
+	if (right)
+		M_BoxTextRight (m_bw - MB_FOOT_X + 6, m_bh - MB_FOOT_Y, right,
+			m_tint_foot);
+}
+
+/*
+================
+M_DrawDot
+
+The spinning Quake symbol, beside row `row` of a list in big lettering.
+================
+*/
+static void M_DrawDot (int row)
+{
+	int		f = (int)(host_time * 10) % 6;
+
+	M_BoxPic (MB_DOT_X, MB_LIST_Y + row * MB_LIST_ROW,
+		Draw_CachePic (va ("gfx/menudot%i.lmp", f+1)), 1);
+}
+
+/*
+================
+M_DrawListPic
+
+id's lists in big lettering are single pictures, one item every 20 rows, with
+the letters of one item touching the next where a descender meets a capital.
+The re-release spaces them 26 apart. So the picture is taken apart the first
+time it is drawn: each connected shape goes with the item its middle is in,
+and each item becomes a picture of its own, drawn a row of the re-release's
+apart.
+================
+*/
+#define	MAX_LISTPICS	4
+#define	MAX_LISTITEMS	8
+
+typedef struct
+{
+	char	name[MAX_QPATH];
+	int		count;
+	qpic_t	*item[MAX_LISTITEMS];
+	int		top[MAX_LISTITEMS];		// its first row, in the whole picture
+} listpic_t;
+
+static listpic_t	m_listpics[MAX_LISTPICS];
+static int			m_numlistpics;
+
+static listpic_t *M_SplitListPic (char *name, int count)
+{
+	listpic_t	*lp;
+	qpic_t		*pic, *ip;
+	int			w, h, n, i, x, y, c, head, tail, miny, maxy, owner, ncomp, ih;
+	int			*label, *queue, *owners;
+	int			top[MAX_LISTITEMS], bottom[MAX_LISTITEMS];
+
+	for (i = 0 ; i < m_numlistpics ; i++)
+		if (!strcmp (m_listpics[i].name, name))
+			return &m_listpics[i];
+	if (m_numlistpics == MAX_LISTPICS || count > MAX_LISTITEMS)
+		return NULL;
+
+	pic = Draw_CachePic (name);
+	w = pic->width;
+	h = pic->height;
+	n = w * h;
+	label = malloc (n * sizeof(*label));
+	queue = malloc (n * sizeof(*queue));
+	owners = malloc (n * sizeof(*owners));
+	if (!label || !queue || !owners)
+		Sys_Error ("M_SplitListPic: out of memory");
+
+// label the shapes, eight ways connected, and give each one to the item its
+// middle row falls in
+	for (i = 0 ; i < n ; i++)
+		label[i] = -1;
+	ncomp = 0;
+	for (i = 0 ; i < n ; i++)
+	{
+		if (label[i] != -1 || pic->data[i] == TRANSPARENT_COLOR)
+			continue;
+		head = tail = 0;
+		queue[tail++] = i;
+		label[i] = ncomp;
+		miny = maxy = i / w;
+		while (head < tail)
+		{
+			int		p = queue[head++], px = p % w, py = p / w, dx, dy, q;
+
+			if (py < miny)
+				miny = py;
+			if (py > maxy)
+				maxy = py;
+			for (dy = -1 ; dy <= 1 ; dy++)
+				for (dx = -1 ; dx <= 1 ; dx++)
+				{
+					if (px + dx < 0 || px + dx >= w || py + dy < 0
+						|| py + dy >= h)
+						continue;
+					q = p + dy * w + dx;
+					if (label[q] != -1 || pic->data[q] == TRANSPARENT_COLOR)
+						continue;
+					label[q] = ncomp;
+					queue[tail++] = q;
+				}
+		}
+		owner = ((miny + maxy) / 2) / 20;
+		if (owner >= count)
+			owner = count - 1;
+		owners[ncomp++] = owner;
+	}
+
+	for (i = 0 ; i < count ; i++)
+	{
+		top[i] = h;
+		bottom[i] = -1;
+	}
+	for (i = 0 ; i < n ; i++)
+		if (label[i] != -1)
+		{
+			owner = owners[label[i]];
+			y = i / w;
+			if (y < top[owner])
+				top[owner] = y;
+			if (y > bottom[owner])
+				bottom[owner] = y;
+		}
+
+	lp = &m_listpics[m_numlistpics++];
+	Q_strncpy (lp->name, name, sizeof(lp->name) - 1);
+	lp->count = count;
+	for (i = 0 ; i < count ; i++)
+	{
+		if (bottom[i] < top[i])
+			top[i] = bottom[i] = i * 20;	// an item with nothing in it
+		ih = bottom[i] - top[i] + 1;
+		ip = malloc (sizeof(qpic_t) + w * ih);
+		if (!ip)
+			Sys_Error ("M_SplitListPic: out of memory");
+		ip->width = w;
+		ip->height = ih;
+		for (y = 0 ; y < ih ; y++)
+			for (x = 0 ; x < w ; x++)
+			{
+				c = (top[i] + y) * w + x;
+				ip->data[y * w + x] = (label[c] != -1
+					&& owners[label[c]] == i) ? pic->data[c]
+					: TRANSPARENT_COLOR;
+			}
+		lp->item[i] = ip;
+		lp->top[i] = top[i];
+	}
+
+	free (label);
+	free (queue);
+	free (owners);
+	return lp;
+}
+
+static void M_DrawListPic (char *name, int count)
+{
+	listpic_t	*lp = M_SplitListPic (name, count);
+	int			i;
+
+	if (!lp)
+		return;
+	for (i = 0 ; i < lp->count ; i++)
+		M_BoxPic (MB_LIST_X, MB_LIST_Y + i * MB_LIST_ROW + lp->top[i] - i * 20,
+			lp->item[i], 1);
 }
 
 
@@ -280,6 +749,7 @@ int	m_main_cursor;
 
 void M_Menu_Main_f (void)
 {
+	opt_resume = -1;
 	if (key_dest != key_menu)
 	{
 		m_save_demonum = cls.demonum;
@@ -293,17 +763,10 @@ void M_Menu_Main_f (void)
 
 void M_Main_Draw (void)
 {
-	int		f;
-	qpic_t	*p;
-
-	M_DrawTransPic (16, 4, Draw_CachePic ("gfx/qplaque.lmp") );
-	p = Draw_CachePic ("gfx/ttl_main.lmp");
-	M_DrawPic ( (320-p->width)/2, 4, p);
-	M_DrawTransPic (72, 32, Draw_CachePic ("gfx/mainmenu.lmp") );
-
-	f = (int)(host_time * 10)%6;
-
-	M_DrawTransPic (54, 32 + m_main_cursor * 20,Draw_CachePic( va("gfx/menudot%i.lmp", f+1 ) ) );
+	M_DrawFrame ("gfx/ttl_main.lmp");
+	M_DrawListPic ("gfx/mainmenu.lmp", MAIN_ITEMS);
+	M_DrawDot (m_main_cursor);
+	M_DrawFooter ("Backspace: Back", "Enter: Select");
 }
 
 
@@ -376,17 +839,10 @@ void M_Menu_SinglePlayer_f (void)
 
 void M_SinglePlayer_Draw (void)
 {
-	int		f;
-	qpic_t	*p;
-
-	M_DrawTransPic (16, 4, Draw_CachePic ("gfx/qplaque.lmp") );
-	p = Draw_CachePic ("gfx/ttl_sgl.lmp");
-	M_DrawPic ( (320-p->width)/2, 4, p);
-	M_DrawTransPic (72, 32, Draw_CachePic ("gfx/sp_menu.lmp") );
-
-	f = (int)(host_time * 10)%6;
-
-	M_DrawTransPic (54, 32 + m_singleplayer_cursor * 20,Draw_CachePic( va("gfx/menudot%i.lmp", f+1 ) ) );
+	M_DrawFrame ("gfx/ttl_sgl.lmp");
+	M_DrawListPic ("gfx/sp_menu.lmp", SINGLEPLAYER_ITEMS);
+	M_DrawDot (m_singleplayer_cursor);
+	M_DrawFooter ("Backspace: Back", "Enter: Select");
 }
 
 
@@ -477,7 +933,7 @@ static char *M_SaveSlotName (int i)
 
 static int M_SaveSlotY (int i)
 {
-	return 32 + 8*i + (i == QUICK_SLOT ? 8 : 0);
+	return 69 + 16*i + (i == QUICK_SLOT ? 8 : 0);
 }
 
 void M_ScanSaves (void)
@@ -534,45 +990,39 @@ void M_Menu_Save_f (void)
 }
 
 
-void M_Load_Draw (void)
+/*
+================
+M_DrawSaves
+
+The slots, a row of the re-release's apart. Empty ones dimmed, and the
+quicksave labelled, since its comment reads like any other.
+================
+*/
+static void M_DrawSaves (char *title, char *enter)
 {
 	int		i;
-	qpic_t	*p;
 
-	p = Draw_CachePic ("gfx/p_load.lmp");
-	M_DrawPic ( (320-p->width)/2, 4, p);
+	M_DrawFrame (title);
 
-	for (i=0 ; i< SAVE_SLOTS; i++)
-	{
-		if (i == QUICK_SLOT)
-			M_PrintWhite (16, M_SaveSlotY (i), m_filenames[i]);
-		else
-			M_Print (16, M_SaveSlotY (i), m_filenames[i]);
-	}
+	for (i=0 ; i<SAVE_SLOTS ; i++)
+		M_BoxText (MB_LABEL_X, M_SaveSlotY (i), m_filenames[i],
+			loadable[i] ? NULL : m_tint_dim);
+	M_BoxTextRight (m_bw - 12, M_SaveSlotY (QUICK_SLOT), "quicksave",
+		m_tint_dim);
 
-// line cursor
-	M_DrawCharacter (8, M_SaveSlotY (load_cursor), 12+((int)(realtime*4)&1));
+	M_BoxText (MB_ARROW_X, M_SaveSlotY (load_cursor), "\015", m_tint_orange);
+	M_DrawFooter ("Backspace: Back", enter);
+}
+
+void M_Load_Draw (void)
+{
+	M_DrawSaves ("gfx/p_load.lmp", "Enter: Load");
 }
 
 
 void M_Save_Draw (void)
 {
-	int		i;
-	qpic_t	*p;
-
-	p = Draw_CachePic ("gfx/p_save.lmp");
-	M_DrawPic ( (320-p->width)/2, 4, p);
-
-	for (i=0 ; i<SAVE_SLOTS ; i++)
-	{
-		if (i == QUICK_SLOT)
-			M_PrintWhite (16, M_SaveSlotY (i), m_filenames[i]);
-		else
-			M_Print (16, M_SaveSlotY (i), m_filenames[i]);
-	}
-
-// line cursor
-	M_DrawCharacter (8, M_SaveSlotY (load_cursor), 12+((int)(realtime*4)&1));
+	M_DrawSaves ("gfx/p_save.lmp", "Enter: Save");
 }
 
 
@@ -667,17 +1117,10 @@ void M_Menu_MultiPlayer_f (void)
 
 void M_MultiPlayer_Draw (void)
 {
-	int		f;
-	qpic_t	*p;
-
-	M_DrawTransPic (16, 4, Draw_CachePic ("gfx/qplaque.lmp") );
-	p = Draw_CachePic ("gfx/p_multi.lmp");
-	M_DrawPic ( (320-p->width)/2, 4, p);
-	M_DrawTransPic (72, 32, Draw_CachePic ("gfx/mp_menu.lmp") );
-
-	f = (int)(host_time * 10)%6;
-
-	M_DrawTransPic (54, 32 + m_multiplayer_cursor * 20,Draw_CachePic( va("gfx/menudot%i.lmp", f+1 ) ) );
+	M_DrawFrame ("gfx/p_multi.lmp");
+	M_DrawListPic ("gfx/mp_menu.lmp", MULTIPLAYER_ITEMS);
+	M_DrawDot (m_multiplayer_cursor);
+	M_DrawFooter ("Backspace: Back", "Enter: Select");
 
 	if (serialAvailable || ipxAvailable || tcpipAvailable)
 		return;
@@ -757,9 +1200,8 @@ void M_Setup_Draw (void)
 {
 	qpic_t	*p;
 
-	M_DrawTransPic (16, 4, Draw_CachePic ("gfx/qplaque.lmp") );
-	p = Draw_CachePic ("gfx/p_multi.lmp");
-	M_DrawPic ( (320-p->width)/2, 4, p);
+	M_DrawFrame ("gfx/p_multi.lmp");
+	M_DrawFooter ("Escape: Back", "Enter: Select");
 
 	M_Print (64, 40, "Hostname");
 	M_DrawTextBox (160, 32, 16, 1);
@@ -950,11 +1392,10 @@ void M_Net_Draw (void)
 	int		f;
 	qpic_t	*p;
 
-	M_DrawTransPic (16, 4, Draw_CachePic ("gfx/qplaque.lmp") );
-	p = Draw_CachePic ("gfx/p_multi.lmp");
-	M_DrawPic ( (320-p->width)/2, 4, p);
+	M_DrawFrame ("gfx/p_multi.lmp");
 
-	f = 32;
+// id's pictures for these are one item each, with the letters 6 rows down
+	f = MB_LIST_Y - 3;
 
 	if (serialAvailable)
 	{
@@ -970,9 +1411,9 @@ void M_Net_Draw (void)
 	}
 
 	if (p)
-		M_DrawTransPic (72, f, p);
+		M_BoxPic (MB_LIST_X, f, p, 1);
 
-	f += 19;
+	f += MB_LIST_ROW;
 
 	if (serialAvailable)
 	{
@@ -988,39 +1429,39 @@ void M_Net_Draw (void)
 	}
 
 	if (p)
-		M_DrawTransPic (72, f, p);
+		M_BoxPic (MB_LIST_X, f, p, 1);
 
-	f += 19;
+	f += MB_LIST_ROW;
 	if (ipxAvailable)
 		p = Draw_CachePic ("gfx/netmen3.lmp");
 	else
 		p = Draw_CachePic ("gfx/dim_ipx.lmp");
-	M_DrawTransPic (72, f, p);
+	M_BoxPic (MB_LIST_X, f, p, 1);
 
-	f += 19;
+	f += MB_LIST_ROW;
 	if (tcpipAvailable)
 		p = Draw_CachePic ("gfx/netmen4.lmp");
 	else
 		p = Draw_CachePic ("gfx/dim_tcp.lmp");
-	M_DrawTransPic (72, f, p);
+	M_BoxPic (MB_LIST_X, f, p, 1);
 
 	if (m_net_items == 5)	// JDC, could just be removed
 	{
-		f += 19;
+		f += MB_LIST_ROW;
 		p = Draw_CachePic ("gfx/netmen5.lmp");
-		M_DrawTransPic (72, f, p);
+		M_BoxPic (MB_LIST_X, f, p, 1);
 	}
 
-	f = (320-26*8)/2;
-	M_DrawTextBox (f, 134, 24, 4);
-	f += 8;
-	M_Print (f, 142, net_helpMessage[m_net_cursor*4+0]);
-	M_Print (f, 150, net_helpMessage[m_net_cursor*4+1]);
-	M_Print (f, 158, net_helpMessage[m_net_cursor*4+2]);
-	M_Print (f, 166, net_helpMessage[m_net_cursor*4+3]);
+// what the highlighted one is, in a box under the list
+	f = 37 + m_net_items * MB_LIST_ROW;
+	M_DrawTextBox (56, f, 24, 4);
+	M_Print (64, f + 8, net_helpMessage[m_net_cursor*4+0]);
+	M_Print (64, f + 16, net_helpMessage[m_net_cursor*4+1]);
+	M_Print (64, f + 24, net_helpMessage[m_net_cursor*4+2]);
+	M_Print (64, f + 32, net_helpMessage[m_net_cursor*4+3]);
 
-	f = (int)(host_time * 10)%6;
-	M_DrawTransPic (54, 32 + m_net_cursor * 20,Draw_CachePic( va("gfx/menudot%i.lmp", f+1 ) ) );
+	M_DrawDot (m_net_cursor);
+	M_DrawFooter ("Backspace: Back", "Enter: Select");
 }
 
 
@@ -1103,13 +1544,12 @@ typedef enum
 	o_action,		// Enter does something; there is no value to show
 	o_slider,		// a number between min and max
 	o_toggle,		// a cvar that is off or on
-	o_custom		// the handful that are not simply a cvar
+	o_custom,		// the handful that are not simply a cvar
+	o_heading		// not a setting: the name of the group below it
 } otype_t;
 
 // o_action and o_custom rows, by name rather than by row number.
 #define	OPT_KEYS		0
-#define	OPT_CONSOLE		1
-#define	OPT_RESET		2
 #define	OPT_VIDEO		3
 #define	OPT_VIEWSIZE	4
 #define	OPT_GAMMA		5
@@ -1118,7 +1558,6 @@ typedef enum
 #define	OPT_BOB			8
 #define	OPT_KICK		9
 #define	OPT_DETAIL		10
-#define	OPT_GAME		11
 
 typedef struct
 {
@@ -1151,75 +1590,146 @@ static char *M_Game_Dir (void)
 // A row in a menu is: set it, and it is still set tomorrow. fov,
 // r_drawviewmodel, cl_bob, v_kicktime, r_waterwarp and d_mipcap are archived
 // now, which is what puts them in config.cfg on the way out.
-static option_t	options[] =
+//
+// Grouped into pages the way the re-release groups its own: a list of them in
+// big lettering, and on each page, headings over the rows that belong
+// together. Every page starts with a heading naming it.
+//
+static option_t	opt_controls[] =
 {
-	{"Customize controls",	o_action, NULL,             0,     0,    0,    OPT_KEYS},
-	{"Go to console",		o_action, NULL,             0,     0,    0,    OPT_CONSOLE},
-	{"Reset to defaults",	o_action, NULL,             0,     0,    0,    OPT_RESET},
-	{"Video options",		o_action, NULL,             0,     0,    0,    OPT_VIDEO},
-	{"Game / mod",			o_action, NULL,             0,     0,    0,    OPT_GAME},
+	{"Controls",				o_heading, NULL,            0,     0,    0,    0},
+	{"Customize Controls...",	o_action, NULL,             0,     0,    0,    OPT_KEYS},
 
-	{"Screen size",			o_custom, NULL,             0,     0,    0,    OPT_VIEWSIZE},
-	{"Brightness",			o_custom, NULL,             0,     0,    0,    OPT_GAMMA},
-	{"Field of view",		o_slider, "fov",            75,    130,  5,    0},
+	{"Mouse",					o_heading, NULL,            0,     0,    0,    0},
+	{"Mouse Speed",				o_slider, "sensitivity",    1,     11,   0.5,  0},
+	{"Mouse Look",				o_toggle, "freelook",       0,     0,    0,    0},
+	{"Invert Mouse",			o_custom, NULL,             0,     0,    0,    OPT_INVERT},
+	{"Smooth Mouse",			o_toggle, "m_filter",       0,     0,    0,    0},
+	{"Lookspring",				o_toggle, "lookspring",     0,     0,    0,    0},
+	{"Lookstrafe",				o_toggle, "lookstrafe",     0,     0,    0,    0},
+};
 
-	{"Sound volume",		o_slider, "volume",         0,     1,    0.1,  0},
-	{"Music volume",		o_slider, "bgmvolume",      0,     1,    0.1,  0},
-	{"Sound delay",			o_slider, "_snd_mixahead",  0.04,  0.2,  0.02, 0},
+static option_t	opt_gameplay[] =
+{
+	{"Gameplay",				o_heading, NULL,            0,     0,    0,    0},
+	{"Always Run",				o_custom, NULL,             0,     0,    0,    OPT_ALWAYSRUN},
+	{"View Bob",				o_custom, NULL,             0,     0,    0,    OPT_BOB},
+	{"View Kick",				o_custom, NULL,             0,     0,    0,    OPT_KICK},
+	{"Show Weapon",				o_toggle, "r_drawviewmodel",0,     0,    0,    0},
 
-	{"Mouse speed",			o_slider, "sensitivity",    1,     11,   0.5,  0},
-	{"Mouse look",			o_toggle, "freelook",       0,     0,    0,    0},
-	{"Invert mouse",		o_custom, NULL,             0,     0,    0,    OPT_INVERT},
-	{"Smooth mouse",		o_toggle, "m_filter",       0,     0,    0,    0},
-	{"Lookspring",			o_toggle, "lookspring",     0,     0,    0,    0},
-	{"Lookstrafe",			o_toggle, "lookstrafe",     0,     0,    0,    0},
-	{"Always run",			o_custom, NULL,             0,     0,    0,    OPT_ALWAYSRUN},
+	{"Crosshair",				o_heading, NULL,            0,     0,    0,    0},
+	{"Show Crosshair",			o_toggle, "crosshair",      0,     0,    0,    0},
+};
 
-	{"Crosshair",			o_toggle, "crosshair",      0,     0,    0,    0},
-	{"Show weapon",			o_toggle, "r_drawviewmodel",0,     0,    0,    0},
-	{"View bob",			o_custom, NULL,             0,     0,    0,    OPT_BOB},
-	{"View kick",			o_custom, NULL,             0,     0,    0,    OPT_KICK},
+static option_t	opt_sound[] =
+{
+	{"Sound",					o_heading, NULL,            0,     0,    0,    0},
+	{"Sound Volume",			o_slider, "volume",         0,     1,    0.1,  0},
+	{"Music Volume",			o_slider, "bgmvolume",      0,     1,    0.1,  0},
+	{"Sound Delay",				o_slider, "_snd_mixahead",  0.04,  0.2,  0.02, 0},
+};
 
-	{"Water warp",			o_toggle, "r_waterwarp",    0,     0,    0,    0},
-	{"Texture detail",		o_custom, NULL,             0,     0,    0,    OPT_DETAIL},
+static option_t	opt_display[] =
+{
+	{"Display",					o_heading, NULL,            0,     0,    0,    0},
+	{"Video Modes...",			o_action, NULL,             0,     0,    0,    OPT_VIDEO},
+	{"Screen Size",				o_custom, NULL,             0,     0,    0,    OPT_VIEWSIZE},
+	{"Brightness",				o_custom, NULL,             0,     0,    0,    OPT_GAMMA},
+	{"Field of View",			o_slider, "fov",            75,    130,  5,    0},
+
+	{"Enhancements",			o_heading, NULL,            0,     0,    0,    0},
+	{"Texture Detail",			o_custom, NULL,             0,     0,    0,    OPT_DETAIL},
+	{"Water Warp",				o_toggle, "r_waterwarp",    0,     0,    0,    0},
 
 // Only the re-release maps set fog at all, and how thick it should look is a
 // judgement rather than a fact: the density they set is interpreted through a
 // curve taken from another engine's source. 0 turns it off, 1 is that curve.
-	{"Fog thickness",		o_slider, "r_fogscale",     0,     4,    0.25, 0},
+	{"Fog Thickness",			o_slider, "r_fogscale",     0,     4,    0.25, 0},
 
 // Coloured light, where a map has it (r_tint.c). r_rgblight is a strength, and
 // the console can set it anywhere between; the menu offers on and off.
-	{"Coloured light",		o_toggle, "r_rgblight",     0,     0,    0,    0},
+	{"Coloured Light",			o_toggle, "r_rgblight",     0,     0,    0,    0},
 };
 
-#define	OPTIONS_ITEMS	((int)(sizeof(options) / sizeof(options[0])))
+typedef struct
+{
+	option_t	*rows;
+	int			count;
+	int			cursor;		// kept, so a page opens where it was left
+} optpage_t;
 
-// More rows than fit, so the list scrolls, as the controls menu does.
-//
-// id's plaque, the vertical QUAKE and id logo, runs down x = 16 to 48, and
-// every menu that draws it keeps its own text to the right of it. The rows
-// start at 56, the cursor sits in the gap at 48, and a label with a value
-// beside it has 14 characters before the sliders begin at 176.
-#define	OPTIONS_LABEL_X	56
-#define	OPTIONS_TOP_Y	40
-#define	OPTIONS_VISIBLE	17
-#define	OPTIONS_VALUE_X	184
-// M_DrawSlider draws from OPTIONS_VALUE_X-8 to OPTIONS_VALUE_X+80, so the
-// number goes after that and still leaves room for four characters.
-#define	OPTIONS_NUMBER_X	288
+#define	OPTPAGE(rows)	{rows, sizeof(rows) / sizeof(rows[0]), 0}
 
-#define	SLIDER_RANGE	10
+static optpage_t	optpages[] =
+{
+	OPTPAGE(opt_controls),
+	OPTPAGE(opt_gameplay),
+	OPTPAGE(opt_sound),
+	OPTPAGE(opt_display),
+};
 
-int		options_cursor;
-static int	options_top;
+#define	NUM_OPTPAGES	((int)(sizeof(optpages) / sizeof(optpages[0])))
+
+// The first level: the pages, then the things that are not settings.
+static char	*optcats[] =
+{
+	"Controls",
+	"Gameplay",
+	"Sound",
+	"Display",
+	"Game / Mod",
+	"Console",
+	"Reset Defaults",
+};
+
+#define	OPTCATS			((int)(sizeof(optcats) / sizeof(optcats[0])))
+#define	OPTCAT_GAME		4
+#define	OPTCAT_CONSOLE	5
+#define	OPTCAT_RESET	6
+
+// A page, measured off the re-release: rows 16 apart, a heading and its rule
+// taking 20, and a blank row before every heading but the first.
+#define	PAGE_TOP		69		// box y of the first row
+#define	PAGE_ROW		16
+#define	PAGE_HEAD		20
+#define	PAGE_GAP		16
+#define	PAGE_BOTTOM		35		// rows stop this far above the box's bottom
+#define	PAGE_SLIDER		160		// a slider's width
+
+int				options_cursor;		// on the first level
+static int		optpage;			// the page open, when m_state is m_optpage
+static int		optpage_scroll;		// how far down the page is scrolled
+static int		opt_resume = -1;	// the page a submenu goes back to
 
 // Texture detail is d_mipcap, which is how blurry the far end of a wall may
 // get. Named rather than numbered, because "2" says nothing.
-static char	*options_detail[] = { "sharp", "softer", "soft", "softest" };
+static char	*options_detail[] = { "Sharp", "Softer", "Soft", "Softest" };
+
+static void M_OptPage_Open (int page)
+{
+	optpage_t	*pg = &optpages[page];
+
+	key_dest = key_menu;
+	m_state = m_optpage;
+	m_entersound = true;
+	optpage = page;
+	optpage_scroll = 0;
+	while (pg->cursor < pg->count && pg->rows[pg->cursor].type == o_heading)
+		pg->cursor++;
+}
 
 void M_Menu_Options_f (void)
 {
+// back from the controls or the video modes, to the page they were opened from
+	if (opt_resume >= 0)
+	{
+		int	page = opt_resume;
+
+		opt_resume = -1;
+		M_OptPage_Open (page);
+		return;
+	}
+
 	key_dest = key_menu;
 	m_state = m_options;
 	m_entersound = true;
@@ -1241,7 +1751,7 @@ that too. A row with nothing behind it says so and does nothing instead.
 */
 static qboolean M_Options_Live (option_t *o)
 {
-	if (o->type == o_action || o->type == o_custom)
+	if (o->type == o_action || o->type == o_custom || o->type == o_heading)
 		return true;
 
 	return Cvar_FindVar (o->cvar) != NULL;
@@ -1295,7 +1805,7 @@ a toggle answers Enter and the arrows the same way.
 */
 void M_AdjustSliders (int dir)
 {
-	option_t	*o = &options[options_cursor];
+	option_t	*o = &optpages[optpage].rows[optpages[optpage].cursor];
 	float		v;
 
 	if (!M_Options_Live (o))
@@ -1306,6 +1816,7 @@ void M_AdjustSliders (int dir)
 	switch (o->type)
 	{
 	case o_action:
+	case o_heading:
 		return;
 
 	case o_slider:
@@ -1386,30 +1897,6 @@ void M_AdjustSliders (int dir)
 }
 
 
-void M_DrawSlider (int x, int y, float range)
-{
-	int	i;
-
-	if (range < 0)
-		range = 0;
-	if (range > 1)
-		range = 1;
-	M_DrawCharacter (x-8, y, 128);
-	for (i=0 ; i<SLIDER_RANGE ; i++)
-		M_DrawCharacter (x + i*8, y, 129);
-	M_DrawCharacter (x+i*8, y, 130);
-	M_DrawCharacter (x + (SLIDER_RANGE-1)*8 * range, y, 131);
-}
-
-void M_DrawCheckbox (int x, int y, int on)
-{
-	if (on)
-		M_Print (x, y, "on");
-	else
-		M_Print (x, y, "off");
-}
-
-
 /*
 ================
 M_Options_Number
@@ -1439,16 +1926,72 @@ static char *M_Options_Number (float v)
 
 /*
 ================
-M_Options_DrawValue
+M_DrawScrollbar
+
+Down the right of the box, beside a list of `total` units of which `view`
+show, from `scroll`. Nothing when it all fits.
 ================
 */
-static void M_Options_DrawValue (int y, option_t *o)
+static void M_DrawScrollbar (int top, int height, int total, int view,
+	int scroll)
+{
+	int		th, ty;
+
+	if (total <= view)
+		return;
+
+	th = height * view / total;
+	if (th < 8)
+		th = 8;
+	ty = top + (height - th) * scroll / (total - view);
+	M_BoxFill (m_bw - 9, top, 3, height, m_col_track);
+	M_BoxFill (m_bw - 9, ty, 3, th, m_col_thumb);
+}
+
+// id's slider characters, stretched to the re-release's width, ending at right
+static void M_PageSlider (int right, int y, float range, char *number)
+{
+	int		x = right - PAGE_SLIDER, i;
+
+	if (range < 0)
+		range = 0;
+	if (range > 1)
+		range = 1;
+	Draw_CharacterEx (m_bx + x, m_by + y, 128, 1, NULL);
+	for (i = 8 ; i < PAGE_SLIDER - 8 ; i += 8)
+		Draw_CharacterEx (m_bx + x + i, m_by + y, 129, 1, NULL);
+	Draw_CharacterEx (m_bx + x + i, m_by + y, 130, 1, NULL);
+	Draw_CharacterEx (m_bx + x + 8 + (int)((PAGE_SLIDER - 24) * range),
+		m_by + y, 131, 1, NULL);
+	M_BoxTextRight (x - 8, y, number, NULL);
+}
+
+// a value picked from a list, on a dark plate as the re-release has them
+static void M_PageChoice (int right, int y, char *text)
+{
+	int		w = 8 * strlen (text);
+
+	M_BoxFill (right - w - 3, y - 2, w + 6, 12, m_col_box);
+	M_BoxTextRight (right, y, text, NULL);
+}
+
+static void M_PageToggle (int right, int y, qboolean on)
+{
+	M_BoxTextRight (right, y, on ? "On" : "Off", NULL);
+}
+
+/*
+================
+M_OptPage_DrawValue
+================
+*/
+static void M_OptPage_DrawValue (int right, int y, option_t *o)
 {
 	float	v;
 
 	if (!M_Options_Live (o))
 	{
-		M_Print (OPTIONS_VALUE_X, y, "n/a");
+		M_BoxTextRight (right, y, "n/a", m_tint_dim);
 		return;
 	}
 
@@ -1457,18 +2000,16 @@ static void M_Options_DrawValue (int y, option_t *o)
 	switch (o->type)
 	{
 	case o_action:
-	// The one action row with something to report: which game this is.
-		if (o->id == OPT_GAME)
-			M_Print (OPTIONS_VALUE_X, y, M_Game_Dir ());
+	case o_heading:
 		return;
 
 	case o_slider:
-		M_DrawSlider (OPTIONS_VALUE_X, y, (v - o->min) / (o->max - o->min));
-		M_Print (OPTIONS_NUMBER_X, y, M_Options_Number (v));
+		M_PageSlider (right, y, (v - o->min) / (o->max - o->min),
+			M_Options_Number (v));
 		return;
 
 	case o_toggle:
-		M_DrawCheckbox (OPTIONS_VALUE_X, y, v != 0);
+		M_PageToggle (right, y, v != 0);
 		return;
 
 	case o_custom:
@@ -1478,66 +2019,193 @@ static void M_Options_DrawValue (int y, option_t *o)
 	switch (o->id)
 	{
 	case OPT_VIEWSIZE:
-		M_DrawSlider (OPTIONS_VALUE_X, y, (v - 30) / (120 - 30));
-		M_Print (OPTIONS_NUMBER_X, y, M_Options_Number (v));
+		M_PageSlider (right, y, (v - 30) / (120 - 30), M_Options_Number (v));
 		break;
 
 	case OPT_GAMMA:
-		M_DrawSlider (OPTIONS_VALUE_X, y, (1.0 - v) / 0.5);
-		M_Print (OPTIONS_NUMBER_X, y, M_Options_Number (v));
+		M_PageSlider (right, y, (1.0 - v) / 0.5, M_Options_Number (v));
 		break;
 
 	case OPT_DETAIL:
-		M_Print (OPTIONS_VALUE_X, y,
-				 options_detail[(int)v < 0 ? 0 : ((int)v > 3 ? 3 : (int)v)]);
+		M_PageChoice (right, y,
+			options_detail[(int)v < 0 ? 0 : ((int)v > 3 ? 3 : (int)v)]);
 		break;
 
 	default:
-		M_DrawCheckbox (OPTIONS_VALUE_X, y, v != 0);
+		M_PageToggle (right, y, v != 0);
+		break;
+	}
+}
+
+/*
+================
+M_PageY
+
+Where row i of a page is, from the top of the page.
+================
+*/
+static int M_PageY (optpage_t *pg, int i)
+{
+	int		k, y;
+
+	y = 0;
+	for (k = 0 ; k <= i && k < pg->count ; k++)
+	{
+		if (pg->rows[k].type == o_heading && k > 0)
+			y += PAGE_GAP;
+		if (k == i)
+			break;
+		y += pg->rows[k].type == o_heading ? PAGE_HEAD : PAGE_ROW;
+	}
+	return y;
+}
+
+void M_OptPage_Draw (void)
+{
+	optpage_t	*pg = &optpages[optpage];
+	option_t	*o;
+	int			i, y, top, total, view, right;
+
+	M_DrawFrame ("gfx/p_option.lmp");
+
+	view = m_bh - PAGE_BOTTOM - PAGE_TOP;
+	total = M_PageY (pg, pg->count - 1) + PAGE_ROW;
+
+// Keep the cursor on the page, and the heading over it too when it is the
+// first of a group. Done here rather than in the key handler so that it is
+// also right the first time the page is opened.
+	y = M_PageY (pg, pg->cursor);
+	top = y;
+	if (pg->cursor > 0 && pg->rows[pg->cursor - 1].type == o_heading)
+		top = M_PageY (pg, pg->cursor - 1);
+	if (pg->cursor == 1)
+		top = 0;
+	if (top < optpage_scroll)
+		optpage_scroll = top;
+	if (y + 8 > optpage_scroll + view)
+		optpage_scroll = y + 8 - view;
+	if (optpage_scroll > total - view)
+		optpage_scroll = total - view;
+	if (optpage_scroll < 0)
+		optpage_scroll = 0;
+
+	right = m_bw - (total > view ? 19 : 12);
+
+	for (i = 0 ; i < pg->count ; i++)
+	{
+		o = &pg->rows[i];
+		y = M_PageY (pg, i) - optpage_scroll;
+		if (y < 0 || y + (o->type == o_heading ? 13 : 8) > view)
+			continue;
+		y += PAGE_TOP;
+
+		if (o->type == o_heading)
+		{
+			M_BoxText (MB_LABEL_X, y, o->label, m_tint_dim);
+			M_BoxFill (MB_LABEL_X, y + 12, m_bw - 5 - MB_LABEL_X, 1,
+				m_col_rule);
+			continue;
+		}
+
+		M_BoxText (MB_LABEL_X, y, o->label,
+			M_Options_Live (o) ? NULL : m_tint_dim);
+		M_OptPage_DrawValue (right, y, o);
+
+		if (i == pg->cursor)
+			M_BoxText (MB_ARROW_X, y, "\015", m_tint_orange);
+	}
+
+	M_DrawScrollbar (PAGE_TOP - 4, view + 4, total, view, optpage_scroll);
+	M_DrawFooter ("Backspace: Back", "Enter: Select");
+}
+
+
+void M_OptPage_Key (int k)
+{
+	optpage_t	*pg = &optpages[optpage];
+	int			i;
+
+	switch (k)
+	{
+	case K_ESCAPE:
+		options_cursor = optpage;
+		M_Menu_Options_f ();
+		break;
+
+	case K_ENTER:
+		m_entersound = true;
+
+		if (pg->rows[pg->cursor].type != o_action)
+		{
+			M_AdjustSliders (1);
+			return;
+		}
+
+		switch (pg->rows[pg->cursor].id)
+		{
+		case OPT_KEYS:
+			opt_resume = optpage;
+			M_Menu_Keys_f ();
+			break;
+
+		case OPT_VIDEO:
+		// The old menu hid this row when the video driver claimed no menu.
+		// This one shows it and does nothing, which is a worse answer, so
+		// say why instead. Every driver this builds against sets it.
+			if (vid_menudrawfn)
+			{
+				opt_resume = optpage;
+				M_Menu_Video_f ();
+			}
+			else
+				Con_Printf ("This video driver has no mode menu.\n");
+			break;
+		}
+		return;
+
+	case K_UPARROW:
+	case K_DOWNARROW:
+		S_LocalSound ("misc/menu1.wav");
+		i = pg->cursor;
+		do
+		{
+			i += k == K_UPARROW ? -1 : 1;
+			if (i < 0)
+				i = pg->count - 1;
+			if (i >= pg->count)
+				i = 0;
+		} while (pg->rows[i].type == o_heading);
+		pg->cursor = i;
+		break;
+
+	case K_LEFTARROW:
+		M_AdjustSliders (-1);
+		break;
+
+	case K_RIGHTARROW:
+		M_AdjustSliders (1);
 		break;
 	}
 }
 
 
+/*
+================
+M_Options_Draw
+
+The first level: the pages, in big lettering.
+================
+*/
 void M_Options_Draw (void)
 {
-	qpic_t	*p;
-	int		i, row, y, last;
+	int		i;
 
-	M_DrawTransPic (16, 4, Draw_CachePic ("gfx/qplaque.lmp") );
-	p = Draw_CachePic ("gfx/p_option.lmp");
-	M_DrawPic ( (320-p->width)/2, 4, p);
-
-// Keep the cursor inside the window. Done here rather than in M_Options_Key so
-// that it is also right the first time the menu is opened.
-	if (options_cursor < options_top)
-		options_top = options_cursor;
-	if (options_cursor >= options_top + OPTIONS_VISIBLE)
-		options_top = options_cursor - OPTIONS_VISIBLE + 1;
-	if (options_top > OPTIONS_ITEMS - OPTIONS_VISIBLE)
-		options_top = OPTIONS_ITEMS - OPTIONS_VISIBLE;
-	if (options_top < 0)
-		options_top = 0;
-
-	last = options_top + OPTIONS_VISIBLE;
-	if (last > OPTIONS_ITEMS)
-		last = OPTIONS_ITEMS;
-
-	for (i = options_top, row = 0 ; i < last ; i++, row++)
-	{
-		y = OPTIONS_TOP_Y + row * 8;
-
-		M_Print (OPTIONS_LABEL_X, y, options[i].label);
-		M_Options_DrawValue (y, &options[i]);
-
-		if (i == options_cursor)
-			M_DrawCharacter (OPTIONS_LABEL_X - 8, y, 12 + ((int)(realtime*4) & 1));
-	}
-
-	if (options_top > 0)
-		M_Print (OPTIONS_LABEL_X, OPTIONS_TOP_Y - 8, "^ more above");
-	if (last < OPTIONS_ITEMS)
-		M_Print (OPTIONS_LABEL_X, OPTIONS_TOP_Y + OPTIONS_VISIBLE * 8, "v more below");
+	M_DrawFrame ("gfx/p_option.lmp");
+	for (i = 0 ; i < OPTCATS ; i++)
+		M_BoxBigText (MB_LIST_X, MB_LIST_Y + i * MB_LIST_ROW + 2, optcats[i],
+			false);
+	M_DrawDot (options_cursor);
+	M_DrawFooter ("Backspace: Back", "Enter: Select");
 }
 
 
@@ -1552,39 +2220,25 @@ void M_Options_Key (int k)
 	case K_ENTER:
 		m_entersound = true;
 
-		if (options[options_cursor].type != o_action)
+		if (options_cursor < NUM_OPTPAGES)
 		{
-			M_AdjustSliders (1);
+			M_OptPage_Open (options_cursor);
 			return;
 		}
 
-		switch (options[options_cursor].id)
+		switch (options_cursor)
 		{
-		case OPT_KEYS:
-			M_Menu_Keys_f ();
+		case OPTCAT_GAME:
+			M_Menu_Game_f ();
 			break;
 
-		case OPT_CONSOLE:
+		case OPTCAT_CONSOLE:
 			m_state = m_none;
 			Con_ToggleConsole_f ();
 			break;
 
-		case OPT_RESET:
+		case OPTCAT_RESET:
 			Cbuf_AddText ("exec default.cfg\n");
-			break;
-
-		case OPT_GAME:
-			M_Menu_Game_f ();
-			break;
-
-		case OPT_VIDEO:
-		// The old menu hid this row when the video driver claimed no menu.
-		// This one shows it and does nothing, which is a worse answer, so
-		// say why instead. Every driver this builds against sets it.
-			if (vid_menudrawfn)
-				M_Menu_Video_f ();
-			else
-				Con_Printf ("This video driver has no mode menu.\n");
 			break;
 		}
 		return;
@@ -1593,22 +2247,14 @@ void M_Options_Key (int k)
 		S_LocalSound ("misc/menu1.wav");
 		options_cursor--;
 		if (options_cursor < 0)
-			options_cursor = OPTIONS_ITEMS-1;
+			options_cursor = OPTCATS-1;
 		break;
 
 	case K_DOWNARROW:
 		S_LocalSound ("misc/menu1.wav");
 		options_cursor++;
-		if (options_cursor >= OPTIONS_ITEMS)
+		if (options_cursor >= OPTCATS)
 			options_cursor = 0;
-		break;
-
-	case K_LEFTARROW:
-		M_AdjustSliders (-1);
-		break;
-
-	case K_RIGHTARROW:
-		M_AdjustSliders (1);
 		break;
 	}
 }
@@ -1631,46 +2277,44 @@ void M_Options_Key (int k)
 //
 char *bindnames[][2] =
 {
-{"+attack", 		"attack"},
-{"+forward", 		"move forward"},
-{"+back", 			"move back"},
-{"+moveleft", 		"move left"},
-{"+moveright", 		"move right"},
-{"+jump", 			"jump / swim up"},
-{"+speed", 			"run"},
-{"impulse 10", 		"next weapon"},
-{"impulse 12", 		"previous weapon"},
-{"+mlook", 			"mouse look"},
-{"+strafe", 		"sidestep modifier"},
-{"+moveup",			"swim up"},
-{"+movedown",		"swim down"},
-{"impulse 1", 		"axe"},
-{"impulse 2", 		"shotgun"},
-{"impulse 3", 		"super shotgun"},
-{"impulse 4", 		"nailgun"},
-{"impulse 5", 		"super nailgun"},
-{"impulse 6", 		"grenade launcher"},
-{"impulse 7", 		"rocket launcher"},
-{"impulse 8", 		"thunderbolt"},
-{"+showscores", 	"show scores"},
-{"toggleconsole", 	"console"},
-{"screenshot", 		"screenshot"},
-{"pause", 			"pause"},
-{"+left", 			"turn left"},
-{"+right", 			"turn right"},
-{"+lookup", 		"look up"},
-{"+lookdown", 		"look down"},
-{"centerview", 		"center view"},
-{"+klook", 			"keyboard look"}
+{"+attack", 		"Attack"},
+{"+forward", 		"Move Forward"},
+{"+back", 			"Move Back"},
+{"+moveleft", 		"Move Left"},
+{"+moveright", 		"Move Right"},
+{"+jump", 			"Jump / Swim Up"},
+{"+speed", 			"Run"},
+{"impulse 10", 		"Next Weapon"},
+{"impulse 12", 		"Previous Weapon"},
+{"+mlook", 			"Mouse Look"},
+{"+strafe", 		"Sidestep Modifier"},
+{"+moveup",			"Swim Up"},
+{"+movedown",		"Swim Down"},
+{"impulse 1", 		"Axe"},
+{"impulse 2", 		"Shotgun"},
+{"impulse 3", 		"Super Shotgun"},
+{"impulse 4", 		"Nailgun"},
+{"impulse 5", 		"Super Nailgun"},
+{"impulse 6", 		"Grenade Launcher"},
+{"impulse 7", 		"Rocket Launcher"},
+{"impulse 8", 		"Thunderbolt"},
+{"+showscores", 	"Show Scores"},
+{"toggleconsole", 	"Console"},
+{"screenshot", 		"Screenshot"},
+{"pause", 			"Pause"},
+{"+left", 			"Turn Left"},
+{"+right", 			"Turn Right"},
+{"+lookup", 		"Look Up"},
+{"+lookdown", 		"Look Down"},
+{"centerview", 		"Center View"},
+{"+klook", 			"Keyboard Look"}
 };
 
 #define	NUMCOMMANDS	(sizeof(bindnames)/sizeof(bindnames[0]))
 
-// The window of rows the menu shows at once, and where it starts. The menu is
-// drawn in a 320x200 space whatever the actual resolution, so this is fixed:
-// 48 through 168 leaves the title above and a line for the "more below" hint.
-#define	KEYS_TOP_Y		48
-#define	KEYS_VISIBLE	15
+// The rows are a page's (see PAGE_TOP), and the keys are in a column a little
+// right of the middle, where the re-release has them.
+#define	KEYS_COLUMN(w)	((w) * 306 / MBOX_W)
 
 // The first row on screen. Scrolled by M_Keys_Draw to keep the cursor visible.
 int		keys_top;
@@ -1733,77 +2377,69 @@ void M_UnbindCommand (char *command)
 
 void M_Keys_Draw (void)
 {
-	int		i, l, row;
+	int		i, row, y, visible, x;
 	int		keys[2];
 	char	*name;
-	int		x, y;
-	qpic_t	*p;
 
-	p = Draw_CachePic ("gfx/ttl_cstm.lmp");
-	M_DrawPic ( (320-p->width)/2, 4, p);
+	M_DrawFrame ("gfx/ttl_cstm.lmp");
 
-	if (bind_grab)
-		M_Print (12, 32, "Press a key or button for this action");
-	else
-		M_Print (18, 32, "Enter to change, backspace to clear");
+	visible = (m_bh - PAGE_BOTTOM - PAGE_TOP - 8) / PAGE_ROW + 1;
 
 // Keep the cursor inside the window. Done here rather than in M_Keys_Key so
 // that it is also right the first time the menu is opened, and after the list
 // itself changes.
 	if (keys_cursor < keys_top)
 		keys_top = keys_cursor;
-	if (keys_cursor >= keys_top + KEYS_VISIBLE)
-		keys_top = keys_cursor - KEYS_VISIBLE + 1;
-	if (keys_top > (int)NUMCOMMANDS - KEYS_VISIBLE)
-		keys_top = (int)NUMCOMMANDS - KEYS_VISIBLE;
+	if (keys_cursor >= keys_top + visible)
+		keys_top = keys_cursor - visible + 1;
+	if (keys_top > (int)NUMCOMMANDS - visible)
+		keys_top = (int)NUMCOMMANDS - visible;
 	if (keys_top < 0)
 		keys_top = 0;
 
-// search for known bindings
-	for (row = 0 ; row < KEYS_VISIBLE ; row++)
+	x = KEYS_COLUMN (m_bw);
+
+	for (row = 0 ; row < visible ; row++)
 	{
 		i = keys_top + row;
 		if (i >= (int)NUMCOMMANDS)
 			break;
 
-		y = KEYS_TOP_Y + 8*row;
+		y = PAGE_TOP + PAGE_ROW * row;
 
-		M_Print (16, y, bindnames[i][1]);
+		M_BoxText (MB_LABEL_X, y, bindnames[i][1], NULL);
 
-		l = strlen (bindnames[i][0]);
+		if (i == keys_cursor)
+			M_BoxText (MB_ARROW_X, y, "\015", m_tint_orange);
+
+		if (bind_grab && i == keys_cursor)
+		{
+			M_BoxText (x, y, "Press a key", m_tint_orange);
+			continue;
+		}
 
 		M_FindKeysForCommand (bindnames[i][0], keys);
 
 		if (keys[0] == -1)
 		{
-			M_Print (140, y, "???");
+			M_BoxText (x, y, "???", m_tint_dim);
+			continue;
 		}
-		else
-		{
-			name = Key_KeynumToString (keys[0]);
-			M_Print (140, y, name);
-			x = strlen(name) * 8;
-			if (keys[1] != -1)
-			{
-				M_Print (140 + x + 8, y, "or");
-				M_Print (140 + x + 32, y, Key_KeynumToString (keys[1]));
-			}
-		}
+
+		name = Key_KeynumToString (keys[0]);
+		M_BoxText (x, y, name, NULL);
+		if (keys[1] != -1)
+			M_BoxText (x + 8 * strlen (name), y,
+				va (", %s", Key_KeynumToString (keys[1])), NULL);
 	}
 
-// Which way there is more, so a list longer than the screen does not look
-// like the whole of it.
-	y = KEYS_TOP_Y + 8*KEYS_VISIBLE;
-	if (keys_top > 0)
-		M_Print (16, KEYS_TOP_Y - 8, "^ more above");
-	if (keys_top + KEYS_VISIBLE < (int)NUMCOMMANDS)
-		M_Print (16, y, "v more below");
+	M_DrawScrollbar (PAGE_TOP - 4, visible * PAGE_ROW, (int)NUMCOMMANDS
+		* PAGE_ROW, visible * PAGE_ROW, keys_top * PAGE_ROW);
 
-	y = KEYS_TOP_Y + (keys_cursor - keys_top)*8;
 	if (bind_grab)
-		M_DrawCharacter (130, y, '=');
+		M_DrawFooter ("Escape: Cancel", NULL);
 	else
-		M_DrawCharacter (130, y, 12+((int)(realtime*4)&1));
+		M_DrawFooter ("Escape: Back   Backspace: Unbind", "Enter: Change");
 }
 
 
@@ -1892,10 +2528,6 @@ extern cvar_t	registered;
 
 #define	MAX_GAMEDIRS	32
 
-#define	GAME_TOP_Y		48
-#define	GAME_VISIBLE	13
-#define	GAME_DIR_X		256
-#define	GAME_LABEL_X	56		// right of id's plaque, as in the options menu
 
 static char	gamedirs[MAX_GAMEDIRS][MAX_QPATH];
 static int	numgamedirs;
@@ -1918,6 +2550,7 @@ static char	*gametitles[][2] =
 	{"hipnotic",	"Scourge of Armagon"},
 	{"rogue",		"Dissolution of Eternity"},
 	{"dopa",		"Dimension of the Past"},
+	{"mg1",			"Dimension of the Machine"},
 };
 
 static char *M_Game_Title (char *dir)
@@ -1960,19 +2593,19 @@ void M_Menu_Game_f (void)
 
 void M_Game_Draw (void)
 {
-	qpic_t	*p;
-	int		i, row, y, last;
+	int		i, row, y, last, visible;
 	char	*title;
 
-	M_DrawTransPic (16, 4, Draw_CachePic ("gfx/qplaque.lmp") );
-	p = Draw_CachePic ("gfx/p_option.lmp");
-	M_DrawPic ( (320-p->width)/2, 4, p);
+	M_DrawFrame ("gfx/p_option.lmp");
+	M_DrawFooter ("Backspace: Back", "Enter: Select");
 
 	if (!numgamedirs)
 	{
-		M_Print (GAME_LABEL_X, GAME_TOP_Y, "No mission packs or mods found.");
-		M_Print (GAME_LABEL_X, GAME_TOP_Y + 16, "Each is a folder of its own");
-		M_Print (GAME_LABEL_X, GAME_TOP_Y + 24, "beside id1.");
+		M_BoxText (MB_LABEL_X, PAGE_TOP, "No mission packs or mods found.",
+			NULL);
+		M_BoxText (MB_LABEL_X, PAGE_TOP + 16, "Each is a folder of its own",
+			NULL);
+		M_BoxText (MB_LABEL_X, PAGE_TOP + 24, "beside id1.", NULL);
 		return;
 	}
 
@@ -1981,65 +2614,60 @@ void M_Game_Draw (void)
 	// COM_CheckRegistered would refuse this a second after the restart, and the
 	// container would sit in a restart loop with the reason scrolling past in a
 	// log nobody is reading. Say it here instead, while there is a screen.
-		M_DrawTextBox (32, 72, 30, 4);
-		M_Print (40, 80, "The shareware data cannot run");
-		M_Print (40, 88, "mission packs or mods. The full");
-		M_Print (40, 96, "version of Quake is needed.");
-		M_Print (40, 104, "Press any key.");
+		M_DrawTextBox (56, 72, 30, 4);
+		M_Print (64, 80, "The shareware data cannot run");
+		M_Print (64, 88, "mission packs or mods. The full");
+		M_Print (64, 96, "version of Quake is needed.");
+		M_Print (64, 104, "Press any key.");
 		return;
 	}
 
 	if (game_chosen >= 0)
 	{
-		M_DrawTextBox (32, 72, 30, 4);
-		M_Print (40, 80, "Switch to");
-		M_PrintWhite (40, 88, M_Game_Title (gamedirs[game_chosen]));
-		M_Print (40, 104, "Quake must restart.  Y / N");
+		M_DrawTextBox (56, 72, 30, 4);
+		M_Print (64, 80, "Switch to");
+		M_PrintWhite (64, 88, M_Game_Title (gamedirs[game_chosen]));
+		M_Print (64, 104, "Quake must restart.  Y / N");
 		return;
 	}
 
-	M_Print (GAME_LABEL_X, 32, "Enter switches, Escape goes back");
+	visible = (m_bh - PAGE_BOTTOM - MB_LIST_Y - 16) / MB_LIST_ROW + 1;
 
 // Keep the cursor inside the window, as the controls and options menus do.
 	if (game_cursor < game_top)
 		game_top = game_cursor;
-	if (game_cursor >= game_top + GAME_VISIBLE)
-		game_top = game_cursor - GAME_VISIBLE + 1;
-	if (game_top > numgamedirs - GAME_VISIBLE)
-		game_top = numgamedirs - GAME_VISIBLE;
+	if (game_cursor >= game_top + visible)
+		game_top = game_cursor - visible + 1;
+	if (game_top > numgamedirs - visible)
+		game_top = numgamedirs - visible;
 	if (game_top < 0)
 		game_top = 0;
 
-	last = game_top + GAME_VISIBLE;
+	last = game_top + visible;
 	if (last > numgamedirs)
 		last = numgamedirs;
 
 	for (i = game_top, row = 0 ; i < last ; i++, row++)
 	{
-		y = GAME_TOP_Y + row * 8;
+		y = MB_LIST_Y + row * MB_LIST_ROW;
 		title = M_Game_Title (gamedirs[i]);
 
 	// The one running now in white, so that the list says where you are as
 	// well as where you could go.
-		if (i == game_current)
-			M_PrintWhite (GAME_LABEL_X, y, title);
-		else
-			M_Print (GAME_LABEL_X, y, title);
+		M_BoxBigText (MB_LIST_X, y + 2, title, i == game_current);
 
 	// A mod is listed by its directory already; printing it twice says
 	// nothing. A mission pack is listed by name, and the directory is worth
 	// showing because that is what -game and QUAKE_GAME want.
 		if (Q_strcmp (title, gamedirs[i]))
-			M_Print (GAME_DIR_X, y, gamedirs[i]);
+			M_BoxTextRight (m_bw - 12, y + 6, gamedirs[i], m_tint_dim);
 
 		if (i == game_cursor)
-			M_DrawCharacter (GAME_LABEL_X - 8, y, 12 + ((int)(realtime*4) & 1));
+			M_DrawDot (row);
 	}
 
-	if (game_top > 0)
-		M_Print (GAME_LABEL_X, GAME_TOP_Y - 8, "^ more above");
-	if (last < numgamedirs)
-		M_Print (GAME_LABEL_X, GAME_TOP_Y + GAME_VISIBLE * 8, "v more below");
+	M_DrawScrollbar (MB_LIST_Y, visible * MB_LIST_ROW, numgamedirs
+		* MB_LIST_ROW, visible * MB_LIST_ROW, game_top * MB_LIST_ROW);
 }
 
 
@@ -2123,6 +2751,7 @@ void M_Menu_Video_f (void)
 
 void M_Video_Draw (void)
 {
+	M_Centre320 ();
 	(*vid_menudrawfn) ();
 }
 
@@ -2151,6 +2780,7 @@ void M_Menu_Help_f (void)
 
 void M_Help_Draw (void)
 {
+	M_Centre320 ();
 	M_DrawPic (0, 0, Draw_CachePic ( va("gfx/help%i.lmp", help_page)) );
 }
 
@@ -2287,6 +2917,7 @@ void M_Quit_Draw (void)
 		M_Draw ();
 		m_state = m_quit;
 	}
+	M_Centre320 ();
 
 #ifdef _WIN32
 	M_DrawTextBox (0, 0, 38, 23);
@@ -2385,10 +3016,10 @@ void M_SerialConfig_Draw (void)
 	char	*startJoin;
 	char	*directModem;
 
-	M_DrawTransPic (16, 4, Draw_CachePic ("gfx/qplaque.lmp") );
 	p = Draw_CachePic ("gfx/p_multi.lmp");
 	basex = (320-p->width)/2;
-	M_DrawPic (basex, 4, p);
+	M_DrawFrame ("gfx/p_multi.lmp");
+	M_DrawFooter ("Escape: Back", "Enter: Select");
 
 	if (StartingGame)
 		startJoin = "New Game";
@@ -2635,10 +3266,10 @@ void M_ModemConfig_Draw (void)
 	qpic_t	*p;
 	int		basex;
 
-	M_DrawTransPic (16, 4, Draw_CachePic ("gfx/qplaque.lmp") );
 	p = Draw_CachePic ("gfx/p_multi.lmp");
 	basex = (320-p->width)/2;
-	M_DrawPic (basex, 4, p);
+	M_DrawFrame ("gfx/p_multi.lmp");
+	M_DrawFooter ("Escape: Back", "Enter: Select");
 	basex += 8;
 
 	if (modemConfig_dialing == 'P')
@@ -2821,10 +3452,10 @@ void M_LanConfig_Draw (void)
 	char	*startJoin;
 	char	*protocol;
 
-	M_DrawTransPic (16, 4, Draw_CachePic ("gfx/qplaque.lmp") );
 	p = Draw_CachePic ("gfx/p_multi.lmp");
 	basex = (320-p->width)/2;
-	M_DrawPic (basex, 4, p);
+	M_DrawFrame ("gfx/p_multi.lmp");
+	M_DrawFooter ("Escape: Back", "Enter: Select");
 
 	if (StartingGame)
 		startJoin = "New Game";
@@ -3161,12 +3792,10 @@ int		gameoptions_cursor;
 
 void M_GameOptions_Draw (void)
 {
-	qpic_t	*p;
 	int		x;
 
-	M_DrawTransPic (16, 4, Draw_CachePic ("gfx/qplaque.lmp") );
-	p = Draw_CachePic ("gfx/p_multi.lmp");
-	M_DrawPic ( (320-p->width)/2, 4, p);
+	M_DrawFrame ("gfx/p_multi.lmp");
+	M_DrawFooter ("Escape: Back", "Enter: Select");
 
 	M_DrawTextBox (152, 32, 10, 1);
 	M_Print (160, 40, "begin game");
@@ -3468,11 +4097,10 @@ void M_Menu_Search_f (void)
 
 void M_Search_Draw (void)
 {
-	qpic_t	*p;
 	int x;
 
-	p = Draw_CachePic ("gfx/p_multi.lmp");
-	M_DrawPic ( (320-p->width)/2, 4, p);
+	M_DrawFrame ("gfx/p_multi.lmp");
+	M_DrawFooter ("Backspace: Back", "Enter: Select");
 	x = (320/2) - ((12*8)/2) + 4;
 	M_DrawTextBox (x-8, 32, 12, 1);
 	M_Print (x, 40, "Searching...");
@@ -3529,7 +4157,6 @@ void M_ServerList_Draw (void)
 {
 	int		n;
 	char	string [64];
-	qpic_t	*p;
 
 	if (!slist_sorted)
 	{
@@ -3549,20 +4176,20 @@ void M_ServerList_Draw (void)
 		slist_sorted = true;
 	}
 
-	p = Draw_CachePic ("gfx/p_multi.lmp");
-	M_DrawPic ( (320-p->width)/2, 4, p);
+	M_DrawFrame ("gfx/p_multi.lmp");
+	M_DrawFooter ("Backspace: Back", "Enter: Select");
 	for (n = 0; n < hostCacheCount; n++)
 	{
 		if (hostcache[n].maxusers)
 			sprintf(string, "%-15.15s %-15.15s %2u/%2u\n", hostcache[n].name, hostcache[n].map, hostcache[n].users, hostcache[n].maxusers);
 		else
 			sprintf(string, "%-15.15s %-15.15s\n", hostcache[n].name, hostcache[n].map);
-		M_Print (16, 32 + 8*n, string);
+		M_Print (56, 32 + 8*n, string);
 	}
-	M_DrawCharacter (0, 32 + slist_cursor*8, 12+((int)(realtime*4)&1));
+	M_DrawCharacter (48, 32 + slist_cursor*8, 12+((int)(realtime*4)&1));
 
 	if (*m_return_reason)
-		M_PrintWhite (16, 148, m_return_reason);
+		M_PrintWhite (56, 148, m_return_reason);
 }
 
 
@@ -3642,9 +4269,9 @@ void M_Draw (void)
 	{
 		scr_copyeverything = 1;
 
-		if (scr_con_current)
+		if (scr_con_current || m_state == m_optpage || m_state == m_keys)
 		{
-			Draw_ConsoleBackground (vid.conheight);
+			Draw_MenuBackground ();
 			VID_UnlockBuffer ();
 			S_ExtraUpdate ();
 			VID_LockBuffer ();
@@ -3658,6 +4285,8 @@ void M_Draw (void)
 	{
 		m_recursiveDraw = false;
 	}
+
+	M_BeginCanvas ();
 
 	switch (m_state)
 	{
@@ -3694,6 +4323,10 @@ void M_Draw (void)
 
 	case m_options:
 		M_Options_Draw ();
+		break;
+
+	case m_optpage:
+		M_OptPage_Draw ();
 		break;
 
 	case m_keys:
@@ -3740,6 +4373,8 @@ void M_Draw (void)
 		M_ServerList_Draw ();
 		break;
 	}
+
+	M_EndCanvas ();
 
 	if (m_entersound)
 	{
@@ -3834,6 +4469,10 @@ void M_Keydown (int key)
 
 	case m_options:
 		M_Options_Key (key);
+		return;
+
+	case m_optpage:
+		M_OptPage_Key (key);
 		return;
 
 	case m_keys:

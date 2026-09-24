@@ -1656,6 +1656,50 @@ is the crosshair: id put the character's corner on the centre of the view,
 leaving the plus 4 pixels right and down. At 3x that would be 12, so it is
 centred now.
 
+### `menu.c`, `draw.c` — the menus laid out as the re-release lays them out
+
+The re-release keeps id's menu art and arranges it for a modern screen. At
+1129x702, measured off a player's screenshots, a letter pixel is two screen
+pixels and the whole menu is one picture 564 by 351 letter pixels:
+- the plaque, drawn at twice the letter size, runs down the left edge from
+  y = 24
+- the title plaque is at the top, a little right of the middle
+- lists in big lettering start at x = 106 with a row every 26
+- settings pages start at x = 94 with a row every 16, values right-aligned
+  12 from the right edge (19 when there is a scrollbar), and sliders 160
+  wide
+- "Backspace: Back" and "Enter: Select" run along the bottom, 11 up.
+
+`M_BeginCanvas` gives the menus a canvas of their own for the length of
+`M_Draw`, at the largest whole factor that fits that box to the screen's
+height. It may lose up to 41 rows, which the plaque takes out of its top
+margin. That factor is 2 at 1280x720, 3 at 1920x1080 and at 1920x969 (a
+browser window), and 1 at 640x480. The box sits in the middle of whatever
+is left over. `scr_scale` set by hand still wins.
+
+id's list pictures (`mainmenu.lmp`, `sp_menu.lmp`, `mp_menu.lmp`) put an
+item every 20 rows, with descenders touching the capitals below.
+`M_SplitListPic` labels the connected shapes, gives each to the item its
+middle falls in, and draws the items 26 apart. Lists id has no picture for
+(the options categories, the mission packs) are id's gold characters at
+twice the size. `Draw_PicPart` and `Draw_CharacterEx` draw at a multiple
+of the canvas pixel, clip rather than `Sys_Error`, and recolour through a
+table. The headings, cursor and key hints use tables built from the palette
+that keep the shading of id's white characters.
+
+Options is two levels, as it is there: Controls, Gameplay, Sound and
+Display pages (each a table of rows, headings included), then Game / Mod,
+Console and Reset Defaults. The pages and Customize are drawn over the
+console background, without the version stamp, which is where the key hints
+go. `Draw_ConsoleBackground` used to write that stamp into the cached
+picture itself, and the cache moves pictures when it likes, so both
+versions are now drawn from private copies taken before anything writes on
+it.
+
+The network screens, setup and the multiplayer game options keep id's
+layout, placed in the box under the new frame (`m_ox`, `m_oy`). Help, the
+quit prompt and the video modes stay id's 320x200, centred.
+
 ### `cl_parse.c` — the re-release's achievement message
 
 The 2021 re-release's QuakeC writes `SVC_ACHIEVEMENT` (52) and an id string

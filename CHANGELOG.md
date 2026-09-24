@@ -7,6 +7,28 @@ on the default branch publishes that version, `## [Unreleased]` publishes only
 
 ## [Unreleased]
 
+### Changed
+
+- **The menus are laid out the way the re-release lays them out.** The
+  layout was measured off screenshots of the re-release:
+  - The menus fill the height of the screen. id's plaque runs down the left
+    edge at twice the size of the lettering, and the title sits at the top.
+  - Lists like Main, Single Player and Multiplayer are spaced out the way the
+    re-release spaces them.
+  - "Backspace: Back" and "Enter: Select" run along the bottom.
+  - **Options** is a list of pages: Controls, Gameplay, Sound and Display,
+    then Game / Mod, Console and Reset Defaults. Each page groups its
+    settings under headings, with on/off values and sliders on the right,
+    as the re-release has them.
+  - **Customize Controls** has the keys in a column on the right and a
+    scrollbar.
+  - The saved games are spaced out, with empty slots dimmed.
+  - The settings pages have the console background behind them.
+
+  The menus are sized separately from the console and status bar: 2x at
+  1280x720, 3x at 1920x1080 and in a 1920x969 browser window. `scr_scale`
+  still overrides both.
+
 ### Fixed
 
 - **"Max players" touched the QUAKE / id plaque** on the multiplayer game

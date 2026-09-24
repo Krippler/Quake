@@ -33,7 +33,7 @@ these works:
   in-game messages as well.
 
 Mission packs and mods go beside `id1`, and the game's **Options → Game /
-mod** menu switches between them:
+Mod** menu switches between them:
 
 ```
 /path/to/quake/
@@ -51,7 +51,7 @@ game runs silent where the music would be.
 
 | | |
 | --- | --- |
-| `-e QUAKE_WIDTH=1280 -e QUAKE_HEIGHT=800` | starting resolution; also in **Options → Video Options** |
+| `-e QUAKE_WIDTH=1280 -e QUAKE_HEIGHT=800` | starting resolution; also in **Options → Display → Video Modes** |
 | `-e QUAKE_GAME=hipnotic` | the game or mod to start on |
 | `-e PUID=1000 -e PGID=1000` | who owns the saved files (default 1001) |
 

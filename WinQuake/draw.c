@@ -225,20 +225,20 @@ static void Draw_ScreenRect (int x, int y, int w, int h, vrect_t *r)
 ================
 Draw_Blit
 
-Draws w*h art pixels, srcrow apart, at canvas (x, y), each one draw_scale
-screen pixels square, clipped to the screen. A source pixel equal to key is
-left out (-1 draws them all), and translation, if given, recolours the rest.
+Draws w*h art pixels, srcrow apart, at canvas (x, y), each one mult canvas
+pixels square, clipped to the screen. A source pixel equal to key is left out
+(-1 draws them all), and translation, if given, recolours the rest.
 ================
 */
-static void Draw_Blit (int x, int y, byte *src, int w, int h, int srcrow,
-	int key, byte *translation)
+static void Draw_BlitMult (int x, int y, byte *src, int w, int h, int srcrow,
+	int key, byte *translation, int mult)
 {
 	int		s, sx, sy, x0, x1, y0, y1, u, v, px, k, c;
 	byte	*row, *dest;
 
-	s = draw_scale;
-	sx = x * s;
-	sy = y * s + draw_yoff;
+	s = draw_scale * mult;
+	sx = x * draw_scale;
+	sy = y * draw_scale + draw_yoff;
 
 	y0 = sy < 0 ? 0 : sy;
 	y1 = sy + h * s;
@@ -270,6 +270,51 @@ static void Draw_Blit (int x, int y, byte *src, int w, int h, int srcrow,
 				dest[k] = c;
 		}
 	}
+}
+
+static void Draw_Blit (int x, int y, byte *src, int w, int h, int srcrow,
+	int key, byte *translation)
+{
+	Draw_BlitMult (x, y, src, w, h, srcrow, key, translation, 1);
+}
+
+/*
+================
+Draw_PicPart
+
+Rows top to top+h of a picture, each art pixel mult canvas pixels square,
+transparent where the art is, and recoloured by translation if it is given.
+Clipped to the screen rather than refused, since the menus lay out on a
+canvas whose size is the window's.
+================
+*/
+void Draw_PicPart (int x, int y, qpic_t *pic, int top, int h, int mult,
+	byte *translation)
+{
+	if (top < 0)
+		top = 0;
+	if (top + h > pic->height)
+		h = pic->height - top;
+	if (h <= 0)
+		return;
+
+	Draw_BlitMult (x, y, pic->data + top * pic->width, pic->width, h,
+		pic->width, TRANSPARENT_COLOR, translation, mult);
+}
+
+/*
+================
+Draw_CharacterEx
+
+Draw_Character, mult canvas pixels to the art pixel, and recoloured.
+================
+*/
+void Draw_CharacterEx (int x, int y, int num, int mult, byte *translation)
+{
+	num &= 255;
+
+	Draw_BlitMult (x, y, draw_chars + ((num>>4)<<10) + ((num&15)<<3), 8, 8,
+		128, 0, translation, mult);
 }
 
 /*
@@ -435,17 +480,40 @@ Draw_ConsoleBackground
 
 ================
 */
+static void Draw_ConsoleBackgroundStamp (int lines, qboolean stamp);
+
 void Draw_ConsoleBackground (int lines)
 {
+	Draw_ConsoleBackgroundStamp (lines, true);
+}
+
+/*
+================
+Draw_MenuBackground
+
+The console background behind the whole screen, for the menus, without the
+version stamp: the re-release's key hints run along the bottom where it is.
+================
+*/
+void Draw_MenuBackground (void)
+{
+	Draw_ConsoleBackgroundStamp (vid.conheight, false);
+}
+
+static void Draw_ConsoleBackgroundStamp (int lines, qboolean stamp)
+{
 	int				x, y, v;
-	byte			*src, *dest;
+	byte			*src, *dest, *data;
 	int				f, fstep;
 	qpic_t			*conback;
 	char			ver[100];
+	static byte		plain[320*200], stamped[320*200];
+	static qboolean	copied;
 
 	conback = Draw_CachePic ("gfx/conback.lmp");
+	data = conback->data;
 
-// hack the version number directly into the pic
+// hack the version number into the pic
 //
 // The art has a dark plate under the id logo, cut for four characters, and
 // DOS Quake stamps "1.09" on it. The X11 build stamped "(X11 Quake 1.10) 1.09"
@@ -454,27 +522,31 @@ void Draw_ConsoleBackground (int lines)
 // line of text, which read as a rendering fault. It gets the DOS stamp now.
 // The port's own version is on the launch page.
 //
-// Every offset here assumes id's 320x200 picture; a game directory with a
-// different one is left as it is rather than written into at the wrong place.
+// id wrote the stamp into the cached picture itself. The menus draw the same
+// picture without it, since their key hints run along the bottom where it is,
+// and the cache moves and reloads pictures when it likes -- so there is no
+// telling, later, whether what is in the cache has been stamped. The picture
+// is copied the first time instead, before anything has written on it, and
+// both versions are drawn from the copies.
 //
-#ifdef _WIN32
-	sprintf (ver, "(WinQuake) %4.2f", (float)VERSION);
-	dest = conback->data + 320*186 + 320 - 11 - 8*strlen(ver);
-#elif defined(X11)
-	dest = conback->data + 320 - 43 + 320*186;
-	sprintf (ver, "%4.2f", VERSION);
-#elif defined(__linux__)
-	sprintf (ver, "(Linux Quake %2.2f) %4.2f", (float)LINUX_VERSION, (float)VERSION);
-	dest = conback->data + 320*186 + 320 - 11 - 8*strlen(ver);
-#else
-	dest = conback->data + 320 - 43 + 320*186;
-	sprintf (ver, "%4.2f", VERSION);
-#endif
-
+// Every offset here assumes id's 320x200 picture; a game directory with a
+// different one is drawn as it is, stamped or not.
+//
 	if (conback->width == 320 && conback->height == 200)
-		for (x=0 ; x<strlen(ver) ; x++)
-			Draw_CharToConback (ver[x], dest+(x<<3));
-	
+	{
+		if (!copied)
+		{
+			memcpy (plain, conback->data, sizeof(plain));
+			memcpy (stamped, conback->data, sizeof(stamped));
+			sprintf (ver, "%4.2f", VERSION);
+			dest = stamped + 320 - 43 + 320*186;
+			for (x=0 ; x<strlen(ver) ; x++)
+				Draw_CharToConback (ver[x], dest+(x<<3));
+			copied = true;
+		}
+		data = stamp ? stamped : plain;
+	}
+
 // draw the pic, at the screen's own resolution: it is a picture, not text,
 // and scaling it by whole pixels would only make it blockier. lines is in
 // canvas rows, and the whole canvas is the whole screen.
@@ -488,7 +560,7 @@ void Draw_ConsoleBackground (int lines)
 	for (y=0 ; y<lines ; y++, dest += vid.rowbytes)
 	{
 		v = (vid.height - lines + y)*200/vid.height;
-		src = conback->data + v*320;
+		src = data + v*320;
 		f = 0;
 		for (x=0 ; x<vid.width ; x++, f += fstep)
 			dest[x] = src[f>>16];
