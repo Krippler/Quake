@@ -5,6 +5,19 @@ top section's heading is what the release workflow reads: `## [X.Y.Z] — DATE`
 on the default branch publishes that version, `## [Unreleased]` publishes only
 `edge`.
 
+## [1.15.0] — 2026-09-24
+
+### Added
+
+- **Coloured light.** Maps that carry the colour of their light -- the
+  re-release's, and most maps built with modern tools, in a `.lit` file
+  beside the map or an `RGBLIGHTING` lump inside it -- are lit in colour:
+  walls take the colour of the light on them, and monsters, items and the
+  weapon the colour of the light they stand in. The renderer is still 8-bit:
+  each tint is a lookup table like id's colormap, built from it, so the
+  brightness is id's and white light is exactly id's picture. `r_rgblight`
+  sets the strength, 1 by default, 0 for id's grey light.
+
 ## [1.14.0] — 2026-09-24
 
 ### Added

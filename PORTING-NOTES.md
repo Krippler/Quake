@@ -1462,6 +1462,45 @@ or tested here, so `e1m1`'s entity lump was rewritten with 400 to 4000 extra
 wall torches at origins the map already used, which makes the same demand out
 of data that is present.
 
+### `r_tint.c`, `r_surf.c`, `model.c` — coloured light
+
+id's renderer lights with one number per lightmap sample, looked up in
+`gfx/colormap.lmp`: 64 levels of "this palette index at this level is that
+one". It can make a colour darker or brighter and nothing else. Maps built
+with modern tools, the re-release's among them, also carry the colour of
+their light, three bytes for every byte of the grey lightmap, either in
+`maps/NAME.lit` or in an `RGBLIGHTING` lump in the BSPX block that follows a
+map's standard lumps. `Mod_LoadColouredLight` reads either, the lump first,
+and trusts it only if it is exactly three times the grey data.
+
+The colour becomes more tables of the colormap's shape. A tint is the light's
+colour with its brightness taken out -- red and green as shares of the sum,
+in fifteenths, 136 of them -- because the brightness is already the level.
+White is one of the 136 and uses id's colormap itself, so a map without
+coloured light, or with white light, draws exactly as before; a `.lit` of
+pure white gives a frame identical to the pixel to no `.lit` at all. A tint's
+table is id's table followed by "that colour times the tint, as the nearest
+non-fullbright palette colour": id's table only ever produces 224 colours, so
+a table is 224 nearest-colour searches, built the first time the tint is
+seen. Fullbright colours stay themselves, as in id's.
+
+`R_BuildLightMap` works out a tint per lightmap sample alongside the grey
+light, from the same styles at the same scales. A surface whose samples are
+all white is drawn by id's block drawers; one with colour by
+`R_DrawSurfaceBlock8_tint`, which is id's drawer with a table per texel: a
+block whose four corner tints agree uses the one table, and one where they
+differ gives each texel a corner's table by an ordered dither weighted by
+distance, precomputed per mip level, so colour grades across a block as
+brightness does. Models use `R_LightPoint`, which now also reads the colour
+of the sample under them; a player's colormap is shirt and trousers rather
+than light, and is left alone.
+
+Measured at 1920x1080 on demo1 with a synthetic `.lit` whose hue changes
+every sample -- every block through the dithered path -- the frame rate is
+within run-to-run noise of no coloured light. A BSPX lump and a `.lit` of the
+same colours give identical frames. `r_rgblight` scales the colour toward
+grey; 0 is id's picture exactly.
+
 ### `r_alpha.c`, `sv_main.c`, `cl_parse.c` — entity alpha
 
 The re-release's progs (MG1's and MG3's) give entities an `.alpha`: gas flares

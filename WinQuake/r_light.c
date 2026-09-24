@@ -235,6 +235,25 @@ int RecursiveLightPoint (mnode_t *node, vec3_t start, vec3_t end)
 			}
 			
 			r >>= 8;
+
+		// and its colour, for a model standing here (r_tint.c)
+			if (surf->rgbsamples && r_rgblight.value > 0)
+			{
+				int		size = ((surf->extents[0]>>4)+1) * ((surf->extents[1]>>4)+1);
+				byte	*rgb = surf->rgbsamples
+							+ (dt * ((surf->extents[0]>>4)+1) + ds) * 3;
+				int		cr = 0, cg = 0, cb = 0;
+
+				for (maps = 0 ; maps < MAXLIGHTMAPS && surf->styles[maps] != 255 ;
+						maps++, rgb += size*3)
+				{
+					scale = d_lightstylevalue[surf->styles[maps]];
+					cr += rgb[0] * scale;
+					cg += rgb[1] * scale;
+					cb += rgb[2] * scale;
+				}
+				r_lightpointtint = R_TintIndex (cr, cg, cb);
+			}
 		}
 		
 		return r;
@@ -244,11 +263,14 @@ int RecursiveLightPoint (mnode_t *node, vec3_t start, vec3_t end)
 	return RecursiveLightPoint (node->children[!side], mid, end);
 }
 
+int	r_lightpointtint;
+
 int R_LightPoint (vec3_t p)
 {
 	vec3_t		end;
 	int			r;
 	
+	r_lightpointtint = r_tintwhite;
 	if (!cl.worldmodel->lightdata)
 		return 255;
 	

@@ -41,6 +41,7 @@ void R_DrawSurfaceBlock8_mip0 (void);
 void R_DrawSurfaceBlock8_mip1 (void);
 void R_DrawSurfaceBlock8_mip2 (void);
 void R_DrawSurfaceBlock8_mip3 (void);
+void R_DrawSurfaceBlock8_tint (void);
 
 static void	(*surfmiptable[4])(void) = {
 	R_DrawSurfaceBlock8_mip0,
@@ -52,6 +53,12 @@ static void	(*surfmiptable[4])(void) = {
 
 
 unsigned		blocklights[18*18];
+
+// coloured light (r_tint.c): the tint of each lightmap sample, when the surface
+// has one, and where the block drawer is up to in it
+static byte		blocktints[18*18];
+static qboolean	r_surftinted;
+static byte		*r_tintptr;
 
 /*
 ===============
@@ -157,6 +164,7 @@ void R_BuildLightMap (void)
 	msurface_t	*surf;
 
 	surf = r_drawsurf.surf;
+	r_surftinted = false;
 
 	smax = (surf->extents[0]>>4)+1;
 	tmax = (surf->extents[1]>>4)+1;
@@ -185,6 +193,31 @@ void R_BuildLightMap (void)
 				blocklights[i] += lightmap[i] * scale;
 			lightmap += size;	// skip to next lightmap
 		}
+
+// the colour of that light, if the map has it: a tint per sample
+	r_surftinted = false;
+	if (surf->rgbsamples && r_rgblight.value > 0)
+	{
+		byte	*rgb;
+		int		r, g, b;
+
+		for (i=0 ; i<size ; i++)
+		{
+			r = g = b = 0;
+			rgb = surf->rgbsamples + i*3;
+			for (maps = 0 ; maps < MAXLIGHTMAPS && surf->styles[maps] != 255 ;
+				 maps++, rgb += size*3)
+			{
+				scale = r_drawsurf.lightadj[maps];
+				r += rgb[0] * scale;
+				g += rgb[1] * scale;
+				b += rgb[2] * scale;
+			}
+			blocktints[i] = R_TintIndex (r, g, b);
+			if (blocktints[i] != r_tintwhite)
+				r_surftinted = true;
+		}
+	}
 
 // add all the dynamic lights
 	if (surf->dlightframe == r_framecount)
@@ -281,7 +314,12 @@ void R_DrawSurface (void)
 
 //==============================
 
-	if (r_pixbytes == 1)
+	if (r_surftinted)
+	{
+		pblockdrawer = R_DrawSurfaceBlock8_tint;
+		horzblockstep = blocksize;
+	}
+	else if (r_pixbytes == 1)
 	{
 		pblockdrawer = surfmiptable[r_drawsurf.surfmip];
 	// TODO: only needs to be set when there is a display settings change
@@ -315,6 +353,7 @@ void R_DrawSurface (void)
 	for (u=0 ; u<r_numhblocks; u++)
 	{
 		r_lightptr = blocklights + u;
+		r_tintptr = blocktints + u;
 
 		prowdestbase = pcolumndest;
 
@@ -332,6 +371,108 @@ void R_DrawSurface (void)
 
 
 //=============================================================================
+
+/*
+================
+R_DrawSurfaceBlock8_tint
+
+id's block drawer, for a surface lit in colour: any mip level, and a colormap
+per texel instead of one. Each 16x16 block has a tint at each corner, the
+colour of the lightmap sample there. A block whose corners agree -- almost all
+of them -- is drawn with that one table as id's drawer would. Where they
+differ, each texel takes a corner's table by an ordered dither weighted by how
+near it is to that corner, so the colour grades across the block the way the
+brightness does rather than stepping in quarters.
+================
+*/
+static const byte r_tintdither[4][4] =
+{
+	{ 0,  8,  2, 10},
+	{12,  4, 14,  6},
+	{ 3, 11,  1,  9},
+	{15,  7, 13,  5}
+};
+
+static int		r_tintselbs;
+static byte		r_tintsel[16][16];	// which corner each texel of a block takes
+
+void R_DrawSurfaceBlock8_tint (void)
+{
+	int				v, i, b, bs, sh, lightstep, lighttemp, light;
+	int				right, below;
+	unsigned char	*psource, *prowdest;
+	byte			*maps[4];
+
+	bs = blocksize;
+	sh = blockdivshift;
+
+// texel centre past a dither threshold: that corner's side. The same for
+// every block of a mip level, so worked out once per level.
+	if (bs != r_tintselbs)
+	{
+		for (i=0 ; i<bs ; i++)
+			for (b=0 ; b<bs ; b++)
+			{
+				right = (2*b + 1) * 16 > (2*r_tintdither[i&3][b&3] + 1) * bs;
+				below = (2*i + 1) * 16 > (2*r_tintdither[b&3][(i+2)&3] + 1) * bs;
+				r_tintsel[i][b] = (below<<1) | right;
+			}
+		r_tintselbs = bs;
+	}
+	psource = pbasesource;
+	prowdest = prowdestbase;
+
+	for (v=0 ; v<r_numvblocks ; v++)
+	{
+		lightleft = r_lightptr[0];
+		lightright = r_lightptr[1];
+		maps[0] = R_TintMap (r_tintptr[0]);
+		maps[1] = R_TintMap (r_tintptr[1]);
+		r_lightptr += r_lightwidth;
+		r_tintptr += r_lightwidth;
+		maps[2] = R_TintMap (r_tintptr[0]);
+		maps[3] = R_TintMap (r_tintptr[1]);
+		lightleftstep = (r_lightptr[0] - lightleft) >> sh;
+		lightrightstep = (r_lightptr[1] - lightright) >> sh;
+
+		for (i=0 ; i<bs ; i++)
+		{
+			lighttemp = lightleft - lightright;
+			lightstep = lighttemp >> sh;
+
+			light = lightright;
+
+			if (maps[0] == maps[1] && maps[0] == maps[2] && maps[0] == maps[3])
+			{
+				byte	*cm = maps[0];
+
+				for (b=bs-1 ; b>=0 ; b--)
+				{
+					prowdest[b] = cm[(light & 0xFF00) + psource[b]];
+					light += lightstep;
+				}
+			}
+			else
+			{
+				byte	*sel = r_tintsel[i];
+
+				for (b=bs-1 ; b>=0 ; b--)
+				{
+					prowdest[b] = maps[sel[b]][(light & 0xFF00) + psource[b]];
+					light += lightstep;
+				}
+			}
+
+			psource += sourcetstep;
+			lightright += lightrightstep;
+			lightleft += lightleftstep;
+			prowdest += surfrowbytes;
+		}
+
+		if (psource >= r_sourcemax)
+			psource -= r_stepback;
+	}
+}
 
 #if	!id386
 

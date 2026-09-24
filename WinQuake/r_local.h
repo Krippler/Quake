@@ -422,3 +422,12 @@ byte *R_BlendMap (int alpha);
 extern byte	r_blendinvisible[1];
 void R_DrawTranslucentEntities (void);
 extern byte	*d_blendmap;
+
+// r_tint.c: coloured light
+extern cvar_t	r_rgblight;
+extern int		r_tintwhite;
+extern int		r_lightpointtint;	// the tint R_LightPoint last found
+void	R_TintInit (void);
+void	R_TintFrame (void);
+int		R_TintIndex (int r, int g, int b);
+byte	*R_TintMap (int tint);
