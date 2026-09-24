@@ -1471,13 +1471,20 @@ faces at 10 and 11, all on style 0, and spinning they swap places several
 times a second -- a flicker the map does not have, which the re-release does
 not show. It is not the coloured light; it flickers with `r_rgblight 0`.
 
-While a brush entity is turning -- its last two angle updates differ -- every
-face of it is lit with the model's average over all its faces' samples, grey
-and colour (`R_TurningLight`, once per model per frame), instead of its own
-lightmap. Dynamic lights are added on top as before. A model that stops goes
-back to its lightmaps, and one placed at an angle and left there never leaves
-them. The surface cache records whether a surface was built that way, so a
-fan that starts or stops rebuilds. What this cannot give back is the shadow a
+A brush entity that has been seen at any angle but zero -- the angle its
+lightmaps were baked at -- has every face lit with the light of its lit side
+instead of its own lightmap: the average of those of its samples brighter
+than the model's overall average, grey and colour (`R_TurningLight`, once per
+model per frame). Dynamic lights are added on top as before. It stays that way
+for the rest of the map (`entity_t.turned`, cleared with the entities), and
+the surface cache records whether a surface was built that way.
+
+1.15.1 used the model's plain average, and only while its last two angle
+updates differed. A recording from the player showed both wrong: the plain
+average, pulled down by the blades' shadowed sides, was darker than the
+re-release's fan, and a slow fan often sends the same angle twice -- angles
+go as whole 1.4-degree steps -- so its baked light came back for 10 to 40
+frames at a time, which was the flicker again, less often. What this cannot give back is the shadow a
 fan throws on the wall behind it, which the re-release draws moving with the
 blades; this renderer has no shadows but the baked ones.
 

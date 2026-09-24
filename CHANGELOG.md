@@ -5,6 +5,19 @@ top section's heading is what the release workflow reads: `## [X.Y.Z] — DATE`
 on the default branch publishes that version, `## [Unreleased]` publishes only
 `edge`.
 
+## [1.15.2] — 2026-09-24
+
+### Fixed
+
+- **Spinning fans still flashed now and then.** 1.15.1 lit a brush model
+  evenly only while its last two angle updates differed, and a slow fan often
+  sends the same angle twice, since angles travel in whole steps of about 1.4
+  degrees. Its baked light then came back for a fraction of a second at a time.
+  A brush model that has been seen at any angle other than zero is now lit
+  evenly for the rest of the map, and with the light of its lit side rather
+  than its overall average, which the blades' shadowed sides made darker than
+  the re-release's fan.
+
 ## [1.15.1] — 2026-09-24
 
 ### Fixed
