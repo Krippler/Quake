@@ -1187,6 +1187,10 @@ static option_t	options[] =
 // judgement rather than a fact: the density they set is interpreted through a
 // curve taken from another engine's source. 0 turns it off, 1 is that curve.
 	{"Fog thickness",		o_slider, "r_fogscale",     0,     4,    0.25, 0},
+
+// Coloured light, where a map has it (r_tint.c). r_rgblight is a strength, and
+// the console can set it anywhere between; the menu offers on and off.
+	{"Coloured light",		o_toggle, "r_rgblight",     0,     0,    0,    0},
 };
 
 #define	OPTIONS_ITEMS	((int)(sizeof(options) / sizeof(options[0])))

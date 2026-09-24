@@ -148,9 +148,10 @@ What to expect:
 - Coloured light is drawn where the map has it, from a `.lit` file beside the
   map or an `RGBLIGHTING` lump inside it. Walls take the colour of the light
   on them, and monsters, items and your weapon the colour of the light they
-  stand in. `r_rgblight` at the console sets how much: `1` is the map's
-  colours, `0` is id's grey light, and anything between is paler. Maps
-  without coloured light look exactly as they did.
+  stand in. **Options → Coloured light** turns it on and off, and
+  `r_rgblight` at the console sets how much: `1` is the map's colours, `0` is
+  id's grey light, and anything between is paler. Maps without coloured light
+  look exactly as they did.
 - The re-release progs unlock Steam achievements by sending their own server
   message: a monster killed by another monster, a secret found, a level or
   episode finished. There is nothing here to unlock; `developer 1` shows the
