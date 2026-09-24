@@ -5,6 +5,16 @@ top section's heading is what the release workflow reads: `## [X.Y.Z] — DATE`
 on the default branch publishes that version, `## [Unreleased]` publishes only
 `edge`.
 
+## [1.13.1] — 2026-09-24
+
+### Changed
+
+- **The start-up log says how long each step took.** Every line the
+  container's start-up script prints now carries the seconds since it began,
+  `[quake 12.3s] ...`, so a slow start shows where the time goes. A gap before
+  `game data:` is the mount being scanned (on Unraid, often disks spinning
+  up). DOCKER.md has a troubleshooting section on reading it.
+
 ## [1.13.0] — 2026-09-24
 
 ### Added

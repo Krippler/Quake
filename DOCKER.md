@@ -502,6 +502,27 @@ actually sent — so `docker logs` answers the question on its own.
 
 ## Troubleshooting
 
+### It takes a long time to start
+
+The container's own start takes well under a second from its first log line
+to the engine running, on any machine with the game data on a local disk.
+Every line the start-up script logs carries the seconds since it began,
+`[quake 12.3s] ...`, so the log says where a slow start spends its time:
+
+```
+docker logs -t <container>
+```
+
+- A gap before `game data:` is the scan of the mount: the script lists every
+  game directory and looks a few levels down for the re-release's
+  `QuakeEX.kpf`. On Unraid, a user share on array disks that have spun down
+  waits for them to spin up; putting the game data on a cache-only share, or
+  mounting the disk path directly, avoids it.
+- A gap before the first line at all is before the script runs: the image
+  being pulled or updated, which Unraid does on start when auto-update is on.
+- No gap anywhere, but the page is slow to appear: the time is in the browser
+  loading the page and connecting, not in the container.
+
 ### The picture stutters or lags
 
 The picture reaches the browser through x11vnc, which captures the screen,
