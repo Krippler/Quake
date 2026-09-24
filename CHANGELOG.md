@@ -5,6 +5,23 @@ top section's heading is what the release workflow reads: `## [X.Y.Z] — DATE`
 on the default branch publishes that version, `## [Unreleased]` publishes only
 `edge`.
 
+## [1.16.0] — 2026-09-24
+
+### Added
+
+- **A "Coloured light" switch in the Options menu**, at the bottom, for the
+  coloured light 1.15.0 added. Off is id's grey light. It is `r_rgblight`,
+  saved in `config.cfg`; the console can still set anything between 0 and 1
+  for paler colour.
+
+### Fixed
+
+- **The Options and Game menus ran over the QUAKE / id plaque.** id's menus
+  keep their text to the right of the vertical logo down the left side; the
+  two menus this port rewrote started theirs on top of it. Both now begin
+  right of it, with the cursor in the gap. "Game / mission pack" is now
+  **Game / mod**, to leave room for the game's name beside it.
+
 ## [1.15.3] — 2026-09-24
 
 ### Fixed

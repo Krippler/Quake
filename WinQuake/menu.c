@@ -1157,7 +1157,7 @@ static option_t	options[] =
 	{"Go to console",		o_action, NULL,             0,     0,    0,    OPT_CONSOLE},
 	{"Reset to defaults",	o_action, NULL,             0,     0,    0,    OPT_RESET},
 	{"Video options",		o_action, NULL,             0,     0,    0,    OPT_VIDEO},
-	{"Game / mission pack",	o_action, NULL,             0,     0,    0,    OPT_GAME},
+	{"Game / mod",			o_action, NULL,             0,     0,    0,    OPT_GAME},
 
 	{"Screen size",			o_custom, NULL,             0,     0,    0,    OPT_VIEWSIZE},
 	{"Brightness",			o_custom, NULL,             0,     0,    0,    OPT_GAMMA},
@@ -1187,11 +1187,21 @@ static option_t	options[] =
 // judgement rather than a fact: the density they set is interpreted through a
 // curve taken from another engine's source. 0 turns it off, 1 is that curve.
 	{"Fog thickness",		o_slider, "r_fogscale",     0,     4,    0.25, 0},
+
+// Coloured light, where a map has it (r_tint.c). r_rgblight is a strength, and
+// the console can set it anywhere between; the menu offers on and off.
+	{"Coloured light",		o_toggle, "r_rgblight",     0,     0,    0,    0},
 };
 
 #define	OPTIONS_ITEMS	((int)(sizeof(options) / sizeof(options[0])))
 
 // More rows than fit, so the list scrolls, as the controls menu does.
+//
+// id's plaque, the vertical QUAKE and id logo, runs down x = 16 to 48, and
+// every menu that draws it keeps its own text to the right of it. The rows
+// start at 56, the cursor sits in the gap at 48, and a label with a value
+// beside it has 14 characters before the sliders begin at 176.
+#define	OPTIONS_LABEL_X	56
 #define	OPTIONS_TOP_Y	40
 #define	OPTIONS_VISIBLE	17
 #define	OPTIONS_VALUE_X	184
@@ -1517,17 +1527,17 @@ void M_Options_Draw (void)
 	{
 		y = OPTIONS_TOP_Y + row * 8;
 
-		M_Print (16, y, options[i].label);
+		M_Print (OPTIONS_LABEL_X, y, options[i].label);
 		M_Options_DrawValue (y, &options[i]);
 
 		if (i == options_cursor)
-			M_DrawCharacter (8, y, 12 + ((int)(realtime*4) & 1));
+			M_DrawCharacter (OPTIONS_LABEL_X - 8, y, 12 + ((int)(realtime*4) & 1));
 	}
 
 	if (options_top > 0)
-		M_Print (16, OPTIONS_TOP_Y - 8, "^ more above");
+		M_Print (OPTIONS_LABEL_X, OPTIONS_TOP_Y - 8, "^ more above");
 	if (last < OPTIONS_ITEMS)
-		M_Print (16, OPTIONS_TOP_Y + OPTIONS_VISIBLE * 8, "v more below");
+		M_Print (OPTIONS_LABEL_X, OPTIONS_TOP_Y + OPTIONS_VISIBLE * 8, "v more below");
 }
 
 
@@ -1884,7 +1894,8 @@ extern cvar_t	registered;
 
 #define	GAME_TOP_Y		48
 #define	GAME_VISIBLE	13
-#define	GAME_DIR_X		216
+#define	GAME_DIR_X		256
+#define	GAME_LABEL_X	56		// right of id's plaque, as in the options menu
 
 static char	gamedirs[MAX_GAMEDIRS][MAX_QPATH];
 static int	numgamedirs;
@@ -1959,9 +1970,9 @@ void M_Game_Draw (void)
 
 	if (!numgamedirs)
 	{
-		M_Print (16, GAME_TOP_Y, "Nothing found next to the base game.");
-		M_Print (16, GAME_TOP_Y + 16, "A mission pack or a mod is a folder");
-		M_Print (16, GAME_TOP_Y + 24, "of its own beside id1.");
+		M_Print (GAME_LABEL_X, GAME_TOP_Y, "No mission packs or mods found.");
+		M_Print (GAME_LABEL_X, GAME_TOP_Y + 16, "Each is a folder of its own");
+		M_Print (GAME_LABEL_X, GAME_TOP_Y + 24, "beside id1.");
 		return;
 	}
 
@@ -1987,7 +1998,7 @@ void M_Game_Draw (void)
 		return;
 	}
 
-	M_Print (16, 32, "Enter to switch, Escape to go back");
+	M_Print (GAME_LABEL_X, 32, "Enter switches, Escape goes back");
 
 // Keep the cursor inside the window, as the controls and options menus do.
 	if (game_cursor < game_top)
@@ -2011,9 +2022,9 @@ void M_Game_Draw (void)
 	// The one running now in white, so that the list says where you are as
 	// well as where you could go.
 		if (i == game_current)
-			M_PrintWhite (16, y, title);
+			M_PrintWhite (GAME_LABEL_X, y, title);
 		else
-			M_Print (16, y, title);
+			M_Print (GAME_LABEL_X, y, title);
 
 	// A mod is listed by its directory already; printing it twice says
 	// nothing. A mission pack is listed by name, and the directory is worth
@@ -2022,13 +2033,13 @@ void M_Game_Draw (void)
 			M_Print (GAME_DIR_X, y, gamedirs[i]);
 
 		if (i == game_cursor)
-			M_DrawCharacter (8, y, 12 + ((int)(realtime*4) & 1));
+			M_DrawCharacter (GAME_LABEL_X - 8, y, 12 + ((int)(realtime*4) & 1));
 	}
 
 	if (game_top > 0)
-		M_Print (16, GAME_TOP_Y - 8, "^ more above");
+		M_Print (GAME_LABEL_X, GAME_TOP_Y - 8, "^ more above");
 	if (last < numgamedirs)
-		M_Print (16, GAME_TOP_Y + GAME_VISIBLE * 8, "v more below");
+		M_Print (GAME_LABEL_X, GAME_TOP_Y + GAME_VISIBLE * 8, "v more below");
 }
 
 
