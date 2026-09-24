@@ -259,6 +259,7 @@ void R_Init (void)
 	Cvar_RegisterVariable (&r_reportsurfout);
 	Cvar_RegisterVariable (&r_maxsurfs);
 	Cvar_RegisterVariable (&r_fogscale);
+	R_TintInit ();
 	Cvar_RegisterVariable (&r_numsurfs);
 	Cvar_RegisterVariable (&r_reportedgeout);
 	Cvar_RegisterVariable (&r_maxedges);
@@ -1222,6 +1223,7 @@ void R_RenderView_ (void)
 	if (r_timegraph.value || r_speeds.value || r_dspeeds.value)
 		r_time1 = Sys_FloatTime ();
 
+	R_TintFrame ();
 	R_SetupFrame ();
 
 #ifdef PASSAGES

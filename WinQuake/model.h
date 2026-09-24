@@ -126,6 +126,7 @@ typedef struct msurface_s
 // lighting info
 	byte		styles[MAXLIGHTMAPS];
 	byte		*samples;		// [numstyles*surfsize]
+	byte		*rgbsamples;	// the same, 3 bytes each, or NULL (r_tint.c)
 } msurface_t;
 
 typedef struct mnode_s
@@ -375,6 +376,7 @@ typedef struct model_s
 
 	byte		*visdata;
 	byte		*lightdata;
+	byte		*rgblightdata;	// coloured light, 3 bytes a sample, or NULL
 	char		*entities;
 
 //

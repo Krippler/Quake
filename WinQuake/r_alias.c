@@ -738,7 +738,12 @@ void R_AliasDrawModel (alight_t *plighting)
 #endif
 	}
 
+// A model lit by coloured light takes the tint of the light it stands in,
+// which R_LightPoint found just before this was called. A player's colormap is
+// their shirt and trousers, not light, and stays as it is.
 	acolormap = currententity->colormap;
+	if (acolormap == vid.colormap)
+		acolormap = R_TintMap (r_lightpointtint);
 
 	if (currententity != &cl.viewent)
 		ziscale = (float)0x8000 * (float)0x10000;

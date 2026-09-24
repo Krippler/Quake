@@ -749,16 +749,100 @@ void Mod_LoadTextures (lump_t *l)
 	}
 }
 
+static int	mod_lightlen;	// bytes of light data, for Mod_LoadFaces to check against
+
+/*
+=================
+Mod_LoadColouredLight
+
+Coloured light, which the re-release's maps and most maps built with modern
+tools carry beside the grey lightmap id's renderer reads: three bytes, red,
+green and blue, for every byte of the grey one, in the same order, so a
+surface's colour is at three times its grey offset. It comes one of two ways:
+
+ - maps/NAME.lit, a file beside the map: "QLIT", version 1, then the bytes.
+ - an RGBLIGHTING lump in the map's BSPX block, which is a table of extra
+   named lumps that follows the standard fifteen: "BSPX", a count, then 24
+   bytes of name, an offset and a length for each.
+
+Either has to be exactly three times the grey data or it is not trusted; a
+.lit left behind from an older build of the map would light it wrongly.
+r_tint.c turns it into tinted colormaps.
+=================
+*/
+static void Mod_LoadColouredLight (void)
+{
+	char		litname[MAX_QPATH];
+	byte		*lit;
+	int			i, end, count, mark;
+	dheader_t	*header = (dheader_t *)mod_base;
+
+	if (strlen (loadmodel->name) < 5 || strlen (loadmodel->name) >= MAX_QPATH)
+		return;
+
+// the map's own BSPX lump first: it cannot be stale
+	end = 0;
+	for (i=0 ; i<HEADER_LUMPS ; i++)
+		if (header->lumps[i].fileofs + header->lumps[i].filelen > end)
+			end = header->lumps[i].fileofs + header->lumps[i].filelen;
+	end = (end + 3) & ~3;
+	if (end + 8 <= com_filesize && !memcmp (mod_base + end, "BSPX", 4))
+	{
+		count = LittleLong (*(int *)(mod_base + end + 4));
+		for (i=0 ; i<count && end + 8 + (i+1)*32 <= com_filesize ; i++)
+		{
+			byte	*e = mod_base + end + 8 + i*32;
+			int		ofs = LittleLong (*(int *)(e + 24));
+			int		len = LittleLong (*(int *)(e + 28));
+
+			if (strncmp ((char *)e, "RGBLIGHTING", 24))
+				continue;
+			if (len != mod_lightlen * 3 || ofs < 0 || ofs + len > com_filesize)
+			{
+				Con_DPrintf ("%s: BSPX RGBLIGHTING is %d bytes, not %d; "
+							 "grey light only\n", loadmodel->name, len,
+							 mod_lightlen * 3);
+				return;
+			}
+			loadmodel->rgblightdata = Hunk_AllocName (len, loadname);
+			memcpy (loadmodel->rgblightdata, mod_base + ofs, len);
+			Con_DPrintf ("%s: coloured light from its BSPX lump\n",
+						 loadmodel->name);
+			return;
+		}
+	}
+
+// then a .lit beside it
+	strcpy (litname, loadmodel->name);
+	strcpy (litname + strlen (litname) - 4, ".lit");
+	mark = Hunk_LowMark ();
+	lit = COM_LoadHunkFile (litname);
+	if (!lit)
+		return;
+	if (com_filesize != 8 + mod_lightlen * 3 || memcmp (lit, "QLIT", 4)
+		|| LittleLong (*(int *)(lit + 4)) != 1)
+	{
+		Con_Printf ("%s is %d bytes for %d of light data, or not version 1; "
+					"%s keeps its grey light\n", litname, com_filesize,
+					mod_lightlen, loadmodel->name);
+		Hunk_FreeToLowMark (mark);
+		return;
+	}
+	loadmodel->rgblightdata = lit + 8;
+	Con_DPrintf ("%s: coloured light from %s\n", loadmodel->name, litname);
+}
+
+
 /*
 =================
 Mod_LoadLighting
 =================
 */
-static int	mod_lightlen;	// bytes of light data, for Mod_LoadFaces to check against
 
 void Mod_LoadLighting (lump_t *l)
 {
 	mod_lightlen = l->filelen;
+	loadmodel->rgblightdata = NULL;
 	if (!l->filelen)
 	{
 		loadmodel->lightdata = NULL;
@@ -766,6 +850,7 @@ void Mod_LoadLighting (lump_t *l)
 	}
 	loadmodel->lightdata = Hunk_AllocName ( l->filelen, loadname);	
 	memcpy (loadmodel->lightdata, mod_base + l->fileofs, l->filelen);
+	Mod_LoadColouredLight ();
 }
 
 
@@ -1141,10 +1226,15 @@ void Mod_LoadFaces (lump_t *l)
 
 		for (i=0 ; i<MAXLIGHTMAPS ; i++)
 			out->styles[i] = styles[i];
+		out->rgbsamples = NULL;
 		if (lightofs == -1)
 			out->samples = NULL;
 		else
+		{
 			out->samples = loadmodel->lightdata + lightofs;
+			if (loadmodel->rgblightdata)
+				out->rgbsamples = loadmodel->rgblightdata + lightofs*3;
+		}
 
 	//
 	// A lightmap that runs past the end of the light data would be read from
@@ -1164,6 +1254,7 @@ void Mod_LoadFaces (lump_t *l)
 							 "data is %d bytes", surfnum, lightofs,
 							 lightofs + size*nstyles, mod_lightlen);
 				out->samples = NULL;
+				out->rgbsamples = NULL;
 			}
 		}
 		
