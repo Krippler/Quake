@@ -13,6 +13,7 @@ STATE="${QUAKE_STATE:-/quake/state}"
 VNC_PORT="${QUAKE_VNC_PORT:-5900}"
 WEB_PORT="${QUAKE_WEB_PORT:-6080}"
 AUDIO_PORT="${QUAKE_AUDIO_PORT:-5901}"
+PAD_PORT="${QUAKE_PAD_PORT:-5902}"
 DISP="${QUAKE_DISPLAY:-:99}"
 QUAKE_BIN="${QUAKE_BIN:-/usr/local/games/xquake}"
 AUDIOSTREAM_BIN="${QUAKE_AUDIOSTREAM_BIN:-/usr/local/games/audiostream}"
@@ -827,7 +828,14 @@ fi
 {
     printf 'vnc: localhost:%s\n' "$VNC_PORT"
     [ "$AUDIO_TO_BROWSER" = "1" ] && printf 'audio: localhost:%s\n' "$AUDIO_PORT"
+    printf 'pad: localhost:%s\n' "$PAD_PORT"
 } > "$STATE/ws-targets"
+
+# ...and a third: the controller. The page reads the pad through the browser's
+# Gamepad API and sends its state here; the engine listens for it on this port
+# (WinQuake/in_pad.c), and does the rest itself -- bindings and stick settings
+# are in the game's Options, as in the desktop build.
+export QUAKE_PAD_PORT="$PAD_PORT"
 
 ##############################################################################
 # Modern controls, on a fresh state volume only.
@@ -888,93 +896,6 @@ CFGEOF
 }
 
 seed_config
-
-#
-# Hand the browser the engine's own key bindings.
-#
-# The controller in the page presses keys, so it has to press the keys *this*
-# engine listens for -- and those live in config.cfg, which only this side can
-# see. Without them a pad works perfectly in the menus, where the engine
-# hardcodes the arrows and Return, and does nothing at all in a level as soon
-# as anybody has been through Options -> Customize controls.
-#
-# Quake binds keys to commands, not the other way round, so the file is
-# inverted on the way out: {"+attack": "CTRL"} is what the page wants, because
-# the page knows which command a control means and needs the key that runs it.
-#
-# Read at startup, which is the right moment: the engine writes config.cfg when
-# it exits, so what is on disk now is what it is about to load.
-#
-write_key_map() {
-    cfg="$BASEDIR/id1/config.cfg"
-
-    # The web root is read-only in the image, so the file lives in the state
-    # directory and is reached through a symlink the Dockerfile made.
-    out="$STATE/quake-keys.json"
-
-    if [ ! -r "$cfg" ]; then
-        # No config yet: a first run, so the engine will use its own defaults,
-        # which are the page's defaults too. An empty object says "nothing to
-        # override" rather than leaving a stale file from a previous container.
-        printf '{}\n' >"$out" 2>/dev/null || true
-        log "controller keys: no config.cfg yet, the page uses the stock binds"
-        return
-    fi
-
-    #
-    # bind "KEY" "COMMAND", which is exactly what Key_WriteBindings emits.
-    #
-    # First binding wins per command, except that a keyboard key beats a mouse
-    # button: the stock config binds +attack to both CTRL and MOUSE1, and a key
-    # is the thing the page can press most reliably. A mouse binding is still
-    # passed through when it is the only one, and the page turns it back into a
-    # button press.
-    #
-    if awk '
-        function esc(v) { gsub(/\\/, "\\\\", v); gsub(/"/, "\\\"", v); return v }
-        /^[ \t]*bind[ \t]+"/ {
-            line = $0
-            if (match(line, /"[^"]*"[ \t]+"[^"]*"/) == 0) next
-            pair = substr(line, RSTART, RLENGTH)
-            split(pair, q, "\"")
-            key = q[2]; cmd = q[4]
-            if (cmd == "") next
-            ismouse = (key ~ /^MOUSE[0-9]+$/)
-            if (!(cmd in seen) || (seen[cmd] == 1 && !ismouse)) {
-                keys[cmd] = key
-                seen[cmd] = ismouse ? 1 : 2
-            }
-        }
-        END {
-            printf "{"
-            n = 0
-            for (c in keys)
-                printf "%s\"%s\":\"%s\"", (n++ ? "," : ""), esc(c), esc(keys[c])
-            printf "}\n"
-        }' "$cfg" >"$out.tmp" 2>/dev/null; then
-        mv -f "$out.tmp" "$out" 2>/dev/null || rm -f "$out.tmp"
-    else
-        rm -f "$out.tmp"
-        printf '{}\n' >"$out" 2>/dev/null || true
-    fi
-
-    #
-    # Logged in full and sorted, and not as JSON.
-    #
-    # A report that the pad does nothing is answered by this line or by nothing
-    # at all, so it is worth the width -- and sorted, because awk emits its keys
-    # in no particular order and the two most likely to be asked about, +attack
-    # and +speed, are the ones that would otherwise fall off the end.
-    #
-    log "controller keys: $(awk '
-        /^[ \t]*bind[ \t]+"/ {
-            if (match($0, /"[^"]*"[ \t]+"[^"]*"/) == 0) next
-            split(substr($0, RSTART, RLENGTH), q, "\"")
-            if (q[4] != "") printf "%s=%s\n", q[4], q[2]
-        }' "$cfg" 2>/dev/null | sort | tr '\n' ' ')"
-}
-
-write_key_map
 
 log "starting noVNC on port $WEB_PORT"
 #

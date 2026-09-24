@@ -6,8 +6,11 @@
 # hand-written assembler is 32-bit only and quakedef.h already turns it off
 # (id386 is 0 wherever __i386__ is not defined, which is here).
 #
-#   make            # -> linux/xquake
-#   make SOUND=oss  # the 1996 /dev/dsp backend instead of the streaming one
+#   make              # -> linux/xquake, for the container
+#   make SOUND=alsa   # for a Linux desktop: sound through ALSA, which is
+#                     # PipeWire or PulseAudio where either is running
+#   make SOUND=oss    # the 1996 /dev/dsp backend instead of the streaming one
+#   make install      # see INSTALLING below
 #   make clean
 #
 # See ../PORTING-NOTES.md for what had to change in the sources themselves.
@@ -48,11 +51,13 @@ XLDFLAGS = -lX11 -lXext -lXrandr
 # -rdynamic puts the engine's own symbols in the dynamic symbol table, which is
 # where backtrace_symbols_fd looks. Without it a crash backtrace is a column of
 # addresses; with it, function names. See Sys_CrashHandler in sys_linux.c.
-LDFLAGS_ALL = $(XLDFLAGS) -rdynamic -lm -lz $(MUSIC_LDFLAGS) $(EXTRA_LDFLAGS)
+# -ldl for in_pad.c, which loads SDL2 for controllers if the system has it.
+LDFLAGS_ALL = $(XLDFLAGS) -rdynamic -lm -lz -ldl $(MUSIC_LDFLAGS) $(SND_LDFLAGS) $(EXTRA_LDFLAGS)
 
 # Which sound backend to link. "stream" writes the mixed PCM to a pipe for
-# audiostream to pick up, which is how sound reaches the browser; "oss" is the
-# 1996 /dev/dsp code, kept for a machine that still has one; "none" is silence.
+# audiostream to pick up, which is how sound reaches the browser; "alsa" plays
+# it on the desktop the engine is running on; "oss" is the 1996 /dev/dsp code,
+# kept for a machine that still has one; "none" is silence.
 SOUND ?= stream
 
 # Where the music comes from. "sndfile" decodes Ogg Vorbis, FLAC, WAV, Opus
@@ -68,6 +73,11 @@ MIXER_OBJS = $(BUILDDIR)/snd_dma.o $(BUILDDIR)/snd_mem.o $(BUILDDIR)/snd_mix.o
 ifeq ($(SOUND),oss)
 SND_OBJ = $(MIXER_OBJS) $(BUILDDIR)/snd_linux.o
 else
+ifeq ($(SOUND),alsa)
+SND_OBJ = $(MIXER_OBJS) $(BUILDDIR)/snd_alsa.o
+SND_CFLAGS = -DSND_HAS_GETSAMPLES $(shell pkg-config --cflags alsa)
+SND_LDFLAGS = $(shell pkg-config --libs alsa)
+else
 ifeq ($(SOUND),none)
 SND_OBJ = $(BUILDDIR)/snd_null.o
 else
@@ -76,6 +86,7 @@ SND_OBJ = $(MIXER_OBJS) $(BUILDDIR)/snd_stream.o
 # can ask for it instead of reconstructing it from a ring position. See
 # SNDDMA_GetSamples there for why that is not a tidying-up.
 SND_CFLAGS = -DSND_HAS_GETSAMPLES
+endif
 endif
 endif
 
@@ -117,7 +128,7 @@ COMMON_SRCS = \
 	localize.c \
 	r_sprite.c r_surf.c r_part.c r_vars.c screen.c sbar.c sv_main.c \
 	sv_phys.c sv_move.c sv_user.c zone.c view.c wad.c world.c \
-	sys_linux.c vid_x.c
+	sys_linux.c vid_x.c in_pad.c
 
 OBJS = $(patsubst %.c,$(BUILDDIR)/%.o,$(COMMON_SRCS)) $(SND_OBJ) $(CD_OBJ)
 
@@ -141,7 +152,42 @@ $(BUILDDIR):
 strip: $(TARGET)
 	$(STRIP) $(TARGET)
 
+# INSTALLING
+#
+# For a desktop, built with SOUND=alsa:
+#
+#   make SOUND=alsa
+#   sudo make SOUND=alsa install              # into /usr/local
+#   make SOUND=alsa install PREFIX=~/.local   # or for one user
+#
+# The same layout as the release tarball's install.sh: the launcher in bin,
+# the engine in lib/quake, and a menu entry and an icon. DESTDIR is for
+# packagers. A build for the container has no sound on a desktop, so it is
+# not installed.
+PREFIX ?= /usr/local
+DESKTOP = ../desktop
+
+install: $(TARGET)
+ifneq ($(SOUND),alsa)
+	$(error make install is for the desktop build: make SOUND=alsa install)
+endif
+	install -d $(DESTDIR)$(PREFIX)/bin $(DESTDIR)$(PREFIX)/lib/quake \
+		$(DESTDIR)$(PREFIX)/share/applications \
+		$(DESTDIR)$(PREFIX)/share/icons/hicolor/48x48/apps
+	install -m 755 $(TARGET) $(DESTDIR)$(PREFIX)/lib/quake/xquake
+	install -m 755 $(DESKTOP)/quake $(DESTDIR)$(PREFIX)/bin/quake
+	install -m 644 $(DESKTOP)/quake.png \
+		$(DESTDIR)$(PREFIX)/share/icons/hicolor/48x48/apps/quake.png
+	sed 's|^Exec=quake|Exec="$(PREFIX)/bin/quake"|' $(DESKTOP)/quake.desktop \
+		> $(DESTDIR)$(PREFIX)/share/applications/quake.desktop
+
+uninstall:
+	rm -f $(DESTDIR)$(PREFIX)/bin/quake $(DESTDIR)$(PREFIX)/lib/quake/xquake \
+		$(DESTDIR)$(PREFIX)/share/applications/quake.desktop \
+		$(DESTDIR)$(PREFIX)/share/icons/hicolor/48x48/apps/quake.png
+	-rmdir $(DESTDIR)$(PREFIX)/lib/quake
+
 clean:
 	rm -rf $(BUILDDIR)
 
-.PHONY: all clean strip
+.PHONY: all clean strip install uninstall

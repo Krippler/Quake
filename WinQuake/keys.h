@@ -77,7 +77,7 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 // aux keys are for multi-buttoned joysticks to generate so they can use
 // the normal binding process
 //
-#define	K_AUX1			207
+#define	K_AUX1			207		// K_AUX1 .. K_AUX17 are a controller's; see in_pad.c
 #define	K_AUX2			208
 #define	K_AUX3			209
 #define	K_AUX4			210
@@ -129,5 +129,6 @@ void Key_Event (int key, qboolean down);
 void Key_Init (void);
 void Key_WriteBindings (FILE *f);
 void Key_SetBinding (int keynum, char *binding);
+int Key_StringToKeynum (char *str);
 void Key_ClearStates (void);
 

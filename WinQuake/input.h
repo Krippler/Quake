@@ -32,3 +32,10 @@ void IN_Move (usercmd_t *cmd);
 void IN_ClearStates (void);
 // restores all button and position states to defaults
 
+
+// a game controller, the same in every build: in_pad.c
+void IN_PadInit (void);
+void IN_PadShutdown (void);
+void IN_PadCommands (void);
+void IN_PadMove (usercmd_t *cmd);
+char *PAD_Name (void);

@@ -1558,6 +1558,7 @@ typedef enum
 #define	OPT_BOB			8
 #define	OPT_KICK		9
 #define	OPT_DETAIL		10
+#define	OPT_PADNAME		12
 
 typedef struct
 {
@@ -1607,6 +1608,16 @@ static option_t	opt_controls[] =
 	{"Smooth Mouse",			o_toggle, "m_filter",       0,     0,    0,    0},
 	{"Lookspring",				o_toggle, "lookspring",     0,     0,    0,    0},
 	{"Lookstrafe",				o_toggle, "lookstrafe",     0,     0,    0,    0},
+
+// A controller's own settings (in_pad.c); its buttons are bound under Customize
+// Controls with everything else.
+	{"Controller",				o_heading, NULL,            0,     0,    0,    0},
+	{"Connected",				o_custom, NULL,             0,     0,    0,    OPT_PADNAME},
+	{"Look Speed",				o_slider, "joy_lookspeed",  60,    400,  20,   0},
+	{"Invert Look",				o_toggle, "joy_invert",     0,     0,    0,    0},
+	{"Deadzone",				o_slider, "joy_deadzone",   0.04,  0.5,  0.02, 0},
+	{"Swap Sticks",				o_toggle, "joy_swapsticks", 0,     0,    0,    0},
+	{"Full Push Runs",			o_toggle, "joy_pushrun",    0,     0,    0,    0},
 };
 
 static option_t	opt_gameplay[] =
@@ -1633,6 +1644,9 @@ static option_t	opt_display[] =
 {
 	{"Display",					o_heading, NULL,            0,     0,    0,    0},
 	{"Video Modes...",			o_action, NULL,             0,     0,    0,    OPT_VIDEO},
+// A desktop's; there is no such thing in the container, whose window is the
+// screen, so it reads n/a there (vid_x.c registers it only on a desktop).
+	{"Fullscreen",				o_toggle, "vid_fullscreen", 0,     0,    0,    0},
 	{"Screen Size",				o_custom, NULL,             0,     0,    0,    OPT_VIEWSIZE},
 	{"Brightness",				o_custom, NULL,             0,     0,    0,    OPT_GAMMA},
 	{"Field of View",			o_slider, "fov",            75,    130,  5,    0},
@@ -2031,6 +2045,16 @@ static void M_OptPage_DrawValue (int right, int y, option_t *o)
 			options_detail[(int)v < 0 ? 0 : ((int)v > 3 ? 3 : (int)v)]);
 		break;
 
+	case OPT_PADNAME:
+		{
+			char	name[32], *n = PAD_Name ();
+
+			Q_strncpy (name, n ? n : "None", sizeof(name) - 1);
+			name[sizeof(name) - 1] = 0;
+			M_BoxTextRight (right, y, name, n ? NULL : m_tint_dim);
+		}
+		break;
+
 	default:
 		M_PageToggle (right, y, v != 0);
 		break;
@@ -2238,7 +2262,9 @@ void M_Options_Key (int k)
 			break;
 
 		case OPTCAT_RESET:
-			Cbuf_AddText ("exec default.cfg\n");
+		// default.cfg starts with unbindall, which takes the controller's
+		// buttons with it; joy_bound 0 has in_pad.c bind them again.
+			Cbuf_AddText ("exec default.cfg\njoy_bound 0\n");
 			break;
 		}
 		return;
@@ -2322,6 +2348,13 @@ int		keys_top;
 int		keys_cursor;
 int		bind_grab;
 
+// Whether the controls screen is waiting for a key to bind, when a controller's
+// buttons have to arrive as themselves rather than as menu keys (in_pad.c).
+qboolean M_KeysGrabbing (void)
+{
+	return m_state == m_keys && bind_grab;
+}
+
 void M_Menu_Keys_f (void)
 {
 	key_dest = key_menu;
@@ -2330,55 +2363,62 @@ void M_Menu_Keys_f (void)
 }
 
 
-void M_FindKeysForCommand (char *command, int *twokeys)
+//
+// The keys bound to a command. id compared only as many characters as the
+// command has, so "impulse 1" -- the axe -- also found the keys for impulse 10
+// and 12, next and previous weapon: the axe's row showed the next-weapon key,
+// and clearing the axe cleared weapon switching with it. A binding is stored
+// exactly as it was made, so it is compared exactly.
+//
+// Three, not id's two: a keyboard key, a spare, and a controller's button.
+//
+#define	MAX_KEYS_SHOWN	3
+
+void M_FindKeysForCommand (char *command, int *keys)
 {
 	int		count;
 	int		j;
-	int		l;
-	char	*b;
 
-	twokeys[0] = twokeys[1] = -1;
-	l = strlen(command);
+	for (j = 0 ; j < MAX_KEYS_SHOWN ; j++)
+		keys[j] = -1;
 	count = 0;
 
-	for (j=0 ; j<256 ; j++)
-	{
-		b = keybindings[j];
-		if (!b)
-			continue;
-		if (!strncmp (b, command, l) )
-		{
-			twokeys[count] = j;
-			count++;
-			if (count == 2)
-				break;
-		}
-	}
+	for (j=0 ; j<256 && count < MAX_KEYS_SHOWN ; j++)
+		if (keybindings[j] && !strcmp (keybindings[j], command))
+			keys[count++] = j;
 }
 
 void M_UnbindCommand (char *command)
 {
 	int		j;
-	int		l;
-	char	*b;
-
-	l = strlen(command);
 
 	for (j=0 ; j<256 ; j++)
-	{
-		b = keybindings[j];
-		if (!b)
-			continue;
-		if (!strncmp (b, command, l) )
+		if (keybindings[j] && !strcmp (keybindings[j], command))
 			Key_SetBinding (j, "");
-	}
 }
 
+//
+// A key as the controls screen shows it. A controller's buttons are PAD_A and
+// so on in config.cfg, and named as the pad labels them here.
+//
+static char *M_KeyName (int k)
+{
+	static char	*pad[] =
+	{
+		"Pad A", "Pad B", "Pad X", "Pad Y", "Pad LB", "Pad RB", "Pad LT",
+		"Pad RT", "Pad View", "Pad Menu", "Pad LS", "Pad RS", "Pad Up",
+		"Pad Down", "Pad Left", "Pad Right", "Pad Guide"
+	};
+
+	if (k >= K_AUX1 && k < K_AUX1 + (int)(sizeof(pad) / sizeof(pad[0])))
+		return pad[k - K_AUX1];
+	return Key_KeynumToString (k);
+}
 
 void M_Keys_Draw (void)
 {
-	int		i, row, y, visible, x;
-	int		keys[2];
+	int		i, j, row, y, visible, x, cx;
+	int		keys[MAX_KEYS_SHOWN];
 	char	*name;
 
 	M_DrawFrame ("gfx/ttl_cstm.lmp");
@@ -2426,11 +2466,14 @@ void M_Keys_Draw (void)
 			continue;
 		}
 
-		name = Key_KeynumToString (keys[0]);
-		M_BoxText (x, y, name, NULL);
-		if (keys[1] != -1)
-			M_BoxText (x + 8 * strlen (name), y,
-				va (", %s", Key_KeynumToString (keys[1])), NULL);
+		for (j = 0, cx = x ; j < MAX_KEYS_SHOWN && keys[j] != -1 ; j++)
+		{
+			name = va ("%s%s", j ? ", " : "", M_KeyName (keys[j]));
+			if (cx + 8 * (int)strlen (name) > m_bw - 20)
+				break;			// no room for another; the rest are still bound
+			M_BoxText (cx, y, name, NULL);
+			cx += 8 * strlen (name);
+		}
 	}
 
 	M_DrawScrollbar (PAGE_TOP - 4, visible * PAGE_ROW, (int)NUMCOMMANDS
@@ -2446,7 +2489,7 @@ void M_Keys_Draw (void)
 void M_Keys_Key (int k)
 {
 	char	cmd[80];
-	int		keys[2];
+	int		keys[MAX_KEYS_SHOWN];
 
 	if (bind_grab)
 	{	// defining a key
@@ -2490,7 +2533,7 @@ void M_Keys_Key (int k)
 	case K_ENTER:		// go into bind mode
 		M_FindKeysForCommand (bindnames[keys_cursor][0], keys);
 		S_LocalSound ("misc/menu2.wav");
-		if (keys[1] != -1)
+		if (keys[MAX_KEYS_SHOWN-1] != -1)
 			M_UnbindCommand (bindnames[keys_cursor][0]);
 		bind_grab = true;
 		break;

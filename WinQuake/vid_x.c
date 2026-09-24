@@ -39,6 +39,7 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 #include <X11/keysym.h>
 #include <X11/extensions/XShm.h>
 #include <X11/extensions/Xrandr.h>
+#include <X11/XKBlib.h>
 
 #include "quakedef.h"
 #include "d_local.h"
@@ -87,6 +88,29 @@ static int				x_shmeventtype;
 
 static qboolean			oktodraw = false;
 static Atom				x_wm_delete_window;
+
+//
+// On a desktop, as against the container (x_own_screen), the window is one
+// among others: the window manager sizes it, the pointer has to be let go of
+// when the player is not playing, and fullscreen is the monitor rather than
+// the whole X screen. The picture then need not be the window's size -- the
+// renderer draws at most MAXWIDTH x MAXHEIGHT, and fullscreen keeps the size
+// picked in Video Modes -- so it is scaled to fill the window (VID_PresentScaled).
+//
+cvar_t	vid_fullscreen = {"vid_fullscreen", "0", true};
+
+static int				x_winw, x_winh;		// the window, as last configured
+static qboolean			x_fullscreen;		// vid_fullscreen, as last applied
+static qboolean			x_focused = true;
+static qboolean			x_grabbed;
+static Cursor			x_nullcursor;
+
+static XImage			*x_outimage;		// the window's picture, when scaled
+static XShmSegmentInfo	x_outshm;
+static qboolean			x_outshared;
+static int				*x_outcols;			// the frame's column for each one shown
+static int				x_outx, x_outy, x_outw, x_outh;	// the picture, in the window
+static qboolean			x_scaler_stale = true;
 
 int XShmQueryExtension(Display *);
 int XShmGetEventBase(Display *);
@@ -558,6 +582,7 @@ void	VID_Init (unsigned char *palette)
 	srandom(getpid());
 
 	verbose=COM_CheckParm("-verbose");
+	x_own_screen = COM_CheckParm ("-resizescreen") != 0;
 
 // open the display
 	x_disp = XOpenDisplay(0);
@@ -586,7 +611,16 @@ void	VID_Init (unsigned char *palette)
 		sigaction(SIGHUP, &sa, 0);
 	}
 
-	XAutoRepeatOff(x_disp);
+// Key repeat off, so that a held key is one press. id did that by turning it
+// off for the whole X server, which is harmless on the container's private
+// one and not on a desktop, where every other program loses its key repeat
+// until the game exits -- or for good, if it crashes. There, ask for repeats
+// that are told apart instead (a repeat is a press with no release before
+// it), and Key_Event already ignores a press of a key that is down.
+	if (x_own_screen)
+		XAutoRepeatOff(x_disp);
+	else
+		XkbSetDetectableAutoRepeat (x_disp, True, NULL);
 
 // The 1996 sources left this on with "for debugging only" written above it,
 // which makes every Xlib call a round trip to the server and waits for the
@@ -678,6 +712,14 @@ void	VID_Init (unsigned char *palette)
 
 	Cvar_SetValue ("vid_width", vid.width);
 	Cvar_SetValue ("vid_height", vid.height);
+	x_winw = vid.width;
+	x_winh = vid.height;
+
+// Fullscreen is the window manager's to give, and there is none in the
+// container, where the window is the screen already. Not registered there, so
+// the menu row says it is not available.
+	if (!x_own_screen)
+		Cvar_RegisterVariable (&vid_fullscreen);
 
 	template_mask = 0;
 
@@ -740,7 +782,7 @@ void	VID_Init (unsigned char *palette)
 	   
            attribs.event_mask = StructureNotifyMask | KeyPressMask
 	     | KeyReleaseMask | ExposureMask | PointerMotionMask |
-	     ButtonPressMask | ButtonReleaseMask;
+	     ButtonPressMask | ButtonReleaseMask | FocusChangeMask;
 	   attribs.border_pixel = 0;
 	   attribs.colormap = tmpcmap;
 
@@ -755,7 +797,20 @@ void	VID_Init (unsigned char *palette)
 			x_vis,
 			attribmask,
 			&attribs );
-		XStoreName( x_disp,x_win,"xquake");
+	// The container's tools find the window by this name. On a desktop it is
+	// the title bar and the task bar, and the class is what a .desktop file's
+	// StartupWMClass matches.
+		if (x_own_screen)
+			XStoreName( x_disp,x_win,"xquake");
+		else
+		{
+			XClassHint	hint;
+
+			XStoreName (x_disp, x_win, "Quake");
+			hint.res_name = "quake";
+			hint.res_class = "Quake";
+			XSetClassHint (x_disp, x_win, &hint);
+		}
 
 
 		if (x_visinfo->class != TrueColor)
@@ -807,8 +862,11 @@ void	VID_Init (unsigned char *palette)
 	x_wm_delete_window = XInternAtom (x_disp, "WM_DELETE_WINDOW", False);
 	XSetWMProtocols (x_disp, x_win, &x_wm_delete_window, 1);
 
-// inviso cursor
-	XDefineCursor(x_disp, x_win, CreateNullCursor(x_disp, x_win));
+// inviso cursor: always in the container, where the browser draws its own;
+// on a desktop only while the pointer is held for play (VID_UpdateGrab)
+	x_nullcursor = CreateNullCursor(x_disp, x_win);
+	if (x_own_screen)
+		XDefineCursor(x_disp, x_win, x_nullcursor);
 
 // create the GC
 	{
@@ -946,7 +1004,8 @@ void	VID_Shutdown (void)
 	if (!x_disp)
 		return;
 
-	XAutoRepeatOn(x_disp);
+	if (x_own_screen)
+		XAutoRepeatOn(x_disp);
 	XCloseDisplay(x_disp);
 	x_disp = NULL;
 }
@@ -1165,9 +1224,20 @@ void GetEvent(void)
 			break;
 		}
 
+		if (!x_own_screen && !x_grabbed)
+		{
+		// A desktop pointer that is not held for play is the player's, to
+		// take to another window; moving it turns nothing.
+			p_mouse_x = x_event.xmotion.x;
+			p_mouse_y = x_event.xmotion.y;
+			break;
+		}
+
 		if (_windowed_mouse.value) {
-			mouse_x = (float) ((int)x_event.xmotion.x - (int)(vid.width/2));
-			mouse_y = (float) ((int)x_event.xmotion.y - (int)(vid.height/2));
+			if (x_event.xmotion.x == x_winw/2 && x_event.xmotion.y == x_winh/2)
+				break;		// the warp below coming back
+			mouse_x += (float) ((int)x_event.xmotion.x - (int)(x_winw/2));
+			mouse_y += (float) ((int)x_event.xmotion.y - (int)(x_winh/2));
 //printf("m: x=%d,y=%d, mx=%3.2f,my=%3.2f\n", 
 //	x_event.xmotion.x, x_event.xmotion.y, mouse_x, mouse_y);
 
@@ -1175,13 +1245,13 @@ void GetEvent(void)
 			XSelectInput(x_disp,x_win,StructureNotifyMask|KeyPressMask
 				|KeyReleaseMask|ExposureMask
 				|ButtonPressMask
-				|ButtonReleaseMask);
+				|ButtonReleaseMask|FocusChangeMask);
 			XWarpPointer(x_disp,None,x_win,0,0,0,0, 
-				(vid.width/2),(vid.height/2));
+				(x_winw/2),(x_winh/2));
 			XSelectInput(x_disp,x_win,StructureNotifyMask|KeyPressMask
 				|KeyReleaseMask|ExposureMask
 				|PointerMotionMask|ButtonPressMask
-				|ButtonReleaseMask);
+				|ButtonReleaseMask|FocusChangeMask);
 		} else {
 			mouse_x = (float) (x_event.xmotion.x-p_mouse_x);
 			mouse_y = (float) (x_event.xmotion.y-p_mouse_y);
@@ -1245,10 +1315,37 @@ void GetEvent(void)
 		break;
 	
 	case ConfigureNotify:
-//printf("config notify\n");
-		config_notify_width = x_event.xconfigure.width;
-		config_notify_height = x_event.xconfigure.height;
-		config_notify = 1;
+		x_winw = x_event.xconfigure.width;
+		x_winh = x_event.xconfigure.height;
+		x_scaler_stale = true;
+
+	// Fullscreen, the picture keeps the size picked for it and is scaled to
+	// the window. Otherwise it follows the window, as it always has -- but
+	// only when the size is actually different: a desktop window manager
+	// sends one of these for every move, and each would otherwise flush every
+	// cache and clear the console.
+		if (!x_fullscreen)
+		{
+			int		w = x_winw, h = x_winh;
+
+			VID_ClampMode (&w, &h);
+			if (w != vid.width || h != vid.height)
+			{
+				config_notify_width = x_winw;
+				config_notify_height = x_winh;
+				config_notify = 1;
+			}
+		}
+		break;
+
+	case FocusIn:
+	case FocusOut:
+	// Grabbing and letting go of the pointer send these as well; they are
+	// not the player moving to another window.
+		if (x_event.xfocus.mode == NotifyGrab
+			|| x_event.xfocus.mode == NotifyUngrab)
+			break;
+		x_focused = x_event.type == FocusIn;
 		break;
 
 	case MappingNotify:
@@ -1282,7 +1379,7 @@ void GetEvent(void)
 			oktodraw = true;
 	}
    
-	if (old_windowed_mouse != _windowed_mouse.value) {
+	if (x_own_screen && old_windowed_mouse != _windowed_mouse.value) {
 		old_windowed_mouse = _windowed_mouse.value;
 
 		if (!_windowed_mouse.value) {
@@ -1655,7 +1752,10 @@ static void VID_ApplyMode (int width, int height)
 					"     picture stays black.\n");
 	}
 
-	XMoveResizeWindow (x_disp, x_win, 0, 0, width, height);
+	if (x_own_screen)
+		XMoveResizeWindow (x_disp, x_win, 0, 0, width, height);
+	else if (!x_fullscreen)
+		XResizeWindow (x_disp, x_win, width, height);
 	XSync (x_disp, False);
 
 // Do not wait for the ConfigureNotify to come back round; the size is known.
@@ -1835,9 +1935,312 @@ void VID_MenuKey (int key)
 
 // flushes the given rectangles from the view buffer to the screen
 
+/*
+================================================================================
+
+THE DESKTOP
+
+================================================================================
+*/
+
+/*
+================
+VID_UpdateGrab
+
+The pointer is held -- grabbed, hidden and kept in the middle of the window
+-- only while the game is being played in the window that has the keyboard.
+In the menus, the console, or with another window in front, it is the
+player's again. _windowed_mouse 0 turns holding it off altogether.
+================
+*/
+static void VID_UpdateGrab (void)
+{
+	qboolean	want;
+
+	want = _windowed_mouse.value && x_focused && key_dest == key_game;
+	if (want == x_grabbed)
+		return;
+
+	if (want)
+	{
+		if (XGrabPointer (x_disp, x_win, True, 0, GrabModeAsync, GrabModeAsync,
+						  x_win, None, CurrentTime) != GrabSuccess)
+			return;			// something else has it; try next frame
+		XDefineCursor (x_disp, x_win, x_nullcursor);
+		XWarpPointer (x_disp, None, x_win, 0, 0, 0, 0, x_winw/2, x_winh/2);
+	}
+	else
+	{
+		XUngrabPointer (x_disp, CurrentTime);
+		XUndefineCursor (x_disp, x_win);
+	}
+
+	x_grabbed = want;
+	mouse_x = mouse_y = 0;
+}
+
+/*
+================
+VID_HaveWM
+
+Whether a window manager that follows the freedesktop conventions is running:
+it names a window of its own on the root. Without one, nothing will act on a
+request to go fullscreen.
+================
+*/
+static qboolean VID_HaveWM (void)
+{
+	Atom			check, type;
+	int				format;
+	unsigned long	count, after;
+	unsigned char	*data = NULL;
+	qboolean		have;
+
+	check = XInternAtom (x_disp, "_NET_SUPPORTING_WM_CHECK", False);
+	if (XGetWindowProperty (x_disp, XDefaultRootWindow (x_disp), check, 0, 1,
+							False, XA_WINDOW, &type, &format, &count, &after,
+							&data) != Success)
+		return false;
+
+	have = data && count == 1;
+	if (data)
+		XFree (data);
+	return have;
+}
+
+/*
+================
+VID_ApplyFullscreen
+
+Asks the window manager to make the window cover its monitor, or to put it
+back. The window manager answers with a ConfigureNotify, and the picture is
+scaled to whatever size that says. With no window manager, the window is
+simply made the size of the screen.
+================
+*/
+static void VID_ApplyFullscreen (qboolean on)
+{
+	XEvent	ev;
+	int		w, h;
+
+	x_fullscreen = on;
+
+	if (VID_HaveWM ())
+	{
+		memset (&ev, 0, sizeof(ev));
+		ev.type = ClientMessage;
+		ev.xclient.window = x_win;
+		ev.xclient.message_type = XInternAtom (x_disp, "_NET_WM_STATE", False);
+		ev.xclient.format = 32;
+		ev.xclient.data.l[0] = on ? 1 : 0;		// _NET_WM_STATE_ADD / _REMOVE
+		ev.xclient.data.l[1] = XInternAtom (x_disp, "_NET_WM_STATE_FULLSCREEN",
+											False);
+		ev.xclient.data.l[3] = 1;				// from an application
+		XSendEvent (x_disp, XDefaultRootWindow (x_disp), False,
+					SubstructureRedirectMask | SubstructureNotifyMask, &ev);
+	}
+	else if (on)
+	{
+		VID_RootSize (&w, &h);
+		XMoveResizeWindow (x_disp, x_win, 0, 0, w, h);
+	}
+
+// Back from fullscreen the window is the picture's size again, whatever the
+// window manager remembered.
+	if (!on)
+		XResizeWindow (x_disp, x_win, vid.width, vid.height);
+
+	XSync (x_disp, False);
+}
+
+/*
+================
+VID_FreeOutImage
+================
+*/
+static void VID_FreeOutImage (void)
+{
+	if (!x_outimage)
+		return;
+
+	if (x_outshared)
+	{
+		XShmDetach (x_disp, &x_outshm);
+		XSync (x_disp, False);
+		shmdt (x_outshm.shmaddr);
+		x_outimage->data = NULL;
+	}
+	XDestroyImage (x_outimage);
+	x_outimage = NULL;
+	x_outshared = false;
+}
+
+/*
+================
+VID_ResetScaler
+
+After a change to the window's size or the picture's: whether the picture has
+to be scaled to the window, and if so, the window-sized image it is scaled
+into and where in it the picture goes -- as large as fits with its shape kept,
+and black around it.
+================
+*/
+static void VID_ResetScaler (void)
+{
+	int		size, i;
+
+	x_scaler_stale = false;
+
+	if (x_winw == vid.width && x_winh == vid.height)
+	{
+		VID_FreeOutImage ();
+		return;
+	}
+
+	if (!x_outimage || x_outimage->width != x_winw
+		|| x_outimage->height != x_winh)
+	{
+		VID_FreeOutImage ();
+
+		if (doShm)
+		{
+			x_outimage = XShmCreateImage (x_disp, x_vis, x_visinfo->depth,
+										  ZPixmap, 0, &x_outshm, x_winw, x_winh);
+			if (!x_outimage)
+				Sys_Error ("VID: XShmCreateImage failed for %dx%d\n",
+						   x_winw, x_winh);
+			size = x_outimage->bytes_per_line * x_outimage->height;
+			x_outshm.shmid = shmget (IPC_PRIVATE, size, IPC_CREAT|0600);
+			if (x_outshm.shmid == -1)
+				Sys_Error ("VID: could not get shared memory (%s)\n",
+						   strerror (errno));
+			x_outshm.shmaddr = (void *) shmat (x_outshm.shmid, 0, 0);
+			if (x_outshm.shmaddr == (void *)-1)
+				Sys_Error ("VID: could not attach shared memory (%s)\n",
+						   strerror (errno));
+			x_outimage->data = x_outshm.shmaddr;
+			x_outshm.readOnly = False;
+			if (!XShmAttach (x_disp, &x_outshm))
+				Sys_Error ("VID: XShmAttach() failed\n");
+			XSync (x_disp, False);
+			shmctl (x_outshm.shmid, IPC_RMID, 0);
+			x_outshared = true;
+		}
+		else
+		{
+			x_outimage = XCreateImage (x_disp, x_vis, x_visinfo->depth,
+									   ZPixmap, 0, NULL, x_winw, x_winh, 32, 0);
+			if (!x_outimage)
+				Sys_Error ("VID: XCreateImage failed for %dx%d\n",
+						   x_winw, x_winh);
+			size = x_outimage->bytes_per_line * x_outimage->height;
+			x_outimage->data = malloc (size);
+			if (!x_outimage->data)
+				Sys_Error ("VID: out of memory for a %d byte window image\n",
+						   size);
+		}
+	}
+
+	if (x_winw * vid.height > x_winh * vid.width)
+	{
+		x_outh = x_winh;
+		x_outw = vid.width * x_winh / vid.height;
+	}
+	else
+	{
+		x_outw = x_winw;
+		x_outh = vid.height * x_winw / vid.width;
+	}
+	x_outx = (x_winw - x_outw) / 2;
+	x_outy = (x_winh - x_outh) / 2;
+
+	x_outcols = realloc (x_outcols, x_outw * sizeof(*x_outcols));
+	if (!x_outcols)
+		Sys_Error ("VID: out of memory for the scaler\n");
+	for (i = 0 ; i < x_outw ; i++)
+		x_outcols[i] = i * vid.width / x_outw;
+
+	memset (x_outimage->data, 0,
+			x_outimage->bytes_per_line * x_outimage->height);
+
+	if (verbose)
+		Con_Printf ("VID: %dx%d scaled to %dx%d in a %dx%d window\n",
+					vid.width, vid.height, x_outw, x_outh, x_winw, x_winh);
+}
+
+/*
+================
+VID_PresentScaled
+
+The frame, through the palette and scaled to the window. Nearest pixel: the
+renderer's pixels are the look, and at the sizes this runs at each one is
+several screen pixels either way. A row of the window that shows the same row
+of the frame as the one above it is a copy of it.
+================
+*/
+static void VID_PresentScaled (void)
+{
+	int		x, y, sy, lastsy, bytes;
+	byte	*src, *row, *prev;
+	XImage	*out = x_outimage;
+
+	bytes = out->bits_per_pixel / 8;
+	lastsy = -1;
+	prev = NULL;
+
+	for (y = 0 ; y < x_outh ; y++)
+	{
+		sy = y * vid.height / x_outh;
+		row = (byte *)out->data + (x_outy + y) * out->bytes_per_line
+			+ x_outx * bytes;
+
+		if (sy == lastsy)
+		{
+			memcpy (row, prev, x_outw * bytes);
+			prev = row;
+			continue;
+		}
+
+		src = (byte *)x_framebuffer[current_framebuffer]->data
+			+ sy * vid.rowbytes;
+		switch (bytes)
+		{
+		case 4:
+			for (x = 0 ; x < x_outw ; x++)
+				((PIXEL24 *)row)[x] = st2d_8to24table[src[x_outcols[x]]];
+			break;
+		case 2:
+			for (x = 0 ; x < x_outw ; x++)
+				((PIXEL16 *)row)[x] = st2d_8to16table[src[x_outcols[x]]];
+			break;
+		default:
+			for (x = 0 ; x < x_outw ; x++)
+				row[x] = src[x_outcols[x]];
+			break;
+		}
+		prev = row;
+		lastsy = sy;
+	}
+
+	if (x_outshared)
+	{
+		if (!XShmPutImage (x_disp, x_win, x_gc, out, 0, 0, 0, 0,
+						   x_winw, x_winh, True))
+			Sys_Error ("VID_Update: XShmPutImage failed\n");
+		oktodraw = false;
+		while (!oktodraw)
+			GetEvent ();
+	}
+	else
+		XPutImage (x_disp, x_win, x_gc, out, 0, 0, 0, 0, x_winw, x_winh);
+}
+
 void	VID_Update (vrect_t *rects)
 {
 	vrect_t full;
+
+	if (!x_own_screen && (vid_fullscreen.value != 0) != x_fullscreen)
+		VID_ApplyFullscreen (vid_fullscreen.value != 0);
 
 	VID_CheckModeChange ();
 
@@ -1879,6 +2282,8 @@ void	VID_Update (vrect_t *rects)
 
 		block_drawing = false;
 
+		x_scaler_stale = true;
+
 		if (verbose)
 			Con_Printf ("VID: now %dx%d\n", vid.width, vid.height);
 		vid.aspect = VID_PixelAspect ();
@@ -1895,6 +2300,25 @@ void	VID_Update (vrect_t *rects)
 		extern int scr_fullupdate;
 
 		scr_fullupdate = 0;
+	}
+
+	if (x_scaler_stale)
+		VID_ResetScaler ();
+
+	if (x_outimage)
+	{
+		extern int scr_fullupdate;
+
+		scr_fullupdate = 0;		// the whole frame is scaled every time
+		VID_PresentScaled ();
+		if (doShm)
+		{
+			current_framebuffer = !current_framebuffer;
+			vid.buffer = x_framebuffer[current_framebuffer]->data;
+			vid.conbuffer = vid.buffer;
+		}
+		XSync (x_disp, False);
+		return;
 	}
 
 
@@ -1988,6 +2412,8 @@ void Sys_SendKeyEvents(void)
 	if (x_disp)
 	{
 		while (XPending(x_disp)) GetEvent();
+		if (!x_own_screen)
+			VID_UpdateGrab ();
 	//
 	// Take the event off the queue before handing it on, not after. Key_Event
 	// can re-enter this function: a menu key that opens a yes/no question
@@ -2056,6 +2482,14 @@ void IN_Init (void)
 {
 	Cvar_RegisterVariable (&_windowed_mouse);
 	Cvar_RegisterVariable (&m_filter);
+	IN_PadInit ();
+
+// On a desktop the pointer is held while playing, and let go of in the menus,
+// the console and another window (VID_UpdateGrab). The container reads an
+// absolute pointer from the browser instead and needs it off. Before
+// config.cfg, which has the last word.
+	if (!x_own_screen)
+		Cvar_Set ("_windowed_mouse", "1");
    if ( COM_CheckParm ("-nomouse") )
      return;
    mouse_x = mouse_y = 0.0;
@@ -2064,13 +2498,16 @@ void IN_Init (void)
 
 void IN_Shutdown (void)
 {
+	IN_PadShutdown ();
    mouse_avail = 0;
 }
 
 void IN_Commands (void)
 {
 	int i;
-   
+
+	IN_PadCommands ();
+
 	if (!mouse_avail) return;
    
 	for (i=0 ; i<mouse_buttons ; i++) {
@@ -2085,6 +2522,8 @@ void IN_Commands (void)
 
 void IN_Move (usercmd_t *cmd)
 {
+	IN_PadMove (cmd);
+
 	if (!mouse_avail)
 		return;
    

@@ -1700,6 +1700,34 @@ The network screens, setup and the multiplayer game options keep id's
 layout, placed in the box under the new frame (`m_ox`, `m_oy`). Help, the
 quit prompt and the video modes stay id's 320x200, centred.
 
+### `vid_x.c` — a window on a desktop
+
+Everything the container needed from `vid_x.c` assumed the window was the
+whole X screen: `-resizescreen`, which the entrypoint always passes, resizes
+the screen itself. Without it the engine is now a window among others:
+- **Name:** titled "Quake", with the class `quake`/`Quake` that the menu
+  entry's `StartupWMClass` matches. The container's window is still "xquake".
+- **Key repeat:** id turned key repeat off for the whole X server
+  (`XAutoRepeatOff`), which takes it from every other program until the game
+  exits, or for good if it crashes. A desktop gets
+  `XkbSetDetectableAutoRepeat` instead. `Key_Event` already ignores a press of
+  a key that is held.
+- **Mouse:** `_windowed_mouse` defaults to 1 there. `VID_UpdateGrab` holds
+  the pointer (grabbed, hidden, warped to the middle) only while
+  `key_dest == key_game` and the window has the focus, and lets go otherwise.
+  Focus changes caused by the grab itself are ignored. Motion events are
+  summed rather than the last one kept.
+- **Resizing:** a ConfigureNotify only reallocates the framebuffers when the
+  size really changed, since a window manager sends one for every move.
+- **Fullscreen:** `vid_fullscreen` asks the window manager for
+  `_NET_WM_STATE_FULLSCREEN`, or sizes the window to the screen when there is
+  no window manager. The picture keeps the size Video Modes gives it.
+- **Scaling:** whenever the window and the picture differ in size, the frame
+  is scaled, nearest pixel with its shape kept, into a window-sized image
+  (`VID_PresentScaled`), not converted in place. The renderer stops at
+  1920x1200 and a 4K monitor does not, and neither should a software
+  renderer try to.
+
 ### `cl_parse.c` — the re-release's achievement message
 
 The 2021 re-release's QuakeC writes `SVC_ACHIEVEMENT` (52) and an id string
@@ -1791,6 +1819,94 @@ Three details that are not obvious:
 The ring is 16384 frames because `S_TransferPaintBuffer` indexes it with
 `paintedtime * channels & (shm->samples - 1)`, which is only a modulo when the
 size is a power of two.
+
+### `WinQuake/snd_alsa.c` — sound on a desktop
+
+`SOUND=alsa`. It writes to ALSA's `default` device, which is PipeWire or
+PulseAudio on a desktop running either, or the card when neither is running.
+The device is opened non-blocking, at 48 kHz with a 100 ms buffer, the
+mixer's own lead. The mixer paints into a 32768-frame ring of this file's,
+and `SNDDMA_Submit` writes as much of it as the device has room for, once a
+frame.
+
+The playback position is a running count, as in `snd_stream.c`: frames
+written less the frames still queued, which never goes backwards. An underrun
+(a level load) is recovered with `snd_pcm_recover`, and the stream is started
+by hand as soon as it holds anything, since ALSA waits for a full buffer and
+`_snd_mixahead` may be shorter than that.
+
+Tested with PulseAudio and a null sink through ALSA's pulse plugin. ALSA's own
+`null` device plays twenty times faster than real time, which says nothing
+about timing. After start-up the recording kept pace with the clock, and the
+audio in it was the game's.
+
+### `desktop/`, `tools/build-linux-tarball.sh` — installing it
+
+`desktop/quake` is the launcher, and it does for one desktop what
+`docker/entrypoint.sh` does for the container:
+- It finds the game files: `--data`, `$QUAKE_DATA`, the last ones used, then
+  the usual Steam and GOG places, re-release first.
+- It links them into `~/.local/share/quake`, where the engine can write its
+  settings and saves.
+- A first run starts at 1280x720.
+- After Options → Game / Mod, it starts the engine again: `nextgame` is newer
+  than the start of the run.
+
+`install.sh`, `make install` and the tarball all put the launcher in `bin`,
+the engine in `lib/quake`, and a menu entry and id's icon (from `quake.ico`)
+in `share`. The release tarball is built on Ubuntu 22.04, for a glibc 2.34
+floor.
+
+### `WinQuake/in_pad.c` — a game controller, in both builds
+
+The container's controller used to live entirely in the browser: the page
+turned buttons into key presses and the sticks into mouse motion, with its own
+bindings panel, saved in the browser. None of that could reach the desktop
+build, and none of it was in the game's menus, where the re-release keeps it.
+
+It is the engine's now.
+- **Buttons** are keys: `PAD_A` to `PAD_GUIDE`, in the first seventeen of id's
+  `K_AUX` slots. `keys.c` names them, before the AUX names, so they save
+  under the new names and old configs still load. They bind like any other
+  key, and the controls screen shows them as the pad labels them.
+- **Start** is hard-wired to `K_ESCAPE`, as `Esc` is, so it can never be
+  unbound.
+- **In a menu,** A, B, Y and the D-pad arrive as Return, Escape, Delete and
+  the arrows. The exception is while Customize is waiting for a key
+  (`M_KeysGrabbing`), when a button binds as itself. The left stick steps
+  through a menu, repeating while held.
+- **Releases:** a button comes up as whatever key it went down as, so a
+  trigger held for `+attack` and let go in a menu does not leave the player
+  firing.
+- **Sticks:** `IN_PadMove` makes the left stick a speed rather than a key,
+  running at a full push (`joy_pushrun`). The right stick turns and pitches
+  at `joy_lookspeed` degrees a second on a curve (`joy_lookcurve`). The stick
+  deadzone is radial.
+- **Default binds,** the browser panel's layout, are applied the first time a
+  pad turns up and again after Reset Defaults (`joy_bound`).
+
+Where the state comes from is the only difference:
+- **The container:** a TCP listener on `QUAKE_PAD_PORT`. websockify connects
+  the page's `token=pad` WebSocket to it. Each message is 16 bytes: buttons,
+  four sticks and two triggers; a name message says which pad.
+- **The desktop:** SDL2's game controller API, opened with `dlopen` and
+  declared locally, so building needs no SDL headers and a machine without
+  SDL still runs. SDL knows the layout of nearly every pad, which reading
+  `/dev/input` directly would have to learn pad by pad.
+
+Tested both ways:
+- **Browser path:** a script stood in for the page, then the same through
+  the container's own WebSocket. Menus navigated from the pad, the sticks
+  moved and turned the view in E1M1, and the default binds were saved.
+- **SDL path:** SDL's virtual joystick, attached inside the engine by a
+  preloaded helper, since this machine has no uinput. It went from the
+  engine noticing the pad to the Controls page naming it.
+
+`menu.c`'s `M_FindKeysForCommand` and `M_UnbindCommand` compared a binding
+with `strncmp` on the command's length, so "impulse 1" matched "impulse 10"
+and "impulse 12". The Axe's row showed the next-weapon key, and clearing it
+cleared weapon switching. They compare exactly now, and a row shows three
+bindings, not two.
 
 ### `WinQuake/cd_stream.c` — music from files
 

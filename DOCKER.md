@@ -426,7 +426,7 @@ screen has a **Game menu** button. Pointer Lock reserves `Esc` for the browser
 and there is no asking for it back outside a secure context, and `Esc` is
 Quake's own menu key; the button sends one to the engine and hands the picture
 straight back, so the game returns with its menu already up. A controller's
-**B** does the same thing without leaving the game at all.
+**Menu** or **B** button does the same thing without leaving the game at all.
 
 Inside the menu, **Backspace** goes back a level and closes it from the top,
 the way `Esc` does in id's engine — `Esc` being the browser's here. It still
@@ -438,8 +438,8 @@ the menu is on a button rather than moved onto `` ` ``. The console is how you
 load a map, change the skill or start the music, and it is worth more than a
 second way to reach a menu.
 
-**Options → Controls → Customize Controls** rebinds everything, and what you set there is
-also what the page's controller panel reads. "Everything" is thirty-one
+**Options → Controls → Customize Controls** rebinds everything, a controller's
+buttons included, up to three keys or buttons for each action. "Everything" is thirty-one
 actions now, including the weapon keys, the console, the scoreboard, pause and
 the screenshot key: the 1996 menu stopped at eighteen because eighteen rows is
 all that fits on a 320x200 screen, so the rest could only be bound by typing
@@ -471,12 +471,23 @@ would rather hold a key than use `freelook`.
 
 ### Game controllers
 
-A pad appears under the start screen's buttons once the browser has seen one.
-Everything about it happens in the page: the container has never heard of a
-controller, and the engine is sent the same keysyms and pointer reports a
-keyboard and a captured mouse produce.
+The game reads the controller itself, as the re-release does, and this works
+the same way in the Linux desktop build. The page passes the pad's state to
+the engine over the same port as the picture and the sound. Everything else
+happens in the game:
+- **Bindings:** its buttons are keys, bound under **Options → Controls →
+  Customize Controls** alongside the keyboard's, and shown as they are on the
+  pad (Pad A, Pad RT…).
+- **Sticks:** look speed, invert, deadzone, swapping the sticks, and whether
+  a full push runs are on the **Controls** page, under **Controller**. That
+  heading also names the pad the game can see.
+- **Saved** in `config.cfg`, like every other setting.
 
-Defaults, on a standard mapping (an Xbox pad, a Backbone One, most others):
+The page's controller panel is gone. Anything set in it before needs setting
+once more in the game.
+
+Defaults, which are the old panel's, on a standard mapping (an Xbox pad, a
+Backbone One, most others):
 
 | | |
 | --- | --- |
@@ -488,25 +499,19 @@ Defaults, on a standard mapping (an Xbox pad, a Backbone One, most others):
 | LB / RB | previous / next weapon |
 | LT | run |
 | RT | fire |
-| View / Menu | scores / console |
+| View | scores |
+| Menu | menu, and it cannot be rebound, like `Esc` |
 | Stick clicks | axe / thunderbolt |
 | D-pad | forward, back, turn |
 
-Every button is rebindable in the browser rather than in `config.cfg`, because
-the container cannot see the pad. Deadzone, turn speed, inversion, stick swap
-and whether a full push runs are all there too. Saved per browser, so a phone
-and a desktop keep their own layouts.
+In the menus, A chooses, B goes back, and the D-pad or the left stick moves.
+Y clears a binding on the Customize screen, and when that screen is waiting
+for a key, a button binds itself.
 
-The page reads the engine's own `config.cfg` to find out which key each action
-should press — Quake binds keys to commands, so a pad pressing the stock keys
-goes dead in a level the moment anybody rebinds anything, while still working
-perfectly in the menus, where the engine hardcodes the arrows and Return. If a
-control is bound to something a browser cannot produce (a joystick button, the
-mouse wheel), the panel says so rather than quietly pressing something else.
-
-When a pad misbehaves the page writes what it is doing into the container's
-log — which pad it found, what each control is going to send, and what it
-actually sent — so `docker logs` answers the question on its own.
+A browser does not report a pad until a button on it has been pressed, so the
+start screen mentions it once one has been. The page writes one line into the
+container's log saying which pad it found and whether the game has it. The
+engine logs `Controller: <name>` when it arrives.
 
 ---
 

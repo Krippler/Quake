@@ -1,5 +1,7 @@
 # Build output
 WinQuake/linux/
+WinQuake/linux-*/
+quake-linux-*.tar.gz
 audiostream/linux/
 *.o
 *.d

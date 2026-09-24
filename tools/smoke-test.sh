@@ -562,7 +562,9 @@ for bad in "Sys_Error" "Hunk_Alloc: failed" "not enough memory" "Bad surface"; d
 done
 
 if command -v xwd >/dev/null 2>&1 && command -v convert >/dev/null 2>&1; then
-    DISPLAY="$disp" xwd -name xquake > "$work/map.xwd" 2>/dev/null \
+    # Started without -resizescreen, this is a desktop window, which is titled
+    # "Quake"; the container's is "xquake". See vid_x.c.
+    DISPLAY="$disp" xwd -name Quake > "$work/map.xwd" 2>/dev/null \
         || die "could not capture the window during the map"
     convert "$work/map.xwd" "$work/map.png"
     say "screenshot: $work/map.png"
