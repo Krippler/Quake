@@ -78,7 +78,7 @@ files.
 ### Mission packs and mods
 
 Everything beside `id1` in the mount is offered in the menu, under **Options →
-Game / mission pack**. Pick one and Quake restarts on it — the container brings
+Game / mod**. Pick one and Quake restarts on it — the container brings
 the engine straight back and the page reconnects on its own, so it looks like a
 few dark seconds. The choice is kept in the state volume and survives a restart
 of the container.

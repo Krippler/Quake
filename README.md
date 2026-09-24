@@ -33,7 +33,7 @@ these works:
   in-game messages as well.
 
 Mission packs and mods go beside `id1`, and the game's **Options → Game /
-mission pack** menu switches between them:
+mod** menu switches between them:
 
 ```
 /path/to/quake/
