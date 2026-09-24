@@ -2,7 +2,8 @@
 
 id Software's 1999 GPL source release of Quake, repaired to build and run on
 current 64-bit Linux and packaged to play in a browser: picture and sound both
-arrive there, and nothing is installed on the host.
+arrive there, and nothing is installed on the host. There is also a build to
+install and play [on a Linux desktop](#on-a-linux-desktop), without Docker.
 
 ## Quick start
 
@@ -19,6 +20,25 @@ Open **<http://localhost:6080/play.html>** and click to play.
   `id1/pak0.pak`.
 - `quake-state` keeps your settings and savegames between runs. Leave it out
   and they go when the container does.
+
+## On a Linux desktop
+
+Each [release](https://github.com/Krippler/Quake/releases) has a
+`quake-linux-x86_64-VERSION.tar.gz`: the same engine, playing in a window of
+its own, with its sound going to PipeWire or PulseAudio. It runs on Ubuntu
+22.04, Debian 12, Fedora 35 or anything newer, under X11 or XWayland.
+
+```
+tar xzf quake-linux-x86_64-*.tar.gz
+cd quake-linux-x86_64-*/
+./install.sh          # into ~/.local; sudo ./install.sh /usr/local for everyone
+quake                 # or Quake in the desktop's menu
+```
+
+It finds a Steam or GOG copy by itself, and prefers the re-release. Otherwise
+run `quake --data /path/to/quake` once, and it will remember. Your game files
+are only read. Settings and saves go in `~/.local/share/quake`. The tarball's
+README.txt has the rest: fullscreen, the mouse, uninstalling.
 
 ## Game data
 

@@ -1700,6 +1700,34 @@ The network screens, setup and the multiplayer game options keep id's
 layout, placed in the box under the new frame (`m_ox`, `m_oy`). Help, the
 quit prompt and the video modes stay id's 320x200, centred.
 
+### `vid_x.c` — a window on a desktop
+
+Everything the container needed from `vid_x.c` assumed the window was the
+whole X screen: `-resizescreen`, which the entrypoint always passes, resizes
+the screen itself. Without it the engine is now a window among others:
+- **Name:** titled "Quake", with the class `quake`/`Quake` that the menu
+  entry's `StartupWMClass` matches. The container's window is still "xquake".
+- **Key repeat:** id turned key repeat off for the whole X server
+  (`XAutoRepeatOff`), which takes it from every other program until the game
+  exits, or for good if it crashes. A desktop gets
+  `XkbSetDetectableAutoRepeat` instead. `Key_Event` already ignores a press of
+  a key that is held.
+- **Mouse:** `_windowed_mouse` defaults to 1 there. `VID_UpdateGrab` holds
+  the pointer (grabbed, hidden, warped to the middle) only while
+  `key_dest == key_game` and the window has the focus, and lets go otherwise.
+  Focus changes caused by the grab itself are ignored. Motion events are
+  summed rather than the last one kept.
+- **Resizing:** a ConfigureNotify only reallocates the framebuffers when the
+  size really changed, since a window manager sends one for every move.
+- **Fullscreen:** `vid_fullscreen` asks the window manager for
+  `_NET_WM_STATE_FULLSCREEN`, or sizes the window to the screen when there is
+  no window manager. The picture keeps the size Video Modes gives it.
+- **Scaling:** whenever the window and the picture differ in size, the frame
+  is scaled, nearest pixel with its shape kept, into a window-sized image
+  (`VID_PresentScaled`), not converted in place. The renderer stops at
+  1920x1200 and a 4K monitor does not, and neither should a software
+  renderer try to.
+
 ### `cl_parse.c` — the re-release's achievement message
 
 The 2021 re-release's QuakeC writes `SVC_ACHIEVEMENT` (52) and an id string
@@ -1791,6 +1819,43 @@ Three details that are not obvious:
 The ring is 16384 frames because `S_TransferPaintBuffer` indexes it with
 `paintedtime * channels & (shm->samples - 1)`, which is only a modulo when the
 size is a power of two.
+
+### `WinQuake/snd_alsa.c` — sound on a desktop
+
+`SOUND=alsa`. It writes to ALSA's `default` device, which is PipeWire or
+PulseAudio on a desktop running either, or the card when neither is running.
+The device is opened non-blocking, at 48 kHz with a 100 ms buffer, the
+mixer's own lead. The mixer paints into a 32768-frame ring of this file's,
+and `SNDDMA_Submit` writes as much of it as the device has room for, once a
+frame.
+
+The playback position is a running count, as in `snd_stream.c`: frames
+written less the frames still queued, which never goes backwards. An underrun
+(a level load) is recovered with `snd_pcm_recover`, and the stream is started
+by hand as soon as it holds anything, since ALSA waits for a full buffer and
+`_snd_mixahead` may be shorter than that.
+
+Tested with PulseAudio and a null sink through ALSA's pulse plugin. ALSA's own
+`null` device plays twenty times faster than real time, which says nothing
+about timing. After start-up the recording kept pace with the clock, and the
+audio in it was the game's.
+
+### `desktop/`, `tools/build-linux-tarball.sh` — installing it
+
+`desktop/quake` is the launcher, and it does for one desktop what
+`docker/entrypoint.sh` does for the container:
+- It finds the game files: `--data`, `$QUAKE_DATA`, the last ones used, then
+  the usual Steam and GOG places, re-release first.
+- It links them into `~/.local/share/quake`, where the engine can write its
+  settings and saves.
+- A first run starts at 1280x720.
+- After Options → Game / Mod, it starts the engine again: `nextgame` is newer
+  than the start of the run.
+
+`install.sh`, `make install` and the tarball all put the launcher in `bin`,
+the engine in `lib/quake`, and a menu entry and id's icon (from `quake.ico`)
+in `share`. The release tarball is built on Ubuntu 22.04, for a glibc 2.34
+floor.
 
 ### `WinQuake/cd_stream.c` — music from files
 

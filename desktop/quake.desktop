@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=Quake
+Comment=id Software's Quake, with the re-release's mission packs and maps
+Exec=quake
+Icon=quake
+Terminal=false
+Categories=Game;ActionGame;
+StartupWMClass=Quake

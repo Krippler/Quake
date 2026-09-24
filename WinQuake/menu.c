@@ -1633,6 +1633,9 @@ static option_t	opt_display[] =
 {
 	{"Display",					o_heading, NULL,            0,     0,    0,    0},
 	{"Video Modes...",			o_action, NULL,             0,     0,    0,    OPT_VIDEO},
+// A desktop's; there is no such thing in the container, whose window is the
+// screen, so it reads n/a there (vid_x.c registers it only on a desktop).
+	{"Fullscreen",				o_toggle, "vid_fullscreen", 0,     0,    0,    0},
 	{"Screen Size",				o_custom, NULL,             0,     0,    0,    OPT_VIEWSIZE},
 	{"Brightness",				o_custom, NULL,             0,     0,    0,    OPT_GAMMA},
 	{"Field of View",			o_slider, "fov",            75,    130,  5,    0},

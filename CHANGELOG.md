@@ -5,6 +5,28 @@ top section's heading is what the release workflow reads: `## [X.Y.Z] — DATE`
 on the default branch publishes that version, `## [Unreleased]` publishes only
 `edge`.
 
+## [Unreleased]
+
+### Added
+
+- **A build for the Linux desktop, without Docker or VNC.** Each release now
+  has a `quake-linux-x86_64-VERSION.tar.gz`: the engine, a `quake` launcher,
+  an entry for the desktop's menu and an `install.sh`. It runs on Ubuntu
+  22.04, Debian 12, Fedora 35 and newer, under X11 or XWayland.
+  - **Game files:** it finds a Steam or GOG copy by itself, preferring the
+    re-release, or takes `quake --data DIR` once and remembers it. Settings
+    and saves go in `~/.local/share/quake`; the game files are only read.
+  - **Sound:** through ALSA, which on a desktop is PipeWire or PulseAudio.
+  - **Mouse:** captured while you play, and let go in the menus, the console
+    and when another window has the focus.
+  - **Fullscreen:** **Options → Display → Fullscreen** covers the monitor and
+    scales the picture up to fill it. A window the renderer cannot draw at
+    full size, such as a maximised one on a large monitor, is scaled the same
+    way.
+  - **Game / Mod:** picking another game restarts on it, as in the container.
+
+  `make -C WinQuake SOUND=alsa install` does the same from source.
+
 ## [1.17.0] — 2026-09-24
 
 ### Changed

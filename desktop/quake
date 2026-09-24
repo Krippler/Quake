@@ -1,0 +1,180 @@
+#!/bin/sh
+#
+# quake -- starts the engine on a Linux desktop.
+#
+#   quake                      play; finds the game files by itself
+#   quake --data DIR           play the game files in DIR, and remember it
+#   quake [engine options]     anything else goes to the engine: +map e1m1,
+#                              -game hipnotic, +vid_fullscreen 1, ...
+#
+# What this does is what the container's entrypoint does, for one person on
+# one machine. Quake writes its settings, saves and screenshots into the same
+# directory as the pak files, and a Steam or GOG install is not somewhere to
+# write them. So the engine runs in a directory of its own
+# (~/.local/share/quake), with the game files linked into it, and what it
+# writes lands beside the links.
+#
+# The game files are looked for, in order: --data, $QUAKE_DATA, the directory
+# used last time, and the usual Steam and GOG places. The re-release
+# ("rerelease" in a Steam install) is preferred over the 1996 files beside it,
+# since it holds the mission packs and Dimension of the Machine as well.
+#
+
+set -u
+
+here=$(cd "$(dirname "$(readlink -f "$0")")" && pwd)
+engine="${QUAKE_ENGINE:-$here/../lib/quake/xquake}"
+base="${XDG_DATA_HOME:-$HOME/.local/share}/quake"
+remembered="$base/.data-dir"
+
+say() { printf 'quake: %s\n' "$*" >&2; }
+
+# Said in a window as well when there is no terminal to say it in -- started
+# from the desktop's menu, a message on stderr goes nowhere.
+complain() {
+    say "$*"
+    [ -t 2 ] && return 0
+    if command -v zenity >/dev/null 2>&1; then
+        zenity --error --title=Quake --text="$*" 2>/dev/null
+    elif command -v kdialog >/dev/null 2>&1; then
+        kdialog --title Quake --error "$*" 2>/dev/null
+    elif command -v xmessage >/dev/null 2>&1; then
+        xmessage -center "$*" 2>/dev/null
+    fi
+}
+
+data=""
+case "${1:-}" in
+    --data)
+        [ $# -ge 2 ] || { say "--data needs a directory"; exit 2; }
+        data="$2"
+        shift 2
+        ;;
+    --data=*)
+        data="${1#--data=}"
+        shift
+        ;;
+    -h|--help)
+        sed -n '3,9p' "$0" | sed 's/^# \{0,1\}//'
+        exit 0
+        ;;
+esac
+
+if [ ! -x "$engine" ]; then
+    complain "The engine is not at $engine. Reinstall, or set QUAKE_ENGINE."
+    exit 1
+fi
+
+mkdir -p "$base" || { complain "Cannot create $base"; exit 1; }
+
+# A directory holding game files: id1/pak0.pak, in any case.
+is_game_data() {
+    [ -f "$1/id1/pak0.pak" ] || [ -f "$1/id1/PAK0.PAK" ] \
+        || [ -f "$1/ID1/PAK0.PAK" ]
+}
+
+find_data() {
+    [ -z "$data" ] && [ -n "${QUAKE_DATA:-}" ] && data="$QUAKE_DATA"
+    [ -z "$data" ] && [ -f "$remembered" ] && data=$(cat "$remembered")
+
+    if [ -z "$data" ]; then
+        for d in \
+            "$HOME/.local/share/Steam/steamapps/common/Quake/rerelease" \
+            "$HOME/.steam/steam/steamapps/common/Quake/rerelease" \
+            "$HOME/.var/app/com.valvesoftware.Steam/.local/share/Steam/steamapps/common/Quake/rerelease" \
+            "$HOME/.local/share/Steam/steamapps/common/Quake" \
+            "$HOME/.steam/steam/steamapps/common/Quake" \
+            "$HOME/.var/app/com.valvesoftware.Steam/.local/share/Steam/steamapps/common/Quake" \
+            "$HOME/GOG Games/Quake/rerelease" \
+            "$HOME/GOG Games/Quake" \
+            "$HOME/Games/quake/drive_c/GOG Games/Quake/rerelease" \
+            "$HOME/Games/quake/drive_c/GOG Games/Quake"
+        do
+            if is_game_data "$d"; then
+                data="$d"
+                break
+            fi
+        done
+    fi
+}
+
+# The files of one game directory, linked into the engine's own. A copy of
+# link_game_dir in docker/entrypoint.sh, which explains each step.
+link_game_dir() {
+    src="$1"
+    dest="$base/$2"
+    n=0
+
+    mkdir -p "$dest"
+    for f in "$src"/*; do
+        [ -e "$f" ] || continue
+        name=$(basename "$f" | tr 'A-Z' 'a-z')
+        case "$name" in
+            config.cfg) continue ;;		# the player's own is written here
+            *.pak) n=$((n + 1)) ;;
+        esac
+        ln -sfn "$f" "$dest/$name"
+    done
+
+    [ "$n" -gt 0 ] || [ -e "$dest/progs.dat" ] || [ -d "$dest/maps" ]
+}
+
+link_data() {
+    for d in "$data"/*; do
+        [ -d "$d" ] || continue
+        name=$(basename "$d" | tr 'A-Z' 'a-z')
+        case "$name" in
+            music|localization) continue ;;
+        esac
+        link_game_dir "$d" "$name" || rmdir "$base/$name" 2>/dev/null
+    done
+
+    # The re-release's message text, which its progs refer to by key.
+    kpf=$(find "$data" -maxdepth 2 -type f -iname 'quakeex.kpf' 2>/dev/null \
+          | head -n 1)
+    [ -n "$kpf" ] && ln -sfn "$kpf" "$base/quakeex.kpf"
+    [ -d "$data/localization" ] && ln -sfn "$data/localization" "$base/localization"
+    return 0
+}
+
+# Game files copied straight into the engine's directory need nothing linked.
+if ! [ -f "$base/id1/pak0.pak" ] || [ -L "$base/id1/pak0.pak" ] || [ -n "$data" ]; then
+    find_data
+    if [ -z "$data" ] || ! is_game_data "$data"; then
+        complain "No Quake game files found.
+
+Quake needs the game files from a copy you own: the directory with
+id1/pak0.pak in it. Start it once with
+
+    quake --data /path/to/Quake
+
+(for a Steam copy of the re-release, that is .../steamapps/common/Quake/rerelease)
+and it will remember. Or copy the id1 directory into $base."
+        exit 1
+    fi
+    data=$(cd "$data" && pwd)
+    printf '%s\n' "$data" > "$remembered"
+    link_data
+fi
+
+# A first run starts in a window of a size worth playing in; after that,
+# config.cfg has the last word, as it does for everything else.
+size=""
+[ -f "$base/id1/config.cfg" ] || size="-width 1280 -height 720"
+
+# Picking another game in Options -> Game / Mod writes nextgame and quits;
+# the engine reads it when it starts. Start it again when that is why it quit.
+while :; do
+    stamp="$base/.started"
+    : > "$stamp"
+    # shellcheck disable=SC2086
+    "$engine" -basedir "$base" $size "$@"
+    status=$?
+    size=""
+    if [ -f "$base/nextgame" ] && [ "$base/nextgame" -nt "$stamp" ]; then
+        [ -n "$data" ] && link_data
+        continue
+    fi
+    rm -f "$stamp"
+    exit "$status"
+done

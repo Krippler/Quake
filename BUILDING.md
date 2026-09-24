@@ -24,8 +24,25 @@ make -C WinQuake            # -> WinQuake/linux/xquake
 make -C audiostream         # -> audiostream/linux/audiostream
 ```
 
-`make -C WinQuake` takes `SOUND=stream|oss|none` and `MUSIC=sndfile|cd|none`;
-the defaults are what the image uses.
+`make -C WinQuake` takes `SOUND=stream|alsa|oss|none` and
+`MUSIC=sndfile|cd|none`; the defaults are what the image uses.
+
+## For a Linux desktop
+
+`SOUND=alsa` is the build for playing on the machine itself. Its sound goes to
+ALSA's default device, which is PipeWire or PulseAudio where either is
+running. It needs the ALSA development package as well:
+
+```
+make -C WinQuake SOUND=alsa
+sudo make -C WinQuake SOUND=alsa install          # into /usr/local
+make -C WinQuake SOUND=alsa install PREFIX=~/.local
+```
+
+That installs the `quake` launcher (`desktop/quake`), the engine and a menu
+entry. `tools/build-linux-tarball.sh VERSION` builds the release tarball the
+same way, with `install.sh` in it. CI builds one on every push, on Ubuntu
+22.04 so that it runs on distributions that old.
 
 ## The smoke test
 
