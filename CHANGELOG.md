@@ -5,6 +5,18 @@ top section's heading is what the release workflow reads: `## [X.Y.Z] — DATE`
 on the default branch publishes that version, `## [Unreleased]` publishes only
 `edge`.
 
+## [Unreleased]
+
+### Fixed
+
+- **Spinning fans flickered between light and dark.** A brush model's light
+  is baked into its faces where the map was built. MG1's fans had one side of
+  each blade lit and the other in shadow, and spinning, the bright and dark
+  blades traded places every few frames. While a brush model is turning, all
+  its faces are now lit with the model's average light and colour; when it
+  stops, its own lightmaps come back. The shadows the re-release draws moving
+  with the blades are not reproduced.
+
 ## [1.15.0] — 2026-09-24
 
 ### Added

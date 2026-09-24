@@ -49,6 +49,7 @@ typedef struct surfcache_s
 	unsigned			height;		// DEBUG only needed for debug
 	float				mipscale;
 	struct texture_s	*texture;	// checked for animating textures
+	int					turning;	// lit as a turning brush model (r_surf.c)
 	byte				data[4];	// width*height elements
 } surfcache_t;
 

@@ -431,3 +431,7 @@ void	R_TintInit (void);
 void	R_TintFrame (void);
 int		R_TintIndex (int r, int g, int b);
 byte	*R_TintMap (int tint);
+
+// r_surf.c: a brush model that is turning is lit evenly (see R_BuildLightMap)
+extern qboolean	r_surfturning;
+qboolean	R_EntityTurning (entity_t *ent);

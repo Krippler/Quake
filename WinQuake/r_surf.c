@@ -54,6 +54,91 @@ static void	(*surfmiptable[4])(void) = {
 
 unsigned		blocklights[18*18];
 
+/*
+===============
+R_EntityTurning, R_TurningLight
+
+A brush model's lightmaps were baked with it standing still. Rotated, each
+face carries the light and shadow of where it was, not where it is: a fan's
+blades were lit on one side and shadowed on the other when the map was built,
+and spinning they trade places every few frames, bright and dark -- a flicker
+that is not in the map. So while a brush model is turning, every face of it is
+lit with the model's average, grey and colour, and when it stops it goes back
+to its lightmaps. The shadows a fan throws cannot come back this way; the
+flicker at least goes.
+
+Turning means its last two angle updates differ. A model placed at an angle
+and left there is not turning, and keeps its lightmaps.
+===============
+*/
+qboolean	r_surfturning;
+
+qboolean R_EntityTurning (entity_t *ent)
+{
+	if (!ent || ent == &cl_entities[0] || !ent->model
+		|| ent->model->type != mod_brush)
+		return false;
+	return !VectorCompare (ent->msg_angles[0], ent->msg_angles[1]);
+}
+
+static void R_TurningLight (model_t *m, unsigned *mono, int *tint)
+{
+	static model_t	*lastmodel;
+	static int		lastframe = -1;
+	static unsigned	lastmono;
+	static int		lasttint;
+	msurface_t		*s;
+	int				i, j, maps, size, count;
+	double			sum, r, g, b;
+	byte			*lm, *rgb;
+
+	if (m == lastmodel && r_framecount == lastframe)
+	{
+		*mono = lastmono;
+		*tint = lasttint;
+		return;
+	}
+
+	sum = r = g = b = 0;
+	count = 0;
+	s = m->surfaces + m->firstmodelsurface;
+	for (i=0 ; i<m->nummodelsurfaces ; i++, s++)
+	{
+		if (!s->samples)
+			continue;
+		size = ((s->extents[0]>>4)+1) * ((s->extents[1]>>4)+1);
+		for (j=0 ; j<size ; j++)
+		{
+			lm = s->samples + j;
+			rgb = s->rgbsamples ? s->rgbsamples + j*3 : NULL;
+			for (maps = 0 ; maps < MAXLIGHTMAPS && s->styles[maps] != 255 ;
+				 maps++, lm += size)
+			{
+				unsigned	scale = d_lightstylevalue[s->styles[maps]];
+
+				sum += *lm * scale;
+				if (rgb)
+				{
+					r += rgb[0] * scale;
+					g += rgb[1] * scale;
+					b += rgb[2] * scale;
+					rgb += size*3;
+				}
+			}
+		}
+		count += size;
+	}
+
+	lastmono = count ? (unsigned)(sum / count) : 0;
+	lasttint = (r + g + b > 0 && r_rgblight.value > 0)
+		? R_TintIndex ((int)(r / 256), (int)(g / 256), (int)(b / 256))
+		: r_tintwhite;
+	lastmodel = m;
+	lastframe = r_framecount;
+	*mono = lastmono;
+	*tint = lasttint;
+}
+
 // coloured light (r_tint.c): the tint of each lightmap sample, when the surface
 // has one, and where the block drawer is up to in it
 static byte		blocktints[18*18];
@@ -183,6 +268,22 @@ void R_BuildLightMap (void)
 		blocklights[i] = r_refdef.ambientlight<<8;
 
 
+// a turning brush model: its average, everywhere
+	if (r_surfturning && lightmap)
+	{
+		unsigned	mono;
+		int			tint;
+
+		R_TurningLight (currententity->model, &mono, &tint);
+		for (i=0 ; i<size ; i++)
+		{
+			blocklights[i] += mono;
+			blocktints[i] = tint;
+		}
+		r_surftinted = tint != r_tintwhite;
+		lightmap = NULL;		// the per-sample passes below are skipped
+	}
+
 // add all the lightmaps
 	if (lightmap)
 		for (maps = 0 ; maps < MAXLIGHTMAPS && surf->styles[maps] != 255 ;
@@ -195,8 +296,7 @@ void R_BuildLightMap (void)
 		}
 
 // the colour of that light, if the map has it: a tint per sample
-	r_surftinted = false;
-	if (surf->rgbsamples && r_rgblight.value > 0)
+	if (surf->rgbsamples && r_rgblight.value > 0 && !r_surfturning)
 	{
 		byte	*rgb;
 		int		r, g, b;

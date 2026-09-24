@@ -323,8 +323,10 @@ surfcache_t *D_CacheSurface (msurface_t *surface, int miplevel)
 // see if the cache holds apropriate data
 //
 	cache = surface->cachespots[miplevel];
+	r_surfturning = R_EntityTurning (currententity);
 
 	if (cache && !cache->dlight && surface->dlightframe != r_framecount
+			&& cache->turning == r_surfturning
 			&& cache->texture == r_drawsurf.texture
 			&& cache->lightadj[0] == r_drawsurf.lightadj[0]
 			&& cache->lightadj[1] == r_drawsurf.lightadj[1]
@@ -357,6 +359,7 @@ surfcache_t *D_CacheSurface (msurface_t *surface, int miplevel)
 		cache->dlight = 1;
 	else
 		cache->dlight = 0;
+	cache->turning = r_surfturning;
 
 	r_drawsurf.surfdat = (pixel_t *)cache->data;
 	

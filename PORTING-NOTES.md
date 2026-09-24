@@ -1462,6 +1462,28 @@ or tested here, so `e1m1`'s entity lump was rewritten with 400 to 4000 extra
 wall torches at origins the map already used, which makes the same demand out
 of data that is present.
 
+### `r_surf.c`, `d_surf.c` — a fan that flickered
+
+A brush model's lightmaps are baked with it standing where the map put it.
+Rotate it and every face keeps the light and shadow of its old place. MG1's
+fans show it: `surface` on the blades found faces lit at 54 and 56 next to
+faces at 10 and 11, all on style 0, and spinning they swap places several
+times a second -- a flicker the map does not have, which the re-release does
+not show. It is not the coloured light; it flickers with `r_rgblight 0`.
+
+While a brush entity is turning -- its last two angle updates differ -- every
+face of it is lit with the model's average over all its faces' samples, grey
+and colour (`R_TurningLight`, once per model per frame), instead of its own
+lightmap. Dynamic lights are added on top as before. A model that stops goes
+back to its lightmaps, and one placed at an angle and left there never leaves
+them. The surface cache records whether a surface was built that way, so a
+fan that starts or stops rebuilds. What this cannot give back is the shadow a
+fan throws on the wall behind it, which the re-release draws moving with the
+blades; this renderer has no shadows but the baked ones.
+
+Tested with a build that treats every brush model as turning: id's three
+demos play, and a platform's baked gradient in demo2 becomes one even level.
+
 ### `r_tint.c`, `r_surf.c`, `model.c` — coloured light
 
 id's renderer lights with one number per lightmap sample, looked up in
