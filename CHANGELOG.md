@@ -5,6 +5,17 @@ top section's heading is what the release workflow reads: `## [X.Y.Z] — DATE`
 on the default branch publishes that version, `## [Unreleased]` publishes only
 `edge`.
 
+## [Unreleased]
+
+### Changed
+
+- **Customize Controls: Backspace goes back, Del clears a binding.** Backspace
+  cleared the highlighted binding on that screen while going back everywhere
+  else, so pressing it to leave wiped a binding instead. It now goes back as
+  it does in every other menu. **Del** (or **Y** on a controller) clears a
+  binding, as in the re-release, and the footer says so. While the screen is
+  waiting for a new key, Backspace is still a key you can bind.
+
 ## [1.19.0] — 2026-09-25
 
 ### Added

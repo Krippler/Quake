@@ -2575,7 +2575,7 @@ void M_Keys_Draw (void)
 	if (bind_grab)
 		M_DrawFooter ("Escape: Cancel", NULL);
 	else
-		M_DrawFooter ("Escape: Back   Backspace: Unbind", "Enter: Change");
+		M_DrawFooter ("Backspace: Back   Del: Unbind", "Enter: Change");
 }
 
 
@@ -2631,8 +2631,7 @@ void M_Keys_Key (int k)
 		bind_grab = true;
 		break;
 
-	case K_BACKSPACE:		// delete bindings
-	case K_DEL:				// delete bindings
+	case K_DEL:				// delete bindings; Backspace goes back (M_Keydown)
 		S_LocalSound ("misc/menu2.wav");
 		M_UnbindCommand (bindnames[keys_cursor][0]);
 		break;
@@ -4560,15 +4559,18 @@ void M_Draw (void)
 //
 // Except where Backspace already has a job. These are the places it does, and
 // they keep it: the text fields (your name, the server address, a modem
-// string), and the key bindings screen, where it clears the highlighted
-// binding. Escape still goes back from all of them.
+// string), and the key bindings screen while it is waiting for a key, where
+// Backspace is a key like any other to bind. Clearing a binding there is Del
+// (Y on a controller), as the re-release has it, so that Backspace goes back
+// from that screen as it does from every other. Escape still goes back from
+// all of them.
 //
 static qboolean M_BackspaceEdits (void)
 {
 	switch (m_state)
 	{
 	case m_keys:
-		return true;
+		return M_KeysGrabbing ();
 	case m_setup:
 		return setup_cursor == 0 || setup_cursor == 1;
 	case m_serialconfig:
