@@ -852,9 +852,27 @@ static struct
 	{NULL, NULL}
 };
 
+//
+// Keys a map editor or compiler leaves in the entity lump for itself, which no
+// engine or progs has ever read. TrenchBroom writes "mapversion" "220" into
+// worldspawn to say the .map uses the Valve 220 texture format, and the
+// compilers copy it into the .bsp; MG1's maps all have it. id's own tools
+// marked such keys with a leading underscore, which is skipped before this is
+// reached. These are passed over without a word.
+//
+static char *ed_editorkeys[] =
+{
+	"mapversion",
+	NULL
+};
+
 void ED_ReportUnknownField (char *keyname)
 {
 	int		i;
+
+	for (i = 0; ed_editorkeys[i]; i++)
+		if (!Q_strcmp (ed_editorkeys[i], keyname))
+			return;
 
 	for (i = 0; i < ed_numreported; i++)
 		if (!Q_strcmp (ed_reported[i], keyname))

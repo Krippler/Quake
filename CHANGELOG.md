@@ -5,6 +5,19 @@ top section's heading is what the release workflow reads: `## [X.Y.Z] — DATE`
 on the default branch publishes that version, `## [Unreleased]` publishes only
 `edge`.
 
+## [1.18.3] — 2026-09-25
+
+### Fixed
+
+- **"You got5 cells": missing spaces in re-release messages.** The
+  localization file reader trimmed the trailing spaces off every quoted
+  string, so "You got " lost the space before the backpack's count. A
+  check of the reader now runs at the start of the smoke test.
+- **"'mapversion' is not a field"** on MG1 maps is no longer printed. It is a
+  note TrenchBroom leaves in the map to record that it uses the Valve 220
+  texture format, which only the editor and compiler ever read. Keys the map
+  asks for that the game really doesn't know are still reported.
+
 ## [1.18.2] — 2026-09-25
 
 ### Fixed
