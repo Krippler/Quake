@@ -64,8 +64,10 @@ enum
 };
 
 cvar_t	joy_enable = {"joy_enable", "1", true};
-cvar_t	joy_deadzone = {"joy_deadzone", "0.18", true};
-cvar_t	joy_lookspeed = {"joy_lookspeed", "160", true};	// degrees a second
+cvar_t	joy_deadzone = {"joy_deadzone", "0.18", true};	// the stick that moves
+cvar_t	joy_deadzone_look = {"joy_deadzone_look", "0.18", true};	// and the one that looks
+cvar_t	joy_lookspeed = {"joy_lookspeed", "160", true};	// degrees a second, turning
+cvar_t	joy_lookspeed_y = {"joy_lookspeed_y", "105", true};	// and looking up and down
 cvar_t	joy_lookcurve = {"joy_lookcurve", "2", true};
 cvar_t	joy_invert = {"joy_invert", "0", true};
 cvar_t	joy_swapsticks = {"joy_swapsticks", "0", true};
@@ -599,9 +601,9 @@ is not held to a higher bar, and rescaled so the first movement past it is a
 small one. Returns how far over it is, 0 to 1.
 ================
 */
-static float PAD_Stick (float x, float y, float *ox, float *oy)
+static float PAD_Stick (float x, float y, float dz, float *ox, float *oy)
 {
-	float	m, dz = joy_deadzone.value, s;
+	float	m, s;
 
 	m = sqrt (x*x + y*y);
 	if (m <= dz || m <= 0)
@@ -631,15 +633,17 @@ void IN_PadMove (usercmd_t *cmd)
 	if (!pad.connected || !joy_enable.value || key_dest != key_game)
 		return;
 
+// The deadzones go with what a stick does, not which side it is on, so that
+// swapping the sticks swaps them too.
 	if (joy_swapsticks.value)
 	{
-		m = PAD_Stick (pad.rx, pad.ry, &mx, &my);
-		PAD_Stick (pad.lx, pad.ly, &lx, &ly);
+		m = PAD_Stick (pad.rx, pad.ry, joy_deadzone.value, &mx, &my);
+		PAD_Stick (pad.lx, pad.ly, joy_deadzone_look.value, &lx, &ly);
 	}
 	else
 	{
-		m = PAD_Stick (pad.lx, pad.ly, &mx, &my);
-		PAD_Stick (pad.rx, pad.ry, &lx, &ly);
+		m = PAD_Stick (pad.lx, pad.ly, joy_deadzone.value, &mx, &my);
+		PAD_Stick (pad.rx, pad.ry, joy_deadzone_look.value, &lx, &ly);
 	}
 
 // Walking: the stick is a speed, not a key. Pushed all the way it runs, if the
@@ -652,15 +656,19 @@ void IN_PadMove (usercmd_t *cmd)
 	cmd->forwardmove -= my * cl_forwardspeed.value * speed;
 	cmd->sidemove += mx * cl_sidespeed.value * speed;
 
-// Looking: degrees a second, on a curve so a small push aims finely.
+// Looking: degrees a second, on a curve so a small push aims finely. Turning
+// and looking up and down have speeds of their own, as the re-release's Aim X
+// and Aim Y; the vertical one defaults to two thirds of the horizontal, which
+// is what it was fixed at before it could be set.
 	c = joy_lookcurve.value > 0 ? joy_lookcurve.value : 1;
 	t = joy_lookspeed.value * host_frametime;
 	if (lx)
 		cl.viewangles[YAW] -= (lx < 0 ? -1 : 1) * pow (fabs (lx), c) * t;
 	if (ly)
 	{
-		cl.viewangles[PITCH] += (ly < 0 ? -1 : 1) * pow (fabs (ly), c) * t
-			* 0.66 * (joy_invert.value ? -1 : 1);
+		cl.viewangles[PITCH] += (ly < 0 ? -1 : 1) * pow (fabs (ly), c)
+			* joy_lookspeed_y.value * host_frametime
+			* (joy_invert.value ? -1 : 1);
 		if (cl.viewangles[PITCH] > 80)
 			cl.viewangles[PITCH] = 80;
 		if (cl.viewangles[PITCH] < -70)
@@ -681,6 +689,8 @@ void IN_PadInit (void)
 
 	Cvar_RegisterVariable (&joy_enable);
 	Cvar_RegisterVariable (&joy_deadzone);
+	Cvar_RegisterVariable (&joy_deadzone_look);
+	Cvar_RegisterVariable (&joy_lookspeed_y);
 	Cvar_RegisterVariable (&joy_lookspeed);
 	Cvar_RegisterVariable (&joy_lookcurve);
 	Cvar_RegisterVariable (&joy_invert);

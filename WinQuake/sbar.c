@@ -72,8 +72,21 @@ Sbar_ShowScores
 Tab key down
 ===============
 */
+//
+// The re-release's Toggle Scoreboard: with this on, the key that shows the
+// scores shows them until it is pressed again, rather than while it is held --
+// easier on a controller, where it is the Back button.
+//
+cvar_t	cl_togglescores = {"cl_togglescores", "0", true};
+
 void Sbar_ShowScores (void)
 {
+	if (cl_togglescores.value)
+	{
+		sb_showscores = !sb_showscores;
+		sb_updates = 0;
+		return;
+	}
 	if (sb_showscores)
 		return;
 	sb_showscores = true;
@@ -89,6 +102,8 @@ Tab key up
 */
 void Sbar_DontShowScores (void)
 {
+	if (cl_togglescores.value)
+		return;
 	sb_showscores = false;
 	sb_updates = 0;
 }
@@ -188,6 +203,7 @@ void Sbar_Init (void)
 	sb_face_invis_invuln = Draw_PicFromWad ("face_inv2");
 	sb_face_quad = Draw_PicFromWad ("face_quad");
 
+	Cvar_RegisterVariable (&cl_togglescores);
 	Cmd_AddCommand ("+showscores", Sbar_ShowScores);
 	Cmd_AddCommand ("-showscores", Sbar_DontShowScores);
 

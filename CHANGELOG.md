@@ -5,6 +5,26 @@ top section's heading is what the release workflow reads: `## [X.Y.Z] — DATE`
 on the default branch publishes that version, `## [Unreleased]` publishes only
 `edge`.
 
+## [Unreleased]
+
+### Added
+
+- **More of the re-release's settings.**
+  - **Options → Controls → Controller:**
+    - **Turn Speed** and **Look Up/Down Speed** are separate, like the
+      re-release's Aim X and Aim Y.
+    - **Look Curve** sets how much finer aiming is near the middle of the
+      stick.
+    - **Move Deadzone** and **Look Deadzone** are set per stick. They follow
+      the sticks when Swap Sticks is on.
+  - **Options → Gameplay:**
+    - **Toggle Scoreboard:** the scores key shows the scores until it is
+      pressed again, instead of only while held.
+    - **Classic Quit Prompt:** id's joke quit messages. Off by default, as in
+      the re-release, which asks plainly. Enter now confirms quitting too, so a
+      controller's A button can quit.
+  - **Customize Controls** lists **Quick Save**, **Quick Load** and **Chat**.
+
 ## [1.18.3] — 2026-09-25
 
 ### Fixed

@@ -1613,9 +1613,14 @@ static option_t	opt_controls[] =
 // Controls with everything else.
 	{"Controller",				o_heading, NULL,            0,     0,    0,    0},
 	{"Connected",				o_custom, NULL,             0,     0,    0,    OPT_PADNAME},
-	{"Look Speed",				o_slider, "joy_lookspeed",  60,    400,  20,   0},
+	{"Turn Speed",				o_slider, "joy_lookspeed",  60,    400,  20,   0},
+	{"Look Up/Down Speed",		o_slider, "joy_lookspeed_y",40,    400,  20,   0},
+// the exponent on how far the stick is pushed: 1 is straight, higher aims
+// more finely near the middle
+	{"Look Curve",				o_slider, "joy_lookcurve",  1,     4,    0.25, 0},
 	{"Invert Look",				o_toggle, "joy_invert",     0,     0,    0,    0},
-	{"Deadzone",				o_slider, "joy_deadzone",   0.04,  0.5,  0.02, 0},
+	{"Move Deadzone",			o_slider, "joy_deadzone",   0.04,  0.5,  0.02, 0},
+	{"Look Deadzone",			o_slider, "joy_deadzone_look",0.04, 0.5, 0.02, 0},
 	{"Swap Sticks",				o_toggle, "joy_swapsticks", 0,     0,    0,    0},
 	{"Full Push Runs",			o_toggle, "joy_pushrun",    0,     0,    0,    0},
 };
@@ -1627,6 +1632,8 @@ static option_t	opt_gameplay[] =
 	{"View Bob",				o_custom, NULL,             0,     0,    0,    OPT_BOB},
 	{"View Kick",				o_custom, NULL,             0,     0,    0,    OPT_KICK},
 	{"Show Weapon",				o_toggle, "r_drawviewmodel",0,     0,    0,    0},
+	{"Toggle Scoreboard",		o_toggle, "cl_togglescores",0,     0,    0,    0},
+	{"Classic Quit Prompt",		o_toggle, "m_classicquit",  0,     0,    0,    0},
 
 	{"Crosshair",				o_heading, NULL,            0,     0,    0,    0},
 	{"Show Crosshair",			o_toggle, "crosshair",      0,     0,    0,    0},
@@ -2325,6 +2332,9 @@ char *bindnames[][2] =
 {"impulse 7", 		"Rocket Launcher"},
 {"impulse 8", 		"Thunderbolt"},
 {"+showscores", 	"Show Scores"},
+{"echo Quicksaving...; wait; save quick", "Quick Save"},
+{"echo Quickloading...; wait; load quick", "Quick Load"},
+{"messagemode", 	"Chat"},
 {"toggleconsole", 	"Console"},
 {"screenshot", 		"Screenshot"},
 {"pause", 			"Pause"},
@@ -2860,6 +2870,22 @@ int		msgNumber;
 int		m_quit_prevstate;
 qboolean	wasInMenus;
 
+//
+// The re-release asks plainly, and keeps id's jokes behind Show Classic Quit
+// Prompt; so does this. Enter answers yes as well as Y, which is what lets a
+// controller (A is Enter in the menus) quit at all.
+//
+cvar_t	m_classicquit = {"m_classicquit", "0", true};
+
+static char *quitPlain[4] =
+{
+/* .........1.........2.... */
+  "                        ",
+  "      Quit Quake?       ",
+  "                        ",
+  "  Y: Quit      N: Stay  "
+};
+
 #ifndef	_WIN32
 char *quitMessage [] = 
 {
@@ -2940,6 +2966,7 @@ void M_Quit_Key (int key)
 
 	case 'Y':
 	case 'y':
+	case K_ENTER:
 		key_dest = key_console;
 		Host_Quit_f ();
 		break;
@@ -2987,10 +3014,20 @@ void M_Quit_Draw (void)
 	M_PrintWhite (16, 180, "reserved. Press y to exit\n");
 #else
 	M_DrawTextBox (56, 76, 24, 4);
-	M_Print (64, 84,  quitMessage[msgNumber*4+0]);
-	M_Print (64, 92,  quitMessage[msgNumber*4+1]);
-	M_Print (64, 100, quitMessage[msgNumber*4+2]);
-	M_Print (64, 108, quitMessage[msgNumber*4+3]);
+	if (m_classicquit.value)
+	{
+		M_Print (64, 84,  quitMessage[msgNumber*4+0]);
+		M_Print (64, 92,  quitMessage[msgNumber*4+1]);
+		M_Print (64, 100, quitMessage[msgNumber*4+2]);
+		M_Print (64, 108, quitMessage[msgNumber*4+3]);
+	}
+	else
+	{
+		M_Print (64, 84,  quitPlain[0]);
+		M_PrintWhite (64, 92,  quitPlain[1]);
+		M_Print (64, 100, quitPlain[2]);
+		M_Print (64, 108, quitPlain[3]);
+	}
 #endif
 }
 
@@ -4286,6 +4323,7 @@ void M_ServerList_Key (int k)
 
 void M_Init (void)
 {
+	Cvar_RegisterVariable (&m_classicquit);
 	Cmd_AddCommand ("togglemenu", M_ToggleMenu_f);
 
 	Cmd_AddCommand ("menu_main", M_Menu_Main_f);
