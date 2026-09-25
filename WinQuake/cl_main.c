@@ -636,6 +636,15 @@ void CL_RelinkEntities (void)
 		if (ent->effects & EF_MUZZLEFLASH)
 		{
 			vec3_t		fv, rv, uv;
+			static double	lastkick;
+
+		// the player's own shot kicks the controller, once for each message
+		// that says it happened (frames can be drawn more often than that)
+			if (i == cl.viewentity && cl.mtime[0] != lastkick)
+			{
+				lastkick = cl.mtime[0];
+				IN_PadRumble (0.15, 0.45, 0.08);
+			}
 
 			dl = CL_AllocDlight (i);
 			VectorCopy (ent->origin,  dl->origin);

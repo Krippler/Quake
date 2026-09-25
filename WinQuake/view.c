@@ -337,6 +337,10 @@ void V_ParseDamage (void)
 
 	cl.faceanimtime = cl.time + 0.2;		// but sbar face into pain frame
 
+// the controller feels it: a scratch is a tap, a rocket a shove (in_pad.c)
+	IN_PadRumble (count / 40, count / 60, 0.15 + count / 200 < 0.5
+		? 0.15 + count / 200 : 0.5);
+
 	cl.cshifts[CSHIFT_DAMAGE].percent += 3*count;
 	if (cl.cshifts[CSHIFT_DAMAGE].percent < 0)
 		cl.cshifts[CSHIFT_DAMAGE].percent = 0;

@@ -73,6 +73,8 @@ cvar_t	joy_invert = {"joy_invert", "0", true};
 cvar_t	joy_swapsticks = {"joy_swapsticks", "0", true};
 cvar_t	joy_pushrun = {"joy_pushrun", "1", true};
 cvar_t	joy_bound = {"joy_bound", "0", true};
+cvar_t	joy_rumble = {"joy_rumble", "1", true};				// Vibration
+cvar_t	joy_rumble_intensity = {"joy_rumble_intensity", "5", true};	// 0 to 10
 
 typedef struct
 {
@@ -128,6 +130,11 @@ Two kinds of message, each starting with a letter:
 		16 bytes; little-endian; sticks -32767..32767, triggers 0..255
 	'N' length name
 		the pad's name, for the Controls page
+
+and one the other way, for the page to play on the pad (IN_PadRumble):
+
+	'R' low high (2 each, 0..65535) milliseconds (2)
+		7 bytes; little-endian
 
 One page at a time: a new connection replaces the old, which is what a reload
 of the page looks like from here.
@@ -290,6 +297,9 @@ static short				(*pSDL_GameControllerGetAxis) (SDL_GameController *, int);
 static void					(*pSDL_GameControllerUpdate) (void);
 static void					(*pSDL_PumpEvents) (void);
 static void					(*pSDL_FlushEvents) (unsigned, unsigned);
+// SDL 2.0.9 and later; without it the pad works and does not vibrate
+static int					(*pSDL_GameControllerRumble) (SDL_GameController *,
+								unsigned short, unsigned short, unsigned);
 
 static qboolean				sdl_ok;
 static SDL_GameController	*sdl_pad;
@@ -324,6 +334,7 @@ static void PAD_SDLInit (void)
 	SYM(SDL_PumpEvents);
 	SYM(SDL_FlushEvents);
 #undef SYM
+	pSDL_GameControllerRumble = dlsym (lib, "SDL_GameControllerRumble");
 
 	if (pSDL_Init (SDL_INIT_GAMECONTROLLER) < 0)
 	{
@@ -684,6 +695,52 @@ void IN_PadMove (usercmd_t *cmd)
 
 /*
 ================
+IN_PadRumble
+
+The re-release's Vibration: a pulse on the pad, low the heavy motor and high
+the light one, each 0 to 1 before Vibration Intensity scales them (5 is as
+given, 10 twice as strong, as far as the motors go). On a desktop SDL plays
+it; in the container it goes to the page, which has the pad.
+================
+*/
+void IN_PadRumble (float low, float high, float seconds)
+{
+	float			scale;
+	int				lo, hi, ms;
+	byte			m[7];
+
+	if (!pad.connected || !joy_enable.value || !joy_rumble.value
+		|| key_dest != key_game)
+		return;
+
+	scale = joy_rumble_intensity.value / 5;
+	lo = low * scale * 65535;
+	hi = high * scale * 65535;
+	lo = lo < 0 ? 0 : (lo > 65535 ? 65535 : lo);
+	hi = hi < 0 ? 0 : (hi > 65535 ? 65535 : hi);
+	ms = seconds * 1000;
+	ms = ms < 1 ? 1 : (ms > 2000 ? 2000 : ms);
+	if (!lo && !hi)
+		return;
+
+	if (sdl_pad && pSDL_GameControllerRumble)
+	{
+		pSDL_GameControllerRumble (sdl_pad, lo, hi, ms);
+		return;
+	}
+
+	if (br_conn >= 0)
+	{
+		m[0] = 'R';
+		m[1] = lo & 255;	m[2] = lo >> 8;
+		m[3] = hi & 255;	m[4] = hi >> 8;
+		m[5] = ms & 255;	m[6] = ms >> 8;
+		send (br_conn, m, sizeof(m), MSG_DONTWAIT | MSG_NOSIGNAL);
+	}
+}
+
+/*
+================
 IN_PadInit
 ================
 */
@@ -702,6 +759,8 @@ void IN_PadInit (void)
 	Cvar_RegisterVariable (&joy_swapsticks);
 	Cvar_RegisterVariable (&joy_pushrun);
 	Cvar_RegisterVariable (&joy_bound);
+	Cvar_RegisterVariable (&joy_rumble);
+	Cvar_RegisterVariable (&joy_rumble_intensity);
 
 	if (COM_CheckParm ("-nojoy"))
 		return;

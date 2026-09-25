@@ -478,9 +478,14 @@ happens in the game:
 - **Bindings:** its buttons are keys, bound under **Options → Controls →
   Customize Controls** alongside the keyboard's, and shown as they are on the
   pad (Pad A, Pad RT…).
-- **Sticks:** look speed, invert, deadzone, swapping the sticks, and whether
-  a full push runs are on the **Controls** page, under **Controller**. That
-  heading also names the pad the game can see.
+- **Sticks:** turn and look up/down speeds, the look curve, invert, a
+  deadzone for each stick, swapping the sticks, and whether a full push runs
+  are on the **Controls** page, under **Controller**. That heading also names
+  the pad the game can see.
+- **Vibration:** the pad rumbles when you're hit and when you fire, with an
+  intensity setting on the same page. In the container the game sends the
+  rumble back to the page, which plays it through the browser. Chrome and Edge
+  can do this; Firefox mostly can't. On the desktop, SDL plays it.
 - **Saved** in `config.cfg`, like every other setting.
 
 The page's controller panel is gone. Anything set in it before needs setting

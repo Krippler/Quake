@@ -20,6 +20,14 @@
 // Buttons are in the standard layout's order: A B X Y LB RB LT RT View Menu,
 // the stick clicks, the d-pad, Guide.
 //
+// And one message back, when the game wants the pad to vibrate (Options ->
+// Controls -> Vibration):
+//
+//   'R' low high:u16 milliseconds:u16                        7 bytes
+//
+// played through the browser's vibrationActuator where it has one, and
+// hapticActuators (Firefox's) where it has that instead.
+//
 
 // "Xbox Wireless Controller (STANDARD GAMEPAD Vendor: 045e Product: 0b13)" is
 // what the browser calls it; the useful half is in front of the bracket.
@@ -44,6 +52,7 @@ export class QuakePadBridge {
     this._name = '';
     this._sentName = '';
     this._pad = null;
+    this._rx = new Uint8Array(0);   // bytes from the engine not yet used
   }
 
   // The first pad the browser reports, preferring one it knows the layout of.
@@ -128,6 +137,47 @@ export class QuakePadBridge {
     return m;
   }
 
+  // websockify passes the engine's bytes on however TCP happened to cut them,
+  // so a message can arrive in pieces, or several in one.
+  _receive(data) {
+    if (!(data instanceof ArrayBuffer)) return;
+    const add = new Uint8Array(data);
+    const buf = new Uint8Array(this._rx.length + add.length);
+    buf.set(this._rx);
+    buf.set(add, this._rx.length);
+    let at = 0;
+    while (buf.length - at >= 7) {
+      if (buf[at] !== 82) {           // not 'R': lost the thread, drop it all
+        at = buf.length;
+        break;
+      }
+      const v = new DataView(buf.buffer, at);
+      this._rumble(v.getUint16(1, true) / 65535, v.getUint16(3, true) / 65535,
+                   v.getUint16(5, true));
+      at += 7;
+    }
+    this._rx = buf.slice(at);
+  }
+
+  _rumble(strong, weak, ms) {
+    const pad = this._pad;
+    if (!pad) return;
+    try {
+      const va = pad.vibrationActuator;
+      if (va && va.playEffect) {
+        va.playEffect(va.type || 'dual-rumble', {
+          startDelay: 0, duration: ms,
+          strongMagnitude: strong, weakMagnitude: weak,
+        }).catch(() => {});
+        return;
+      }
+      const ha = pad.hapticActuators && pad.hapticActuators[0];
+      if (ha && ha.pulse) ha.pulse(Math.max(strong, weak), ms).catch(() => {});
+    } catch (e) {
+      // a pad that says it can and then cannot: nothing to be done about it
+    }
+  }
+
   _connect() {
     if (this._sock || performance.now() < this._retryAt) return;
     this._retryAt = performance.now() + RETRY_MS;
@@ -139,6 +189,7 @@ export class QuakePadBridge {
       return;
     }
     s.binaryType = 'arraybuffer';
+    s.onmessage = (ev) => this._receive(ev.data);
     s.onopen = () => {
       this._open = true;
       this._sentName = '';

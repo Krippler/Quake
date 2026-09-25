@@ -1624,6 +1624,8 @@ static option_t	opt_controls[] =
 	{"Invert Look",				o_toggle, "joy_invert",     0,     0,    0,    0},
 	{"Move Deadzone",			o_slider, "joy_deadzone",   0.04,  0.5,  0.02, 0},
 	{"Look Deadzone",			o_slider, "joy_deadzone_look",0.04, 0.5, 0.02, 0},
+	{"Vibration",				o_toggle, "joy_rumble",     0,     0,    0,    0},
+	{"Vibration Intensity",		o_slider, "joy_rumble_intensity",0, 10,   1,    0},
 	{"Swap Sticks",				o_toggle, "joy_swapsticks", 0,     0,    0,    0},
 	{"Full Push Runs",			o_toggle, "joy_pushrun",    0,     0,    0,    0},
 };

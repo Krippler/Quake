@@ -45,6 +45,12 @@ on the default branch publishes that version, `## [Unreleased]` publishes only
   faster. The mouse and controller turn the view every frame, and everything
   moves smoothly between the game's ticks. Jumps, lifts and movement come out
   exactly as at 72. The default stays 72, and nothing changes at 72 or below.
+- **Controller vibration.** The pad rumbles when you're hit (harder the more
+  it hurts) and when you fire. **Options → Controls → Vibration** turns it
+  on or off, and **Vibration Intensity** (0–10) sets how strong it is. On the
+  desktop build it goes through SDL. In the container the game sends it to
+  the page, which plays it through the browser's gamepad support: Chrome and
+  Edge, and Firefox where it can.
 
 ### Fixed
 

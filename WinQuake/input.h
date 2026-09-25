@@ -38,6 +38,7 @@ void IN_PadInit (void);
 void IN_PadShutdown (void);
 void IN_PadCommands (void);
 void IN_PadMove (usercmd_t *cmd);
+void IN_PadRumble (float low, float high, float seconds);	// 0..1 each
 
 // set while IN_Move runs for a frame between the game's ticks (cl_main.c)
 extern qboolean	in_accumulating;
