@@ -5,6 +5,28 @@ top section's heading is what the release workflow reads: `## [X.Y.Z] — DATE`
 on the default branch publishes that version, `## [Unreleased]` publishes only
 `edge`.
 
+## [1.19.1] — 2026-09-25
+
+### Changed
+
+- **Backspace is the menu key**, as `Esc` is in id's engine. From the game it
+  opens the menu. Inside the menus it goes back a level and closes them from
+  the top, and it answers "no" to a question. In the container, where `Esc`
+  belongs to the browser, it's the one keyboard key that always reaches the
+  menu. Like `Esc`, it can't be bound to anything else: `bind BACKSPACE …`
+  is refused, and a binding for it in an old `config.cfg` is dropped. In the
+  console and in chat it still deletes.
+- **Customize Controls: Backspace goes back, Del clears a binding.** Backspace
+  cleared the highlighted binding on that screen while going back everywhere
+  else, so pressing it to leave wiped a binding instead. It now goes back as
+  it does in every other menu, and cancels while the screen is waiting for a
+  key, like `Esc`. **Del** (or **Y** on a controller) clears a binding, as in
+  the re-release, and the footer says so.
+- **Customize Controls: backing out of a full row no longer clears it.** An
+  action that already had three keys lost all of them the moment Enter was
+  pressed, before a new key was chosen, so cancelling left it with none. They
+  are now replaced only when the new key is pressed.
+
 ## [1.19.0] — 2026-09-25
 
 ### Added

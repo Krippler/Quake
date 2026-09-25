@@ -426,12 +426,16 @@ screen has a **Game menu** button. Pointer Lock reserves `Esc` for the browser
 and there is no asking for it back outside a secure context, and `Esc` is
 Quake's own menu key; the button sends one to the engine and hands the picture
 straight back, so the game returns with its menu already up. A controller's
-**Menu** or **B** button does the same thing without leaving the game at all.
+**Menu** or **B** button does the same thing without leaving the game at all,
+and so does **Backspace** on the keyboard. It is the menu key, standing in
+for `Esc`, and like `Esc` it cannot be bound to anything else.
 
 Inside the menu, **Backspace** goes back a level and closes it from the top,
 the way `Esc` does in id's engine — `Esc` being the browser's here. It still
-deletes in the name and address fields, still clears a binding on the controls
-screen, and answers "no" to a yes-or-no question.
+deletes in the name and address fields and answers "no" to a yes-or-no
+question. On the controls screen it goes back too, and cancels when the screen
+is waiting for a key; **Del** (or **Y** on a controller) clears a binding
+there, as in the re-release.
 
 The `` ` `` key opens the console, and passes through untouched — which is why
 the menu is on a button rather than moved onto `` ` ``. The console is how you
@@ -439,9 +443,9 @@ load a map, change the skill or start the music, and it is worth more than a
 second way to reach a menu.
 
 **Options → Controls → Customize Controls** rebinds everything, a controller's
-buttons included, up to three keys or buttons for each action. "Everything" is thirty-one
-actions now, including the weapon keys, the console, the scoreboard, pause and
-the screenshot key: the 1996 menu stopped at eighteen because eighteen rows is
+buttons included, up to three keys or buttons for each action. "Everything" is thirty-four
+actions now, including the weapon keys, the console, the scoreboard, quick save
+and load, chat, pause and the screenshot key: the 1996 menu stopped at eighteen because eighteen rows is
 all that fits on a 320x200 screen, so the rest could only be bound by typing
 `bind` at the console. The list scrolls, with a scrollbar down the right to
 say where you are in it.
