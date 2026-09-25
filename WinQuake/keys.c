@@ -653,6 +653,21 @@ void Key_Event (int key, qboolean down)
 //
 // handle escape specialy, so the user can never unbind it
 //
+//
+// Backspace opens the menu from the game, as Escape does, whatever it is bound
+// to. In the container Escape belongs to the browser -- it lets the mouse go --
+// so this is the menu key there; and in the menus Backspace goes back a level
+// and closes the menu from the top (menu.c), so it is the menu's key both
+// ways. Held, it auto-repeats, and only the first press counts. In the
+// console and in a chat message it still deletes.
+//
+	if (key == K_BACKSPACE && key_dest == key_game)
+	{
+		if (down && key_repeats[key] == 1)
+			M_ToggleMenu_f ();
+		return;
+	}
+
 	if (key == K_ESCAPE)
 	{
 		if (!down)

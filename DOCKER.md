@@ -426,13 +426,16 @@ screen has a **Game menu** button. Pointer Lock reserves `Esc` for the browser
 and there is no asking for it back outside a secure context, and `Esc` is
 Quake's own menu key; the button sends one to the engine and hands the picture
 straight back, so the game returns with its menu already up. A controller's
-**Menu** or **B** button does the same thing without leaving the game at all.
+**Menu** or **B** button does the same thing without leaving the game at all,
+and so does **Backspace** on the keyboard: in the game it always opens the
+menu, whatever it is bound to.
 
 Inside the menu, **Backspace** goes back a level and closes it from the top,
 the way `Esc` does in id's engine — `Esc` being the browser's here. It still
 deletes in the name and address fields and answers "no" to a yes-or-no
-question. On the controls screen it goes back too; **Del** (or **Y** on a
-controller) clears a binding there, as in the re-release.
+question. On the controls screen it goes back too, and cancels when the screen
+is waiting for a key; **Del** (or **Y** on a controller) clears a binding
+there, as in the re-release.
 
 The `` ` `` key opens the console, and passes through untouched — which is why
 the menu is on a button rather than moved onto `` ` ``. The console is how you

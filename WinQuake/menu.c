@@ -2593,6 +2593,12 @@ void M_Keys_Key (int k)
 		}
 		else if (k != '`')
 		{
+		// A row that already has all the keys it can show starts again from
+		// this one. id cleared them on Enter, before a key was chosen, so
+		// backing out left the action with no keys at all.
+			M_FindKeysForCommand (bindnames[keys_cursor][0], keys);
+			if (keys[MAX_KEYS_SHOWN-1] != -1)
+				M_UnbindCommand (bindnames[keys_cursor][0]);
 			sprintf (cmd, "bind \"%s\" \"%s\"\n", Key_KeynumToString (k), bindnames[keys_cursor][0]);
 			Cbuf_InsertText (cmd);
 		}
@@ -2624,10 +2630,7 @@ void M_Keys_Key (int k)
 		break;
 
 	case K_ENTER:		// go into bind mode
-		M_FindKeysForCommand (bindnames[keys_cursor][0], keys);
 		S_LocalSound ("misc/menu2.wav");
-		if (keys[MAX_KEYS_SHOWN-1] != -1)
-			M_UnbindCommand (bindnames[keys_cursor][0]);
 		bind_grab = true;
 		break;
 
@@ -4559,18 +4562,17 @@ void M_Draw (void)
 //
 // Except where Backspace already has a job. These are the places it does, and
 // they keep it: the text fields (your name, the server address, a modem
-// string), and the key bindings screen while it is waiting for a key, where
-// Backspace is a key like any other to bind. Clearing a binding there is Del
-// (Y on a controller), as the re-release has it, so that Backspace goes back
-// from that screen as it does from every other. Escape still goes back from
-// all of them.
+// string). On the key bindings screen it goes back like everywhere else --
+// clearing a binding there is Del (Y on a controller), as the re-release has
+// it -- and while that screen waits for a key it cancels, as Escape does:
+// Backspace opens the menu from the game whatever it is bound to (keys.c), so
+// it is no more a key to bind than Escape is. Escape still goes back from all
+// of them.
 //
 static qboolean M_BackspaceEdits (void)
 {
 	switch (m_state)
 	{
-	case m_keys:
-		return M_KeysGrabbing ();
 	case m_setup:
 		return setup_cursor == 0 || setup_cursor == 1;
 	case m_serialconfig:
