@@ -73,6 +73,33 @@ EVENT MESSAGES
 =============================================================================
 */
 
+//
+// A client on the loopback: the player in the same process as this server,
+// which is the container's and the desktop's only player. net_drivers[0] is
+// the loopback driver in every net_*.c that lists one.
+//
+qboolean SV_ClientIsLocal (client_t *client)
+{
+	return client->netconnection && client->netconnection->driver == 0;
+}
+
+//
+// How full sv.datagram -- this frame's sounds and effects, copied to every
+// client -- may get. A client across a network is sent at most MAX_DATAGRAM
+// bytes in all and skips the lot when it does not fit, so while one is
+// connected this stays at id's limit.
+//
+int SV_DatagramLimit (void)
+{
+	int			i;
+	client_t	*client;
+
+	for (i=0, client = svs.clients ; i<svs.maxclients ; i++, client++)
+		if (client->active && !SV_ClientIsLocal (client))
+			return MAX_DATAGRAM;
+	return MAX_DATAGRAM_LOCAL;
+}
+
 /*  
 ==================
 SV_StartParticle
@@ -84,7 +111,7 @@ void SV_StartParticle (vec3_t org, vec3_t dir, int color, int count)
 {
 	int		i, v;
 
-	if (sv.datagram.cursize > MAX_DATAGRAM-16)
+	if (sv.datagram.cursize > SV_DatagramLimit () - 16)
 		return;	
 	MSG_WriteByte (&sv.datagram, svc_particle);
 	MSG_WriteCoord (&sv.datagram, org[0]);
@@ -135,7 +162,7 @@ void SV_StartSound (edict_t *entity, int channel, char *sample, int volume,
 	if (channel < 0 || channel > 7)
 		Sys_Error ("SV_StartSound: channel = %i", channel);
 
-	if (sv.datagram.cursize > MAX_DATAGRAM-21)
+	if (sv.datagram.cursize > SV_DatagramLimit () - 21)
 		return;	
 
 // find precache number for sound
@@ -812,11 +839,11 @@ SV_SendClientDatagram
 */
 qboolean SV_SendClientDatagram (client_t *client)
 {
-	byte		buf[MAX_DATAGRAM];
+	static byte	buf[MAX_DATAGRAM_LOCAL];
 	sizebuf_t	msg;
 	
 	msg.data = buf;
-	msg.maxsize = sizeof(buf);
+	msg.maxsize = SV_ClientIsLocal (client) ? MAX_DATAGRAM_LOCAL : MAX_DATAGRAM;
 	msg.cursize = 0;
 
 	MSG_WriteByte (&msg, svc_time);

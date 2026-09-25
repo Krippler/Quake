@@ -5,6 +5,19 @@ top section's heading is what the release workflow reads: `## [X.Y.Z] — DATE`
 on the default branch publishes that version, `## [Unreleased]` publishes only
 `edge`.
 
+## [Unreleased]
+
+### Fixed
+
+- **"packet overflow" in big fights: grenades vanishing and sound dropping
+  out.** Each frame the server sends the player one update holding every
+  entity in view and that frame's sounds, and it was capped at id's 1024
+  bytes. A busy re-release map filled it. The entities that didn't fit were not
+  drawn that frame, and the frame's sounds were dropped entirely. The player
+  in the container and on the desktop is on the in-process loopback, which now
+  gets 32000 bytes (FitzQuake's figure). A player connecting over a real
+  network still gets 1024.
+
 ## [1.18.1] — 2026-09-25
 
 ### Fixed
