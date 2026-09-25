@@ -1562,6 +1562,7 @@ typedef enum
 #define	OPT_CROSSHAIR	13
 #define	OPT_HUD			14
 #define	OPT_MAXFPS		15
+#define	OPT_WEAPONPICKUP	16
 
 typedef struct
 {
@@ -1638,6 +1639,8 @@ static option_t	opt_gameplay[] =
 	{"View Kick",				o_custom, NULL,             0,     0,    0,    OPT_KICK},
 	{"HUD Style",				o_custom, NULL,             0,     0,    0,    OPT_HUD},
 	{"Show Weapon",				o_toggle, "r_drawviewmodel",0,     0,    0,    0},
+// Asked by the re-release's progs (pr_cmds.c); a 1996 progs always switches.
+	{"Change Weapon on Pickup",	o_custom, NULL,             0,     0,    0,    OPT_WEAPONPICKUP},
 	{"Toggle Scoreboard",		o_toggle, "cl_togglescores",0,     0,    0,    0},
 	{"Classic Quit Prompt",		o_toggle, "m_classicquit",  0,     0,    0,    0},
 
@@ -1825,6 +1828,7 @@ static float M_Options_Value (option_t *o)
 		case OPT_CROSSHAIR:	return Cvar_VariableValue ("crosshair");
 		case OPT_HUD:		return Cvar_VariableValue ("hud_style");
 		case OPT_MAXFPS:	return Cvar_VariableValue ("host_maxfps");
+		case OPT_WEAPONPICKUP:	return Cvar_VariableValue ("cl_weaponpickup");
 		}
 		break;
 
@@ -1928,6 +1932,15 @@ void M_AdjustSliders (int dir)
 
 	case OPT_HUD:
 		Cvar_SetValue ("hud_style", Cvar_VariableValue ("hud_style") ? 0 : 1);
+		break;
+
+	case OPT_WEAPONPICKUP:
+		v = (int)Cvar_VariableValue ("cl_weaponpickup") + dir;
+		if (v < 0)
+			v = 2;
+		if (v > 2)
+			v = 0;
+		Cvar_SetValue ("cl_weaponpickup", v);
 		break;
 
 	case OPT_MAXFPS:
@@ -2108,6 +2121,11 @@ static void M_OptPage_DrawValue (int right, int y, option_t *o)
 
 	case OPT_MAXFPS:
 		M_PageChoice (right, y, va ("%d", (int)v));
+		break;
+
+	case OPT_WEAPONPICKUP:
+		M_PageChoice (right, y, (int)v == 1 ? "Only If New"
+			: ((int)v == 2 ? "Never" : "Always"));
 		break;
 
 	case OPT_CROSSHAIR:

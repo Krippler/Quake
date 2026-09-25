@@ -1956,6 +1956,29 @@ and a monster that asks for a path is told there is none, which sends it the
 old way.
 ==============
 */
+/*
+=================
+PF_CheckPlayerEXFlags
+
+float CheckPlayerEXFlags (entity player) = #90
+
+The re-release's progs asks this before switching to a weapon just picked up
+(W_WantsToChangeWeapon): PEF_CHANGEONLYNEW, 1, switches only to one the player
+did not have; PEF_CHANGENEVER, 2, never switches. The re-release keeps it per
+player; here it is the machine's own setting, Options -> Gameplay -> Change
+Weapon on Pickup, which is the only player a game in the container or on the
+desktop has. A 1996 progs never asks, and switches as it always did.
+=================
+*/
+cvar_t	cl_weaponpickup = {"cl_weaponpickup", "0", true};	// 0 always, 1 new, 2 never
+
+void PF_CheckPlayerEXFlags (void)
+{
+	int		v = (int)cl_weaponpickup.value;
+
+	G_FLOAT(OFS_RETURN) = (v == 1 || v == 2) ? v : 0;
+}
+
 void PF_finalefinished (void)
 {
 	G_FLOAT(OFS_RETURN) = 0;
@@ -2107,7 +2130,7 @@ PF_nothing,			// draw_bounds = #86
 PF_nothing,			// draw_worldtext = #87
 PF_nothing,			// draw_sphere = #88
 PF_nothing,			// draw_cylinder = #89
-PF_nothing,			// float CheckPlayerEXFlags (entity) = #90: none set
+PF_CheckPlayerEXFlags,	// float CheckPlayerEXFlags (entity) = #90
 PF_nothing,			// float walkpathtogoal (float, vector) = #91: PATH_ERROR
 PF_nothing			// bot_movetopoint, bot_followentity = #92
 };

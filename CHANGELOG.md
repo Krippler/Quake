@@ -51,6 +51,13 @@ on the default branch publishes that version, `## [Unreleased]` publishes only
   desktop build it goes through SDL. In the container the game sends it to
   the page, which plays it through the browser's gamepad support: Chrome and
   Edge, and Firefox where it can.
+- **Change Weapon on Pickup.** **Options → Gameplay → Change Weapon on
+  Pickup** (`cl_weaponpickup`): **Always**, as id's did; **Only If New**, to
+  switch only to a weapon you didn't have; or **Never**. The re-release's
+  game code asks the engine for this through `ex_CheckPlayerEXFlags`, which now
+  answers. That covers id1, Scourge of Armagon, Dissolution of Eternity and
+  Dimension of the Machine from the re-release, but not 1996 game code, which
+  never asks.
 
 ### Fixed
 

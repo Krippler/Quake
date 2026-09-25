@@ -43,6 +43,7 @@ int		type_size[8] = {1, 1, 1, 3, 1, 1, 1, 1};
 ddef_t *ED_FieldAtOfs (int ofs);
 qboolean	ED_ParseEpair (void *base, ddef_t *key, char *s);
 
+extern cvar_t	cl_weaponpickup;
 cvar_t	nomonsters = {"nomonsters", "0"};
 cvar_t	gamecfg = {"gamecfg", "0"};
 cvar_t	scratch1 = {"scratch1", "0"};
@@ -1380,6 +1381,7 @@ void PR_Init (void)
 	Cmd_AddCommand ("edicts", ED_PrintEdicts);
 	Cmd_AddCommand ("edictcount", ED_Count);
 	Cmd_AddCommand ("profile", PR_Profile_f);
+	Cvar_RegisterVariable (&cl_weaponpickup);	// pr_cmds.c
 	Cvar_RegisterVariable (&nomonsters);
 	Cvar_RegisterVariable (&gamecfg);
 	Cvar_RegisterVariable (&scratch1);
