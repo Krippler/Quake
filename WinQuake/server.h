@@ -70,7 +70,7 @@ typedef struct
 	server_state_t	state;			// some actions are only valid during load
 
 	sizebuf_t	datagram;
-	byte		datagram_buf[MAX_DATAGRAM];
+	byte		datagram_buf[MAX_DATAGRAM_LOCAL];	// see SV_DatagramLimit
 
 	sizebuf_t	reliable_datagram;	// copied to all clients at end of frame
 	byte		reliable_datagram_buf[MAX_DATAGRAM];
@@ -230,6 +230,8 @@ extern	edict_t		*sv_player;
 void SV_Init (void);
 
 void SV_StartParticle (vec3_t org, vec3_t dir, int color, int count);
+qboolean SV_ClientIsLocal (client_t *client);
+int SV_DatagramLimit (void);
 void SV_StartSound (edict_t *entity, int channel, char *sample, int volume,
     float attenuation);
 

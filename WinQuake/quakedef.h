@@ -119,6 +119,21 @@ void	VID_UnlockBuffer (void);
 #define	MAX_DATAGRAM	1024		// max length of unreliable message
 
 //
+// The unreliable message a client is sent each frame carries every entity it
+// can see, and every sound and effect of that frame. 1024 bytes is what fitted
+// a 1996 modem, and a re-release map with a fight in it fills that: the server
+// said "packet overflow" and left out the rest of the entities, which the
+// client then did not draw -- grenades vanishing in flight -- and left out the
+// frame's sounds entirely.
+//
+// The player in the container and on the desktop is on the loopback, which is
+// a copy in memory with room for NET_MAXMESSAGE, so it gets this much instead
+// (FitzQuake's figure). A client across a real network still gets
+// MAX_DATAGRAM: its packets have to fit the wire, and it may be another engine.
+//
+#define	MAX_DATAGRAM_LOCAL	32000
+
+//
 // per-level limits
 //
 //

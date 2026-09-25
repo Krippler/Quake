@@ -1826,6 +1826,33 @@ between two plays of the unmodified map.
 happened to faces the test cut down to three collinear starting points, and
 `D_SCAlloc` treats a zero-size surface as fatal.
 
+### `sv_main.c` — "packet overflow"
+
+`SV_SendClientDatagram` builds each client's per-frame unreliable message in a
+`MAX_DATAGRAM` (1024-byte) buffer. The message holds `svc_time`, the client's
+own stats, an update for every entity in its PVS, and then, if there is room,
+all of `sv.datagram` (this frame's sounds, particles and broadcast temp
+entities). When the entities fill the buffer, `SV_WriteEntitiesToClient`
+prints "packet overflow" and stops. The client hides every entity it got no
+update for that frame, and with no room left, the frame's sounds are not sent
+at all. MG1 in a fight does this: grenades flicker out of existence and the
+sound goes quiet until things calm down.
+
+1024 is a limit of the wire, and the player here is not on a wire:
+the loopback copies messages in memory with room for `NET_MAXMESSAGE`. A
+client whose `qsocket_t` is on driver 0, the loopback, now gets
+`MAX_DATAGRAM_LOCAL` (32000, as in FitzQuake). `sv.datagram` is that large
+too, and `SV_StartSound` and `SV_StartParticle` fill it to that size unless a
+client across a network is connected (`SV_DatagramLimit`). Such a client
+still gets `MAX_DATAGRAM` and still skips `sv.datagram` when it does not fit,
+as before.
+
+To test it, both engines were built with `MAX_DATAGRAM` at 48 and run on e1m1
+for 20 seconds. The old engine printed "packet overflow" 736 times, and the new
+one never did. A UDP client could not connect in the sandbox the tests ran
+in, with or without this change, so the network path was not exercised. It is
+unchanged apart from the choice of size.
+
 ---
 
 ## New files
