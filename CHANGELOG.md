@@ -5,6 +5,75 @@ top section's heading is what the release workflow reads: `## [X.Y.Z] — DATE`
 on the default branch publishes that version, `## [Unreleased]` publishes only
 `edge`.
 
+## [1.19.0] — 2026-09-25
+
+### Added
+
+- **More of the re-release's settings.**
+  - **Options → Controls → Controller:**
+    - **Turn Speed** and **Look Up/Down Speed** are separate, like the
+      re-release's Aim X and Aim Y.
+    - **Look Curve** sets how much finer aiming is near the middle of the
+      stick.
+    - **Move Deadzone** and **Look Deadzone** are set per stick. They follow
+      the sticks when Swap Sticks is on.
+  - **Options → Gameplay:**
+    - **Toggle Scoreboard:** the scores key shows the scores until it is
+      pressed again, instead of only while held.
+    - **Classic Quit Prompt:** id's joke quit messages. Off by default, as in
+      the re-release, which asks plainly. Enter now confirms quitting too, so a
+      controller's A button can quit.
+  - **Customize Controls** lists **Quick Save**, **Quick Load** and **Chat**.
+- **Crosshair styles and colour.** **Options → Gameplay → Crosshair Style**
+  offers id's classic '+', a cross, a dot, a circle, a cross with a gap, and a
+  circle with a dot. **Red**, **Green** and **Blue** set its colour, drawn as
+  the nearest colour in Quake's palette. The shapes keep their size at any
+  window size. From the console: `crosshair 0`–`6`, `crosshair_r`, `_g`, `_b`.
+- **Minimal HUD.** **Options → Gameplay → HUD Style → Minimal** (`hud_style 1`)
+  drops the status bar and lets the view fill the screen. Your face and
+  health go in the bottom left, with armour after them when you have some,
+  and ammo in the bottom right. Keys and powerups show in a row above. The
+  scoreboard, intermission and deathmatch overlays are unchanged.
+- **Model interpolation.** **Options → Display → Model Interpolation**
+  (`r_lerpmodels`, on by default) blends monsters, weapons and other models
+  from one animation pose into the next, instead of stepping between them ten
+  times a second. Walking monsters also glide between the steps the game moves
+  them in. Flames and the like are left unblended, as in QuakeSpasm.
+- **Max FPS.** **Options → Display → Max FPS** (`host_maxfps`, 60 to 300)
+  lifts id's 72-frame cap, for high-refresh monitors on the desktop build.
+  The game itself still runs at 72: above that, only the drawing goes
+  faster. The mouse and controller turn the view every frame, and everything
+  moves smoothly between the game's ticks. Jumps, lifts and movement come out
+  exactly as at 72. The default stays 72, and nothing changes at 72 or below.
+- **Controller vibration.** The pad rumbles when you're hit (harder the more
+  it hurts) and when you fire. **Options → Controls → Vibration** turns it
+  on or off, and **Vibration Intensity** (0–10) sets how strong it is. On the
+  desktop build it goes through SDL. In the container the game sends it to
+  the page, which plays it through the browser's gamepad support: Chrome and
+  Edge, and Firefox where it can.
+- **Change Weapon on Pickup.** **Options → Gameplay → Change Weapon on
+  Pickup** (`cl_weaponpickup`): **Always**, as id's did; **Only If New**, to
+  switch only to a weapon you didn't have; or **Never**. The re-release's
+  game code asks the engine for this through `ex_CheckPlayerEXFlags`, which now
+  answers. That covers id1, Scourge of Armagon, Dissolution of Eternity and
+  Dimension of the Machine from the re-release, but not 1996 game code, which
+  never asks.
+- **Enhanced Models.** **Options → Display → Enhanced Models**
+  (`r_enhancedmodels`) draws the re-release's remade monsters and weapons in
+  place of 1996's, where its `id1/pak0.pak` has them. They're MD5 skeletal
+  models, which this software renderer can't draw directly. Each one is posed
+  frame by frame into an ordinary Quake model as it loads, with its own
+  palette skins, so everything else, interpolation included, works on it as
+  usual. It's off by default, since the extra detail costs some frame rate at
+  high resolutions. Switching it reloads the models in place. A mod's own model
+  still wins over the base game's enhanced one.
+
+### Fixed
+
+- `COM_FileBase` read one byte before the start of a filename with no
+  directory in it, such as `gfx.wad` at every start. It was harmless in
+  practice, but AddressSanitizer stops the engine there.
+
 ## [1.18.3] — 2026-09-25
 
 ### Fixed

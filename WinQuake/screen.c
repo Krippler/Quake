@@ -256,8 +256,8 @@ static void SCR_CalcRefdef (void)
 	else
 		size = scr_viewsize.value;
 
-	if (size >= 120)
-		sb_lines = 0;		// no status bar at all
+	if (size >= 120 || hud_style.value >= 1)
+		sb_lines = 0;		// no status bar at all; Minimal draws over the view
 	else if (size >= 110)
 		sb_lines = 24;		// no inventory
 	else
@@ -905,6 +905,16 @@ void SCR_UpdateScreen (void)
 	{
 		oldscreensize = scr_viewsize.value;
 		vid.recalc_refdef = true;
+	}
+
+	{
+		static float	oldhudstyle = -1;	// Minimal gives the bar's rows to the view
+
+		if (oldhudstyle != hud_style.value)
+		{
+			oldhudstyle = hud_style.value;
+			vid.recalc_refdef = true;
+		}
 	}
 	
 	if (vid.recalc_refdef)

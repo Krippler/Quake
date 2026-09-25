@@ -1853,6 +1853,42 @@ one never did. A UDP client could not connect in the sandbox the tests ran
 in, with or without this change, so the network path was not exercised. It is
 unchanged apart from the choice of size.
 
+### `model_md5.c` (new) — the re-release's enhanced models, as alias models
+
+The re-release keeps its remade monsters and weapons beside the originals in
+`id1/pak0.pak`. `progs/soldier.mdl` has `progs/soldier.md5mesh`, a skeletal
+mesh; `progs/soldier.md5anim`, one skeleton pose for each of the `.mdl`'s
+frames; and `progs/soldier_00_00.lmp`, skins in Quake's palette. The frame
+numbers the game sets mean the same pose in either model.
+
+This renderer draws alias models, one set of vertex positions per frame. So with
+`r_enhancedmodels` on, `Mod_LoadModel` hands the `.mdl` it has read to
+`Mod_EnhancedModel`. That function poses the skeleton for each frame, skins
+the vertices, rounds them to a `.mdl`'s byte grid, works out a lighting normal
+for each from the faces around it (as QuakeSpasm-Spiked does), and writes the
+lot as a `.mdl` in memory, which `Mod_LoadAliasModel` loads as it would any
+other. Meshes with different skins are stacked into one skin, one below the
+next.
+
+Kept from the original are its frame count (a model whose animation has a
+different number of frames is not used), its flags and its eye position. An
+enhanced model found further down the search path than the `.mdl` is not used,
+so a mod's own model still wins; `COM_FindFile` now sets `com_filedepth` to say
+how far down it found a file.
+
+`MAXALIASVERTS` goes from 2000 to 8192 and `MAX_LBM_HEIGHT` from 480 to 4096 to
+make room, and `R_AliasDrawModel`'s vertex arrays move off the stack.
+Changing the setting frees every alias model's cached data
+(`Mod_FlushAliasModels`), along with each entity's memory of its last pose,
+which is an offset into that data, so the models are read again as they are
+next drawn.
+
+Tested without the re-release's data: `tools/mdl2md5.py` writes a `.mdl` as
+an MD5 set with one joint per vertex. `v_shot.mdl` made that way draws as the
+original does, apart from the recomputed lighting normals. A two-joint unit
+test checks the hierarchy's maths by hand. demo1 plays under AddressSanitizer
+with the setting switched back and forth.
+
 ---
 
 ## New files

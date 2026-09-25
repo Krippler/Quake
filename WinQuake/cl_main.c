@@ -405,7 +405,10 @@ float	CL_LerpPoint (void)
 
 	f = cl.mtime[0] - cl.mtime[1];
 	
-	if (!f || cl_nolerp.value || cls.timedemo || sv.active)
+// A game on this machine sends a message every frame, so there is nothing
+// between them to interpolate -- unless frames are drawn faster than the game
+// runs (host.c's Max FPS), and then there is.
+	if (!f || cl_nolerp.value || cls.timedemo || (sv.active && !host_decoupled))
 	{
 		cl.time = cl.mtime[0];
 		return 1;
@@ -444,6 +447,86 @@ SetPal(2);
 	return frac;
 }
 
+
+/*
+===============
+CL_SmoothStep
+
+A walking monster is moved by the game in steps, a tenth of a second apart,
+and the server marks it so (U_NOLERP) because id's interpolation between
+messages would smear the step into the next one. Drawn where it is, it jumps
+along ten times a second. With Model Interpolation on, each step is instead
+drawn over the tenth of a second the next one takes, as the re-release and
+QuakeSpasm do.
+
+The step starts from wherever the monster is drawn at that moment, so a step
+that comes early carries on smoothly from part way through the last one. One
+further than 100 units is a teleport, and is not smoothed.
+===============
+*/
+static void CL_SmoothStep (entity_t *ent)
+{
+	int		j;
+	float	blend, d;
+	vec3_t	shown, shownang;
+
+	if (!ent->movestep || !r_lerpmodels.value || ent->model->type != mod_alias)
+	{
+		ent->movestart = 0;
+		return;
+	}
+
+	if (!ent->movestart)
+	{
+		VectorCopy (ent->origin, ent->moveprev);
+		VectorCopy (ent->origin, ent->movecur);
+		VectorCopy (ent->angles, ent->moveprevang);
+		VectorCopy (ent->angles, ent->movecurang);
+		ent->movestart = cl.time;
+		return;
+	}
+
+// where it is being drawn now, before this update is taken into account
+	blend = (cl.time - ent->movestart) / 0.1;
+	if (blend > 1)
+		blend = 1;
+	if (blend < 0)
+		blend = 0;
+	for (j = 0 ; j < 3 ; j++)
+	{
+		shown[j] = ent->moveprev[j] + (ent->movecur[j] - ent->moveprev[j]) * blend;
+		d = ent->movecurang[j] - ent->moveprevang[j];
+		if (d > 180)
+			d -= 360;
+		else if (d < -180)
+			d += 360;
+		shownang[j] = ent->moveprevang[j] + d * blend;
+	}
+
+	if (!VectorCompare (ent->origin, ent->movecur)
+		|| !VectorCompare (ent->angles, ent->movecurang))
+	{
+		for (j = 0 ; j < 3 ; j++)
+			if (ent->origin[j] - shown[j] > 100 || ent->origin[j] - shown[j] < -100)
+				break;
+		if (j < 3)		// a teleport
+		{
+			VectorCopy (ent->origin, shown);
+			VectorCopy (ent->angles, shownang);
+		}
+		VectorCopy (shown, ent->moveprev);
+		VectorCopy (shownang, ent->moveprevang);
+		VectorCopy (ent->origin, ent->movecur);
+		VectorCopy (ent->angles, ent->movecurang);
+		ent->movestart = cl.time;
+		VectorCopy (shown, ent->origin);
+		VectorCopy (shownang, ent->angles);
+		return;
+	}
+
+	VectorCopy (shown, ent->origin);
+	VectorCopy (shownang, ent->angles);
+}
 
 /*
 ===============
@@ -538,6 +621,8 @@ void CL_RelinkEntities (void)
 			
 		}
 
+		CL_SmoothStep (ent);
+
 // rotate binary objects locally
 		if (ent->model->flags & EF_ROTATE)
 			ent->angles[1] = bobjrotate;
@@ -551,6 +636,15 @@ void CL_RelinkEntities (void)
 		if (ent->effects & EF_MUZZLEFLASH)
 		{
 			vec3_t		fv, rv, uv;
+			static double	lastkick;
+
+		// the player's own shot kicks the controller, once for each message
+		// that says it happened (frames can be drawn more often than that)
+			if (i == cl.viewentity && cl.mtime[0] != lastkick)
+			{
+				lastkick = cl.mtime[0];
+				IN_PadRumble (0.15, 0.45, 0.08);
+			}
 
 			dl = CL_AllocDlight (i);
 			VectorCopy (ent->origin,  dl->origin);
@@ -675,6 +769,40 @@ int CL_ReadFromServer (void)
 
 /*
 =================
+CL_AccumulateCmd
+
+A frame drawn between the game's ticks (host.c's Max FPS). The view still turns
+with the keys, the mouse and the controller's look stick, every frame; what the
+mouse moves the player by (strafing with it, or walking with it with Mouse
+Look off) is kept for the next tick's command, which adds it in. Movement from
+keys and the controller's move stick is a speed, not a distance, and the
+tick's own command has all of it.
+=================
+*/
+static usercmd_t	cl_pendingmove;
+qboolean			in_accumulating;
+
+void CL_AccumulateCmd (void)
+{
+	usercmd_t	cmd;
+
+	if (cls.state != ca_connected || cls.signon != SIGNONS)
+		return;
+
+	CL_AdjustAngles ();
+
+	Q_memset (&cmd, 0, sizeof(cmd));
+	in_accumulating = true;
+	IN_Move (&cmd);
+	in_accumulating = false;
+
+	cl_pendingmove.forwardmove += cmd.forwardmove;
+	cl_pendingmove.sidemove += cmd.sidemove;
+	cl_pendingmove.upmove += cmd.upmove;
+}
+
+/*
+=================
 CL_SendCmd
 =================
 */
@@ -692,6 +820,12 @@ void CL_SendCmd (void)
 	
 	// allow mice or other external controllers to add to the move
 		IN_Move (&cmd);
+
+	// and what the mouse moved by in frames drawn since the last tick
+		cmd.forwardmove += cl_pendingmove.forwardmove;
+		cmd.sidemove += cl_pendingmove.sidemove;
+		cmd.upmove += cl_pendingmove.upmove;
+		Q_memset (&cl_pendingmove, 0, sizeof(cl_pendingmove));
 	
 	// send the unreliable message
 		CL_SendMove (&cmd);

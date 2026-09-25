@@ -54,6 +54,7 @@ typedef struct {
 //===========================================================================
 
 extern cvar_t	r_draworder;
+extern cvar_t	r_lerpmodels;		// model interpolation (r_alias.c)
 extern cvar_t	r_speeds;
 extern cvar_t	r_timegraph;
 extern cvar_t	r_graphheight;
@@ -221,7 +222,9 @@ void	R_ZDrawSubmodelPolys (model_t *clmodel);
 // Alias models
 //=========================================================
 
-#define MAXALIASVERTS		2000	// TODO: tune this
+// id's 2000 was enough for id's models; the re-release's enhanced ones, made
+// into alias models (model_md5.c), have more
+#define MAXALIASVERTS		8192
 #define ALIAS_Z_CLIP_PLANE	5
 
 extern int				numverts;

@@ -363,6 +363,8 @@ extern 	kbutton_t 	in_speed;
 
 void CL_InitInput (void);
 void CL_SendCmd (void);
+void CL_AccumulateCmd (void);
+void CL_AdjustAngles (void);
 void CL_SendMove (usercmd_t *cmd);
 
 void CL_ParseTEnt (void);

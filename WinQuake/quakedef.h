@@ -345,6 +345,7 @@ extern	cvar_t		developer;
 
 extern	qboolean	host_initialized;		// true if into command execution
 extern	double		host_frametime;
+extern	qboolean	host_decoupled;		// drawing faster than the game (host.c)
 extern	byte		*host_basepal;
 extern	byte		*host_colormap;
 extern	int			host_framecount;	// incremented every frame, never reset

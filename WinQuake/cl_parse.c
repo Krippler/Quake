@@ -512,6 +512,7 @@ if (bits&(1<<i))
 
 	if ( bits & U_NOLERP )
 		ent->forcelink = true;
+	ent->movestep = (bits & U_NOLERP) != 0;	// a monster's steps (cl_main.c)
 
 //
 // 666's trailing bytes, in the order it writes them. Scale and the lerp hint

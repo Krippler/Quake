@@ -69,7 +69,23 @@ typedef struct entity_s
 	struct mnode_s			*topnode;		// for bmodels, first world node
 											//  that splits bmodel, or NULL if
 											//  not split
+
+// Model interpolation (r_alias.c): the pose drawn last and the one before it,
+// as offsets into the model's data, and when the newer one began.
+	struct model_s			*lerpmodel;		// what the poses belong to
+	int						lerpprev, lerpcur;
+	int						lerpprevframe, lerpcurframe;
+	float					lerpstart, lerpinterval;
+
+// A monster's walk, which the server moves in steps ten times a second
+// (cl_main.c): where the step started from and where it goes.
+	qboolean				movestep;		// the last update said so
+	float					movestart;		// 0, not smoothing
+	vec3_t					moveprev, movecur;
+	vec3_t					moveprevang, movecurang;
 } entity_t;
+
+extern cvar_t	r_lerpmodels;	// model interpolation: r_alias.c, cl_main.c
 
 // !!! if this is changed, it must be changed in asm_draw.h too !!!
 typedef struct

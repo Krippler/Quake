@@ -58,7 +58,10 @@ cvar_t	v_ipitch_level = {"v_ipitch_level", "0.3", false};
 
 cvar_t	v_idlescale = {"v_idlescale", "0", false};
 
-cvar_t	crosshair = {"crosshair", "0", true};
+cvar_t	crosshair = {"crosshair", "0", true};		// the style; see V_DrawCrosshair
+cvar_t	crosshair_r = {"crosshair_r", "255", true};
+cvar_t	crosshair_g = {"crosshair_g", "255", true};
+cvar_t	crosshair_b = {"crosshair_b", "255", true};
 cvar_t	cl_crossx = {"cl_crossx", "0", false};
 cvar_t	cl_crossy = {"cl_crossy", "0", false};
 
@@ -333,6 +336,10 @@ void V_ParseDamage (void)
 		count = 10;
 
 	cl.faceanimtime = cl.time + 0.2;		// but sbar face into pain frame
+
+// the controller feels it: a scratch is a tap, a rocket a shove (in_pad.c)
+	IN_PadRumble (count / 40, count / 60, 0.15 + count / 200 < 0.5
+		? 0.15 + count / 200 : 0.5);
 
 	cl.cshifts[CSHIFT_DAMAGE].percent += 3*count;
 	if (cl.cshifts[CSHIFT_DAMAGE].percent < 0)
@@ -1054,19 +1061,188 @@ void V_RenderView (void)
 	}
 
 #ifndef GLQUAKE
-	// The view is measured in screen pixels and the character in canvas
-	// pixels (see draw.c). id put the glyph's corner on the centre, 4 pixels
-	// off; at 3x that is 12, so it goes on the glyph's own centre now.
-	if (crosshair.value)
-		Draw_Character ((scr_vrect.x + scr_vrect.width/2) / draw_scale
-				- 4 + cl_crossx.value,
-			(scr_vrect.y + scr_vrect.height/2 - draw_yoff) / draw_scale
-				- 4 + cl_crossy.value, '+');
+	V_DrawCrosshair ();
 #endif
 		
 }
 
 //============================================================================
+
+#ifndef GLQUAKE
+/*
+==================
+V_DrawCrosshair
+
+The crosshair, in one of the re-release's kinds of shape and in a colour of
+the player's choosing. crosshair is the style:
+
+  0  none
+  1  id's: the '+' from the console font
+  2  a cross
+  3  a dot
+  4  a circle
+  5  a cross with a gap in the middle
+  6  a circle with a dot in it
+
+The shapes are drawn a canvas pixel at a time, so they are as big on a large
+window as id's glyph is. The colour is crosshair_r, _g and _b, 0 to 255, drawn
+as the palette colour nearest to it: the picture is palette indices. White, the
+default, leaves id's '+' in its own colours.
+==================
+*/
+static int V_CrosshairColour (void)
+{
+	static int	last_r = -1, last_g = -1, last_b = -1, index;
+	int			r, g, b, i, d, best, dr, dg, db;
+	byte		*p;
+
+	r = (int)crosshair_r.value;
+	g = (int)crosshair_g.value;
+	b = (int)crosshair_b.value;
+	if (r == last_r && g == last_g && b == last_b)
+		return index;
+	last_r = r;
+	last_g = g;
+	last_b = b;
+
+// 255 is the transparent colour in the 2D art, and never a crosshair
+	best = 0x7fffffff;
+	index = 15;
+	for (i = 0, p = host_basepal ; i < 255 ; i++, p += 3)
+	{
+		dr = p[0] - r;
+		dg = p[1] - g;
+		db = p[2] - b;
+		d = dr*dr*3 + dg*dg*4 + db*db*2;	// green counts most, as the eye does
+		if (d < best)
+		{
+			best = d;
+			index = i;
+		}
+	}
+	return index;
+}
+
+// one canvas pixel, (x, y) from the centre, in screen pixels
+static void V_CrossPixel (int cx, int cy, int x, int y, int c)
+{
+	int		sx, sy, i, j;
+
+	sx = cx + x * draw_scale;
+	sy = cy + y * draw_scale;
+	for (j = 0 ; j < draw_scale ; j++)
+	{
+		if (sy + j < scr_vrect.y || sy + j >= scr_vrect.y + scr_vrect.height)
+			continue;
+		for (i = 0 ; i < draw_scale ; i++)
+			if (sx + i >= scr_vrect.x && sx + i < scr_vrect.x + scr_vrect.width)
+				vid.buffer[(sy + j) * vid.rowbytes + sx + i] = c;
+	}
+}
+
+static void V_CrossCircle (int cx, int cy, int r, int c)
+{
+	int		x, y, e;
+
+// the midpoint circle, eight octants at a time
+	x = r;
+	y = 0;
+	e = 1 - r;
+	while (x >= y)
+	{
+		V_CrossPixel (cx, cy,  x,  y, c);
+		V_CrossPixel (cx, cy,  y,  x, c);
+		V_CrossPixel (cx, cy, -y,  x, c);
+		V_CrossPixel (cx, cy, -x,  y, c);
+		V_CrossPixel (cx, cy, -x, -y, c);
+		V_CrossPixel (cx, cy, -y, -x, c);
+		V_CrossPixel (cx, cy,  y, -x, c);
+		V_CrossPixel (cx, cy,  x, -y, c);
+		y++;
+		if (e < 0)
+			e += 2*y + 1;
+		else
+		{
+			x--;
+			e += 2*(y - x) + 1;
+		}
+	}
+}
+
+void V_DrawCrosshair (void)
+{
+	int		style, c, cx, cy, i;
+	byte	tint[256];
+
+	style = (int)crosshair.value;
+	if (style <= 0)
+		return;
+	c = V_CrosshairColour ();
+
+// the centre of the view, where the shot goes, in screen pixels
+	cx = scr_vrect.x + scr_vrect.width/2 + (int)cl_crossx.value * draw_scale;
+	cy = scr_vrect.y + scr_vrect.height/2 + (int)cl_crossy.value * draw_scale;
+
+	switch (style)
+	{
+	case 2:		// cross
+		for (i = -4 ; i <= 4 ; i++)
+		{
+			V_CrossPixel (cx, cy, i, 0, c);
+			if (i)
+				V_CrossPixel (cx, cy, 0, i, c);
+		}
+		break;
+
+	case 3:		// dot
+		V_CrossPixel (cx, cy, 0, 0, c);
+		V_CrossPixel (cx, cy, -1, 0, c);
+		V_CrossPixel (cx, cy, 0, -1, c);
+		V_CrossPixel (cx, cy, -1, -1, c);
+		break;
+
+	case 4:		// circle
+		V_CrossCircle (cx, cy, 5, c);
+		break;
+
+	case 5:		// cross with a gap
+		for (i = 2 ; i <= 5 ; i++)
+		{
+			V_CrossPixel (cx, cy,  i, 0, c);
+			V_CrossPixel (cx, cy, -i, 0, c);
+			V_CrossPixel (cx, cy, 0,  i, c);
+			V_CrossPixel (cx, cy, 0, -i, c);
+		}
+		break;
+
+	case 6:		// circle and dot
+		V_CrossCircle (cx, cy, 5, c);
+		V_CrossPixel (cx, cy, 0, 0, c);
+		break;
+
+	default:	// id's, 1 and anything the console sets past the end
+	// The view is measured in screen pixels and the character in canvas
+	// pixels (see draw.c). id put the glyph's corner on the centre, 4 pixels
+	// off; at 3x that is 12, so it goes on the glyph's own centre now.
+		if (crosshair_r.value >= 255 && crosshair_g.value >= 255
+			&& crosshair_b.value >= 255)
+			Draw_Character ((scr_vrect.x + scr_vrect.width/2) / draw_scale
+					- 4 + cl_crossx.value,
+				(scr_vrect.y + scr_vrect.height/2 - draw_yoff) / draw_scale
+					- 4 + cl_crossy.value, '+');
+		else
+		{
+			for (i = 0 ; i < 256 ; i++)
+				tint[i] = c;
+			Draw_CharacterEx ((scr_vrect.x + scr_vrect.width/2) / draw_scale
+					- 4 + cl_crossx.value,
+				(scr_vrect.y + scr_vrect.height/2 - draw_yoff) / draw_scale
+					- 4 + cl_crossy.value, '+', 1, tint);
+		}
+		break;
+	}
+}
+#endif
 
 /*
 =============
@@ -1094,6 +1270,9 @@ void V_Init (void)
 
 	Cvar_RegisterVariable (&v_idlescale);
 	Cvar_RegisterVariable (&crosshair);
+	Cvar_RegisterVariable (&crosshair_r);
+	Cvar_RegisterVariable (&crosshair_g);
+	Cvar_RegisterVariable (&crosshair_b);
 	Cvar_RegisterVariable (&cl_crossx);
 	Cvar_RegisterVariable (&cl_crossy);
 	Cvar_RegisterVariable (&gl_cshiftpercent);

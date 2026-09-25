@@ -1559,6 +1559,10 @@ typedef enum
 #define	OPT_KICK		9
 #define	OPT_DETAIL		10
 #define	OPT_PADNAME		12
+#define	OPT_CROSSHAIR	13
+#define	OPT_HUD			14
+#define	OPT_MAXFPS		15
+#define	OPT_WEAPONPICKUP	16
 
 typedef struct
 {
@@ -1613,9 +1617,16 @@ static option_t	opt_controls[] =
 // Controls with everything else.
 	{"Controller",				o_heading, NULL,            0,     0,    0,    0},
 	{"Connected",				o_custom, NULL,             0,     0,    0,    OPT_PADNAME},
-	{"Look Speed",				o_slider, "joy_lookspeed",  60,    400,  20,   0},
+	{"Turn Speed",				o_slider, "joy_lookspeed",  60,    400,  20,   0},
+	{"Look Up/Down Speed",		o_slider, "joy_lookspeed_y",40,    400,  20,   0},
+// the exponent on how far the stick is pushed: 1 is straight, higher aims
+// more finely near the middle
+	{"Look Curve",				o_slider, "joy_lookcurve",  1,     4,    0.25, 0},
 	{"Invert Look",				o_toggle, "joy_invert",     0,     0,    0,    0},
-	{"Deadzone",				o_slider, "joy_deadzone",   0.04,  0.5,  0.02, 0},
+	{"Move Deadzone",			o_slider, "joy_deadzone",   0.04,  0.5,  0.02, 0},
+	{"Look Deadzone",			o_slider, "joy_deadzone_look",0.04, 0.5, 0.02, 0},
+	{"Vibration",				o_toggle, "joy_rumble",     0,     0,    0,    0},
+	{"Vibration Intensity",		o_slider, "joy_rumble_intensity",0, 10,   1,    0},
 	{"Swap Sticks",				o_toggle, "joy_swapsticks", 0,     0,    0,    0},
 	{"Full Push Runs",			o_toggle, "joy_pushrun",    0,     0,    0,    0},
 };
@@ -1626,10 +1637,18 @@ static option_t	opt_gameplay[] =
 	{"Always Run",				o_custom, NULL,             0,     0,    0,    OPT_ALWAYSRUN},
 	{"View Bob",				o_custom, NULL,             0,     0,    0,    OPT_BOB},
 	{"View Kick",				o_custom, NULL,             0,     0,    0,    OPT_KICK},
+	{"HUD Style",				o_custom, NULL,             0,     0,    0,    OPT_HUD},
 	{"Show Weapon",				o_toggle, "r_drawviewmodel",0,     0,    0,    0},
+// Asked by the re-release's progs (pr_cmds.c); a 1996 progs always switches.
+	{"Change Weapon on Pickup",	o_custom, NULL,             0,     0,    0,    OPT_WEAPONPICKUP},
+	{"Toggle Scoreboard",		o_toggle, "cl_togglescores",0,     0,    0,    0},
+	{"Classic Quit Prompt",		o_toggle, "m_classicquit",  0,     0,    0,    0},
 
 	{"Crosshair",				o_heading, NULL,            0,     0,    0,    0},
-	{"Show Crosshair",			o_toggle, "crosshair",      0,     0,    0,    0},
+	{"Crosshair Style",			o_custom, NULL,             0,     0,    0,    OPT_CROSSHAIR},
+	{"Red",						o_slider, "crosshair_r",    0,     255,  15,   0},
+	{"Green",					o_slider, "crosshair_g",    0,     255,  15,   0},
+	{"Blue",					o_slider, "crosshair_b",    0,     255,  15,   0},
 };
 
 static option_t	opt_sound[] =
@@ -1650,10 +1669,15 @@ static option_t	opt_display[] =
 	{"Screen Size",				o_custom, NULL,             0,     0,    0,    OPT_VIEWSIZE},
 	{"Brightness",				o_custom, NULL,             0,     0,    0,    OPT_GAMMA},
 	{"Field of View",			o_slider, "fov",            75,    130,  5,    0},
+// above 72 only the drawing goes faster; the game still runs at 72 (host.c)
+	{"Max FPS",					o_custom, NULL,             0,     0,    0,    OPT_MAXFPS},
 
 	{"Enhancements",			o_heading, NULL,            0,     0,    0,    0},
 	{"Texture Detail",			o_custom, NULL,             0,     0,    0,    OPT_DETAIL},
 	{"Water Warp",				o_toggle, "r_waterwarp",    0,     0,    0,    0},
+	{"Model Interpolation",		o_toggle, "r_lerpmodels",   0,     0,    0,    0},
+// the re-release's own, where its id1/pak0.pak has them (model_md5.c)
+	{"Enhanced Models",			o_toggle, "r_enhancedmodels",0,    0,    0,    0},
 
 // Only the re-release maps set fog at all, and how thick it should look is a
 // judgement rather than a fact: the density they set is interpreted through a
@@ -1718,6 +1742,11 @@ static int		opt_resume = -1;	// the page a submenu goes back to
 // Texture detail is d_mipcap, which is how blurry the far end of a wall may
 // get. Named rather than numbered, because "2" says nothing.
 static char	*options_detail[] = { "Sharp", "Softer", "Soft", "Softest" };
+static int	options_maxfps[] = { 60, 72, 100, 120, 144, 165, 200, 240, 300 };
+#define	NUM_MAXFPS	((int)(sizeof(options_maxfps)/sizeof(options_maxfps[0])))
+static char	*options_crosshair[] =
+	{ "Off", "Classic", "Cross", "Dot", "Circle", "Gap Cross", "Circle Dot" };
+#define	NUM_CROSSHAIRS	((int)(sizeof(options_crosshair)/sizeof(options_crosshair[0])))
 
 static void M_OptPage_Open (int page)
 {
@@ -1798,6 +1827,10 @@ static float M_Options_Value (option_t *o)
 		case OPT_BOB:		return Cvar_VariableValue ("cl_bob") != 0;
 		case OPT_KICK:		return Cvar_VariableValue ("v_kicktime") != 0;
 		case OPT_DETAIL:	return Cvar_VariableValue ("d_mipcap");
+		case OPT_CROSSHAIR:	return Cvar_VariableValue ("crosshair");
+		case OPT_HUD:		return Cvar_VariableValue ("hud_style");
+		case OPT_MAXFPS:	return Cvar_VariableValue ("host_maxfps");
+		case OPT_WEAPONPICKUP:	return Cvar_VariableValue ("cl_weaponpickup");
 		}
 		break;
 
@@ -1897,6 +1930,45 @@ void M_AdjustSliders (int dir)
 	case OPT_KICK:
 	// How long the view is thrown by a hit. Zero is no throw at all.
 		Cvar_SetValue ("v_kicktime", Cvar_VariableValue ("v_kicktime") ? 0 : 0.5);
+		break;
+
+	case OPT_HUD:
+		Cvar_SetValue ("hud_style", Cvar_VariableValue ("hud_style") ? 0 : 1);
+		break;
+
+	case OPT_WEAPONPICKUP:
+		v = (int)Cvar_VariableValue ("cl_weaponpickup") + dir;
+		if (v < 0)
+			v = 2;
+		if (v > 2)
+			v = 0;
+		Cvar_SetValue ("cl_weaponpickup", v);
+		break;
+
+	case OPT_MAXFPS:
+		{
+			int		i, cur = (int)Cvar_VariableValue ("host_maxfps");
+
+		// the step after the nearest one at or below what it is set to
+			for (i = 0 ; i < NUM_MAXFPS - 1 && options_maxfps[i + 1] <= cur ; i++)
+				;
+			i += dir;
+			if (i < 0)
+				i = NUM_MAXFPS - 1;
+			if (i >= NUM_MAXFPS)
+				i = 0;
+			Cvar_SetValue ("host_maxfps", options_maxfps[i]);
+		}
+		break;
+
+	case OPT_CROSSHAIR:
+	// round the styles, off included, either way (view.c draws them)
+		v = (int)Cvar_VariableValue ("crosshair") + dir;
+		if (v < 0)
+			v = NUM_CROSSHAIRS - 1;
+		if (v >= NUM_CROSSHAIRS)
+			v = 0;
+		Cvar_SetValue ("crosshair", v);
 		break;
 
 	case OPT_DETAIL:
@@ -2043,6 +2115,24 @@ static void M_OptPage_DrawValue (int right, int y, option_t *o)
 	case OPT_DETAIL:
 		M_PageChoice (right, y,
 			options_detail[(int)v < 0 ? 0 : ((int)v > 3 ? 3 : (int)v)]);
+		break;
+
+	case OPT_HUD:
+		M_PageChoice (right, y, v ? "Minimal" : "Classic");
+		break;
+
+	case OPT_MAXFPS:
+		M_PageChoice (right, y, va ("%d", (int)v));
+		break;
+
+	case OPT_WEAPONPICKUP:
+		M_PageChoice (right, y, (int)v == 1 ? "Only If New"
+			: ((int)v == 2 ? "Never" : "Always"));
+		break;
+
+	case OPT_CROSSHAIR:
+		M_PageChoice (right, y, options_crosshair[(int)v < 0 ? 0
+			: ((int)v >= NUM_CROSSHAIRS ? 1 : (int)v)]);
 		break;
 
 	case OPT_PADNAME:
@@ -2325,6 +2415,9 @@ char *bindnames[][2] =
 {"impulse 7", 		"Rocket Launcher"},
 {"impulse 8", 		"Thunderbolt"},
 {"+showscores", 	"Show Scores"},
+{"echo Quicksaving...; wait; save quick", "Quick Save"},
+{"echo Quickloading...; wait; load quick", "Quick Load"},
+{"messagemode", 	"Chat"},
 {"toggleconsole", 	"Console"},
 {"screenshot", 		"Screenshot"},
 {"pause", 			"Pause"},
@@ -2860,6 +2953,22 @@ int		msgNumber;
 int		m_quit_prevstate;
 qboolean	wasInMenus;
 
+//
+// The re-release asks plainly, and keeps id's jokes behind Show Classic Quit
+// Prompt; so does this. Enter answers yes as well as Y, which is what lets a
+// controller (A is Enter in the menus) quit at all.
+//
+cvar_t	m_classicquit = {"m_classicquit", "0", true};
+
+static char *quitPlain[4] =
+{
+/* .........1.........2.... */
+  "                        ",
+  "      Quit Quake?       ",
+  "                        ",
+  "  Y: Quit      N: Stay  "
+};
+
 #ifndef	_WIN32
 char *quitMessage [] = 
 {
@@ -2940,6 +3049,7 @@ void M_Quit_Key (int key)
 
 	case 'Y':
 	case 'y':
+	case K_ENTER:
 		key_dest = key_console;
 		Host_Quit_f ();
 		break;
@@ -2987,10 +3097,20 @@ void M_Quit_Draw (void)
 	M_PrintWhite (16, 180, "reserved. Press y to exit\n");
 #else
 	M_DrawTextBox (56, 76, 24, 4);
-	M_Print (64, 84,  quitMessage[msgNumber*4+0]);
-	M_Print (64, 92,  quitMessage[msgNumber*4+1]);
-	M_Print (64, 100, quitMessage[msgNumber*4+2]);
-	M_Print (64, 108, quitMessage[msgNumber*4+3]);
+	if (m_classicquit.value)
+	{
+		M_Print (64, 84,  quitMessage[msgNumber*4+0]);
+		M_Print (64, 92,  quitMessage[msgNumber*4+1]);
+		M_Print (64, 100, quitMessage[msgNumber*4+2]);
+		M_Print (64, 108, quitMessage[msgNumber*4+3]);
+	}
+	else
+	{
+		M_Print (64, 84,  quitPlain[0]);
+		M_PrintWhite (64, 92,  quitPlain[1]);
+		M_Print (64, 100, quitPlain[2]);
+		M_Print (64, 108, quitPlain[3]);
+	}
 #endif
 }
 
@@ -4286,6 +4406,7 @@ void M_ServerList_Key (int k)
 
 void M_Init (void)
 {
+	Cvar_RegisterVariable (&m_classicquit);
 	Cmd_AddCommand ("togglemenu", M_ToggleMenu_f);
 
 	Cmd_AddCommand ("menu_main", M_Menu_Main_f);

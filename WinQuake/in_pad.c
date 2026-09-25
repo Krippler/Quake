@@ -64,13 +64,17 @@ enum
 };
 
 cvar_t	joy_enable = {"joy_enable", "1", true};
-cvar_t	joy_deadzone = {"joy_deadzone", "0.18", true};
-cvar_t	joy_lookspeed = {"joy_lookspeed", "160", true};	// degrees a second
+cvar_t	joy_deadzone = {"joy_deadzone", "0.18", true};	// the stick that moves
+cvar_t	joy_deadzone_look = {"joy_deadzone_look", "0.18", true};	// and the one that looks
+cvar_t	joy_lookspeed = {"joy_lookspeed", "160", true};	// degrees a second, turning
+cvar_t	joy_lookspeed_y = {"joy_lookspeed_y", "105", true};	// and looking up and down
 cvar_t	joy_lookcurve = {"joy_lookcurve", "2", true};
 cvar_t	joy_invert = {"joy_invert", "0", true};
 cvar_t	joy_swapsticks = {"joy_swapsticks", "0", true};
 cvar_t	joy_pushrun = {"joy_pushrun", "1", true};
 cvar_t	joy_bound = {"joy_bound", "0", true};
+cvar_t	joy_rumble = {"joy_rumble", "1", true};				// Vibration
+cvar_t	joy_rumble_intensity = {"joy_rumble_intensity", "5", true};	// 0 to 10
 
 typedef struct
 {
@@ -126,6 +130,11 @@ Two kinds of message, each starting with a letter:
 		16 bytes; little-endian; sticks -32767..32767, triggers 0..255
 	'N' length name
 		the pad's name, for the Controls page
+
+and one the other way, for the page to play on the pad (IN_PadRumble):
+
+	'R' low high (2 each, 0..65535) milliseconds (2)
+		7 bytes; little-endian
 
 One page at a time: a new connection replaces the old, which is what a reload
 of the page looks like from here.
@@ -288,6 +297,9 @@ static short				(*pSDL_GameControllerGetAxis) (SDL_GameController *, int);
 static void					(*pSDL_GameControllerUpdate) (void);
 static void					(*pSDL_PumpEvents) (void);
 static void					(*pSDL_FlushEvents) (unsigned, unsigned);
+// SDL 2.0.9 and later; without it the pad works and does not vibrate
+static int					(*pSDL_GameControllerRumble) (SDL_GameController *,
+								unsigned short, unsigned short, unsigned);
 
 static qboolean				sdl_ok;
 static SDL_GameController	*sdl_pad;
@@ -322,6 +334,7 @@ static void PAD_SDLInit (void)
 	SYM(SDL_PumpEvents);
 	SYM(SDL_FlushEvents);
 #undef SYM
+	pSDL_GameControllerRumble = dlsym (lib, "SDL_GameControllerRumble");
 
 	if (pSDL_Init (SDL_INIT_GAMECONTROLLER) < 0)
 	{
@@ -599,9 +612,9 @@ is not held to a higher bar, and rescaled so the first movement past it is a
 small one. Returns how far over it is, 0 to 1.
 ================
 */
-static float PAD_Stick (float x, float y, float *ox, float *oy)
+static float PAD_Stick (float x, float y, float dz, float *ox, float *oy)
 {
-	float	m, dz = joy_deadzone.value, s;
+	float	m, s;
 
 	m = sqrt (x*x + y*y);
 	if (m <= dz || m <= 0)
@@ -631,41 +644,98 @@ void IN_PadMove (usercmd_t *cmd)
 	if (!pad.connected || !joy_enable.value || key_dest != key_game)
 		return;
 
+// The deadzones go with what a stick does, not which side it is on, so that
+// swapping the sticks swaps them too.
 	if (joy_swapsticks.value)
 	{
-		m = PAD_Stick (pad.rx, pad.ry, &mx, &my);
-		PAD_Stick (pad.lx, pad.ly, &lx, &ly);
+		m = PAD_Stick (pad.rx, pad.ry, joy_deadzone.value, &mx, &my);
+		PAD_Stick (pad.lx, pad.ly, joy_deadzone_look.value, &lx, &ly);
 	}
 	else
 	{
-		m = PAD_Stick (pad.lx, pad.ly, &mx, &my);
-		PAD_Stick (pad.rx, pad.ry, &lx, &ly);
+		m = PAD_Stick (pad.lx, pad.ly, joy_deadzone.value, &mx, &my);
+		PAD_Stick (pad.rx, pad.ry, joy_deadzone_look.value, &lx, &ly);
 	}
 
 // Walking: the stick is a speed, not a key. Pushed all the way it runs, if the
 // run key is not held already and Always Run is not on.
+// A frame between the game's ticks (Max FPS) only turns the view: the stick's
+// walking is a speed, which the tick's own command carries.
 	speed = 1;
 	if (in_speed.state & 1)
 		speed = cl_movespeedkey.value;
 	else if (joy_pushrun.value && m > 0.9 && cl_forwardspeed.value <= 200)
 		speed = cl_movespeedkey.value;
-	cmd->forwardmove -= my * cl_forwardspeed.value * speed;
-	cmd->sidemove += mx * cl_sidespeed.value * speed;
+	if (!in_accumulating)
+	{
+		cmd->forwardmove -= my * cl_forwardspeed.value * speed;
+		cmd->sidemove += mx * cl_sidespeed.value * speed;
+	}
 
-// Looking: degrees a second, on a curve so a small push aims finely.
+// Looking: degrees a second, on a curve so a small push aims finely. Turning
+// and looking up and down have speeds of their own, as the re-release's Aim X
+// and Aim Y; the vertical one defaults to two thirds of the horizontal, which
+// is what it was fixed at before it could be set.
 	c = joy_lookcurve.value > 0 ? joy_lookcurve.value : 1;
 	t = joy_lookspeed.value * host_frametime;
 	if (lx)
 		cl.viewangles[YAW] -= (lx < 0 ? -1 : 1) * pow (fabs (lx), c) * t;
 	if (ly)
 	{
-		cl.viewangles[PITCH] += (ly < 0 ? -1 : 1) * pow (fabs (ly), c) * t
-			* 0.66 * (joy_invert.value ? -1 : 1);
+		cl.viewangles[PITCH] += (ly < 0 ? -1 : 1) * pow (fabs (ly), c)
+			* joy_lookspeed_y.value * host_frametime
+			* (joy_invert.value ? -1 : 1);
 		if (cl.viewangles[PITCH] > 80)
 			cl.viewangles[PITCH] = 80;
 		if (cl.viewangles[PITCH] < -70)
 			cl.viewangles[PITCH] = -70;
 		V_StopPitchDrift ();
+	}
+}
+
+/*
+================
+IN_PadRumble
+
+The re-release's Vibration: a pulse on the pad, low the heavy motor and high
+the light one, each 0 to 1 before Vibration Intensity scales them (5 is as
+given, 10 twice as strong, as far as the motors go). On a desktop SDL plays
+it; in the container it goes to the page, which has the pad.
+================
+*/
+void IN_PadRumble (float low, float high, float seconds)
+{
+	float			scale;
+	int				lo, hi, ms;
+	byte			m[7];
+
+	if (!pad.connected || !joy_enable.value || !joy_rumble.value
+		|| key_dest != key_game)
+		return;
+
+	scale = joy_rumble_intensity.value / 5;
+	lo = low * scale * 65535;
+	hi = high * scale * 65535;
+	lo = lo < 0 ? 0 : (lo > 65535 ? 65535 : lo);
+	hi = hi < 0 ? 0 : (hi > 65535 ? 65535 : hi);
+	ms = seconds * 1000;
+	ms = ms < 1 ? 1 : (ms > 2000 ? 2000 : ms);
+	if (!lo && !hi)
+		return;
+
+	if (sdl_pad && pSDL_GameControllerRumble)
+	{
+		pSDL_GameControllerRumble (sdl_pad, lo, hi, ms);
+		return;
+	}
+
+	if (br_conn >= 0)
+	{
+		m[0] = 'R';
+		m[1] = lo & 255;	m[2] = lo >> 8;
+		m[3] = hi & 255;	m[4] = hi >> 8;
+		m[5] = ms & 255;	m[6] = ms >> 8;
+		send (br_conn, m, sizeof(m), MSG_DONTWAIT | MSG_NOSIGNAL);
 	}
 }
 
@@ -681,12 +751,16 @@ void IN_PadInit (void)
 
 	Cvar_RegisterVariable (&joy_enable);
 	Cvar_RegisterVariable (&joy_deadzone);
+	Cvar_RegisterVariable (&joy_deadzone_look);
+	Cvar_RegisterVariable (&joy_lookspeed_y);
 	Cvar_RegisterVariable (&joy_lookspeed);
 	Cvar_RegisterVariable (&joy_lookcurve);
 	Cvar_RegisterVariable (&joy_invert);
 	Cvar_RegisterVariable (&joy_swapsticks);
 	Cvar_RegisterVariable (&joy_pushrun);
 	Cvar_RegisterVariable (&joy_bound);
+	Cvar_RegisterVariable (&joy_rumble);
+	Cvar_RegisterVariable (&joy_rumble_intensity);
 
 	if (COM_CheckParm ("-nojoy"))
 		return;
