@@ -34,6 +34,17 @@ on the default branch publishes that version, `## [Unreleased]` publishes only
   health go in the bottom left, with armour after them when you have some,
   and ammo in the bottom right. Keys and powerups show in a row above. The
   scoreboard, intermission and deathmatch overlays are unchanged.
+- **Model interpolation.** **Options → Display → Model Interpolation**
+  (`r_lerpmodels`, on by default) blends monsters, weapons and other models
+  from one animation pose into the next, instead of stepping between them ten
+  times a second. Walking monsters also glide between the steps the game moves
+  them in. Flames and the like are left unblended, as in QuakeSpasm.
+
+### Fixed
+
+- `COM_FileBase` read one byte before the start of a filename with no
+  directory in it, such as `gfx.wad` at every start. It was harmless in
+  practice, but AddressSanitizer stops the engine there.
 
 ## [1.18.3] — 2026-09-25
 

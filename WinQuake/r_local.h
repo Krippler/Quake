@@ -54,6 +54,7 @@ typedef struct {
 //===========================================================================
 
 extern cvar_t	r_draworder;
+extern cvar_t	r_lerpmodels;		// model interpolation (r_alias.c)
 extern cvar_t	r_speeds;
 extern cvar_t	r_timegraph;
 extern cvar_t	r_graphheight;

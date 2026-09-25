@@ -447,6 +447,86 @@ SetPal(2);
 
 /*
 ===============
+CL_SmoothStep
+
+A walking monster is moved by the game in steps, a tenth of a second apart,
+and the server marks it so (U_NOLERP) because id's interpolation between
+messages would smear the step into the next one. Drawn where it is, it jumps
+along ten times a second. With Model Interpolation on, each step is instead
+drawn over the tenth of a second the next one takes, as the re-release and
+QuakeSpasm do.
+
+The step starts from wherever the monster is drawn at that moment, so a step
+that comes early carries on smoothly from part way through the last one. One
+further than 100 units is a teleport, and is not smoothed.
+===============
+*/
+static void CL_SmoothStep (entity_t *ent)
+{
+	int		j;
+	float	blend, d;
+	vec3_t	shown, shownang;
+
+	if (!ent->movestep || !r_lerpmodels.value || ent->model->type != mod_alias)
+	{
+		ent->movestart = 0;
+		return;
+	}
+
+	if (!ent->movestart)
+	{
+		VectorCopy (ent->origin, ent->moveprev);
+		VectorCopy (ent->origin, ent->movecur);
+		VectorCopy (ent->angles, ent->moveprevang);
+		VectorCopy (ent->angles, ent->movecurang);
+		ent->movestart = cl.time;
+		return;
+	}
+
+// where it is being drawn now, before this update is taken into account
+	blend = (cl.time - ent->movestart) / 0.1;
+	if (blend > 1)
+		blend = 1;
+	if (blend < 0)
+		blend = 0;
+	for (j = 0 ; j < 3 ; j++)
+	{
+		shown[j] = ent->moveprev[j] + (ent->movecur[j] - ent->moveprev[j]) * blend;
+		d = ent->movecurang[j] - ent->moveprevang[j];
+		if (d > 180)
+			d -= 360;
+		else if (d < -180)
+			d += 360;
+		shownang[j] = ent->moveprevang[j] + d * blend;
+	}
+
+	if (!VectorCompare (ent->origin, ent->movecur)
+		|| !VectorCompare (ent->angles, ent->movecurang))
+	{
+		for (j = 0 ; j < 3 ; j++)
+			if (ent->origin[j] - shown[j] > 100 || ent->origin[j] - shown[j] < -100)
+				break;
+		if (j < 3)		// a teleport
+		{
+			VectorCopy (ent->origin, shown);
+			VectorCopy (ent->angles, shownang);
+		}
+		VectorCopy (shown, ent->moveprev);
+		VectorCopy (shownang, ent->moveprevang);
+		VectorCopy (ent->origin, ent->movecur);
+		VectorCopy (ent->angles, ent->movecurang);
+		ent->movestart = cl.time;
+		VectorCopy (shown, ent->origin);
+		VectorCopy (shownang, ent->angles);
+		return;
+	}
+
+	VectorCopy (shown, ent->origin);
+	VectorCopy (shownang, ent->angles);
+}
+
+/*
+===============
 CL_RelinkEntities
 ===============
 */
@@ -537,6 +617,8 @@ void CL_RelinkEntities (void)
 			}
 			
 		}
+
+		CL_SmoothStep (ent);
 
 // rotate binary objects locally
 		if (ent->model->flags & EF_ROTATE)

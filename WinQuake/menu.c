@@ -1667,6 +1667,7 @@ static option_t	opt_display[] =
 	{"Enhancements",			o_heading, NULL,            0,     0,    0,    0},
 	{"Texture Detail",			o_custom, NULL,             0,     0,    0,    OPT_DETAIL},
 	{"Water Warp",				o_toggle, "r_waterwarp",    0,     0,    0,    0},
+	{"Model Interpolation",		o_toggle, "r_lerpmodels",   0,     0,    0,    0},
 
 // Only the re-release maps set fog at all, and how thick it should look is a
 // judgement rather than a fact: the density they set is interpreted through a

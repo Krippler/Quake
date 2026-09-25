@@ -853,25 +853,30 @@ char *COM_FileExtension (char *in)
 COM_FileBase
 ============
 */
+//
+// "progs/player.mdl" -> "player". id's walked back from the dot looking for a
+// '/', and for a name with none -- "gfx.wad", loaded at every start -- walked
+// off the front of the string and read the byte before it. It is the byte a
+// string that begins at the start of the name has nothing in, so what came out
+// was right; AddressSanitizer stops the engine there all the same. A name with
+// no extension still comes out as "?model?", as it did.
+//
 void COM_FileBase (char *in, char *out)
 {
-	char *s, *s2;
-	
-	s = in + strlen(in) - 1;
-	
-	while (s != in && *s != '.')
-		s--;
-	
-	for (s2 = s ; *s2 && *s2 != '/' ; s2--)
-	;
-	
-	if (s-s2 < 2)
+	char	*base, *dot;
+	int		len;
+
+	base = strrchr (in, '/');
+	base = base ? base + 1 : in;
+	dot = strrchr (base, '.');
+	len = dot ? dot - base : 0;
+
+	if (len < 1)
 		strcpy (out,"?model?");
 	else
 	{
-		s--;
-		strncpy (out,s2+1, s-s2);
-		out[s-s2] = 0;
+		strncpy (out, base, len);
+		out[len] = 0;
 	}
 }
 

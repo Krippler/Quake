@@ -97,6 +97,7 @@ qboolean R_AliasCheckBBox (void)
 	qboolean			zclipped, zfullyclipped;
 	unsigned			anyclip, allclip;
 	int					minz;
+	int					bmin[3], bmax[3];
 	
 // expand, rotate, and translate points into worldspace
 
@@ -119,23 +120,57 @@ qboolean R_AliasCheckBBox (void)
 
 	pframedesc = &pahdr->frames[frame];
 
+//
+// With interpolation the model may be drawn part way between this frame and
+// the one it was last drawn in (r_alias.c's R_AliasLerpFrame), so the box is
+// both of theirs. It has to be: a model the box says is wholly on screen is
+// drawn without clipping, and a blended vertex outside it would be written
+// off the edge of the frame.
+//
+	{
+		int		k, f[3];
+
+		for (k = 0 ; k < 3 ; k++)
+		{
+			bmin[k] = pframedesc->bboxmin.v[k];
+			bmax[k] = pframedesc->bboxmax.v[k];
+		}
+		f[0] = currententity->lerpcurframe;
+		f[1] = currententity->lerpprevframe;
+		f[2] = -1;
+		if (currententity->lerpmodel != pmodel)
+			f[0] = f[1] = -1;
+		for (i = 0 ; i < 2 ; i++)
+		{
+			if (f[i] < 0 || f[i] >= pmdl->numframes || f[i] == frame)
+				continue;
+			for (k = 0 ; k < 3 ; k++)
+			{
+				if (pahdr->frames[f[i]].bboxmin.v[k] < bmin[k])
+					bmin[k] = pahdr->frames[f[i]].bboxmin.v[k];
+				if (pahdr->frames[f[i]].bboxmax.v[k] > bmax[k])
+					bmax[k] = pahdr->frames[f[i]].bboxmax.v[k];
+			}
+		}
+	}
+
 // x worldspace coordinates
 	basepts[0][0] = basepts[1][0] = basepts[2][0] = basepts[3][0] =
-			(float)pframedesc->bboxmin.v[0];
+			(float)bmin[0];
 	basepts[4][0] = basepts[5][0] = basepts[6][0] = basepts[7][0] =
-			(float)pframedesc->bboxmax.v[0];
+			(float)bmax[0];
 
 // y worldspace coordinates
 	basepts[0][1] = basepts[3][1] = basepts[5][1] = basepts[6][1] =
-			(float)pframedesc->bboxmin.v[1];
+			(float)bmin[1];
 	basepts[1][1] = basepts[2][1] = basepts[4][1] = basepts[7][1] =
-			(float)pframedesc->bboxmax.v[1];
+			(float)bmax[1];
 
 // z worldspace coordinates
 	basepts[0][2] = basepts[1][2] = basepts[4][2] = basepts[5][2] =
-			(float)pframedesc->bboxmin.v[2];
+			(float)bmin[2];
 	basepts[2][2] = basepts[3][2] = basepts[6][2] = basepts[7][2] =
-			(float)pframedesc->bboxmax.v[2];
+			(float)bmax[2];
 
 	zclipped = false;
 	zfullyclipped = true;
@@ -649,6 +684,103 @@ R_AliasSetupFrame
 set r_apverts
 =================
 */
+/*
+=================
+Model interpolation
+
+The re-release's Model Interpolation. A model's animation is a series of
+poses, and the game steps through them ten times a second: drawn as they come,
+a monster's run is ten still pictures a second however fast the screen is
+drawn. With r_lerpmodels on, each pose is blended into the next over the time
+the game gives it, so the movement between them is drawn too.
+
+A pose is known by where its vertices are in the model's data, which also
+covers a frame group's own sub-poses. When the pose an entity is to be drawn
+in is not the one it was drawn in last, that one becomes the pose it blends
+from, starting now. The blend is of the vertices themselves, rounded back to
+the model's own grid -- the precision the poses were stored at -- so nothing
+after this knows it happened.
+
+Flames and the like are left alone: their frames are a flicker, not a motion,
+and blending them only blurs it. The list is QuakeSpasm's.
+=================
+*/
+cvar_t	r_lerpmodels = {"r_lerpmodels", "1", true};
+
+static trivertx_t	r_lerpverts[MAXALIASVERTS];
+
+static char	*r_nolerpmodels[] =
+{
+	"progs/flame.mdl", "progs/flame2.mdl", "progs/braztall.mdl",
+	"progs/brazshrt.mdl", "progs/longtrch.mdl", "progs/flame_pyre.mdl",
+	"progs/v_saw.mdl", "progs/v_xfist.mdl", "progs/h2stuff/newfire.mdl",
+	NULL
+};
+
+static qboolean R_AliasNoLerp (model_t *m)
+{
+	int		i;
+
+	for (i = 0 ; r_nolerpmodels[i] ; i++)
+		if (!strcmp (m->name, r_nolerpmodels[i]))
+			return true;
+	return false;
+}
+
+static void R_AliasLerpFrame (trivertx_t *verts, int frame, float interval)
+{
+	entity_t	*e = currententity;
+	trivertx_t	*prev;
+	int			pose, i, j, n;
+	float		blend;
+
+	pose = (byte *)verts - (byte *)paliashdr;
+	r_apverts = verts;
+
+	if (e->lerpmodel != e->model)
+	{
+		e->lerpmodel = e->model;
+		e->lerpprev = e->lerpcur = pose;
+		e->lerpprevframe = e->lerpcurframe = frame;
+		return;
+	}
+	if (pose != e->lerpcur)
+	{
+		e->lerpprev = e->lerpcur;
+		e->lerpprevframe = e->lerpcurframe;
+		e->lerpcur = pose;
+		e->lerpcurframe = frame;
+		e->lerpstart = cl.time;
+		e->lerpinterval = interval > 0.01 ? interval : 0.1;
+	}
+
+	if (e->lerpprev == e->lerpcur)
+		return;
+	blend = (cl.time - e->lerpstart) / e->lerpinterval;
+	if (blend >= 1 || !r_lerpmodels.value || R_AliasNoLerp (e->model))
+	{
+		e->lerpprev = e->lerpcur;			// arrived; the bounding box shrinks
+		e->lerpprevframe = e->lerpcurframe;
+		return;
+	}
+	if (blend < 0)
+		blend = 0;
+
+	prev = (trivertx_t *)((byte *)paliashdr + e->lerpprev);
+	n = pmdl->numverts;
+	if (n > MAXALIASVERTS)
+		n = MAXALIASVERTS;
+	for (i = 0 ; i < n ; i++)
+	{
+		for (j = 0 ; j < 3 ; j++)
+			r_lerpverts[i].v[j] = (int)(prev[i].v[j]
+				+ (verts[i].v[j] - prev[i].v[j]) * blend + 0.5);
+		r_lerpverts[i].lightnormalindex = blend < 0.5
+			? prev[i].lightnormalindex : verts[i].lightnormalindex;
+	}
+	r_apverts = r_lerpverts;
+}
+
 void R_AliasSetupFrame (void)
 {
 	int				frame;
@@ -665,8 +797,9 @@ void R_AliasSetupFrame (void)
 
 	if (paliashdr->frames[frame].type == ALIAS_SINGLE)
 	{
-		r_apverts = (trivertx_t *)
-				((byte *)paliashdr + paliashdr->frames[frame].frame);
+	// the game's think rate: a monster changes frame every tenth of a second
+		R_AliasLerpFrame ((trivertx_t *)
+				((byte *)paliashdr + paliashdr->frames[frame].frame), frame, 0.1);
 		return;
 	}
 	
@@ -690,8 +823,9 @@ void R_AliasSetupFrame (void)
 			break;
 	}
 
-	r_apverts = (trivertx_t *)
-				((byte *)paliashdr + paliasgroup->frames[i].frame);
+	R_AliasLerpFrame ((trivertx_t *)
+				((byte *)paliashdr + paliasgroup->frames[i].frame), frame,
+			pintervals[i] - (i ? pintervals[i-1] : 0));
 }
 
 
