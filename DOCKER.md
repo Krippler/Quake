@@ -427,8 +427,8 @@ and there is no asking for it back outside a secure context, and `Esc` is
 Quake's own menu key; the button sends one to the engine and hands the picture
 straight back, so the game returns with its menu already up. A controller's
 **Menu** or **B** button does the same thing without leaving the game at all,
-and so does **Backspace** on the keyboard: in the game it always opens the
-menu, whatever it is bound to.
+and so does **Backspace** on the keyboard. It is the menu key, standing in
+for `Esc`, and like `Esc` it cannot be bound to anything else.
 
 Inside the menu, **Backspace** goes back a level and closes it from the top,
 the way `Esc` does in id's engine — `Esc` being the browser's here. It still

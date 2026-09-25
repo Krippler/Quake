@@ -420,6 +420,22 @@ void Key_SetBinding (int keynum, char *binding)
 	if (keynum == -1)
 		return;
 
+//
+// Backspace is the menu key (Key_Event), as Escape is in id's engine, and like
+// it is never anything else: a binding for it would never run, so none is
+// kept. Clearing one is still allowed, which is how an old config.cfg's gets
+// dropped.
+//
+	if (keynum == K_BACKSPACE && binding[0])
+	{
+		if (keybindings[keynum])
+		{
+			Z_Free (keybindings[keynum]);
+			keybindings[keynum] = NULL;
+		}
+		return;
+	}
+
 // free old bindings
 	if (keybindings[keynum])
 	{
@@ -503,6 +519,13 @@ void Key_Bind_f (void)
 		return;
 	}
 	
+	if (b == K_BACKSPACE)
+	{
+		Con_Printf ("BACKSPACE is the menu key and cannot be bound\n");
+		Key_SetBinding (b, "");
+		return;
+	}
+
 // copy the rest of the command line
 	cmd[0] = 0;		// start out with a null string
 	for (i=2 ; i< c ; i++)

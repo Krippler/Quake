@@ -9,10 +9,13 @@ on the default branch publishes that version, `## [Unreleased]` publishes only
 
 ### Changed
 
-- **Backspace opens the menu from the game**, whatever it's bound to, and
-  still goes back a level inside the menus and closes them from the top. In
-  the container, where `Esc` belongs to the browser, this makes it the one
-  keyboard key that always reaches the menu.
+- **Backspace is the menu key**, as `Esc` is in id's engine. From the game it
+  opens the menu. Inside the menus it goes back a level and closes them from
+  the top, and it answers "no" to a question. In the container, where `Esc`
+  belongs to the browser, it's the one keyboard key that always reaches the
+  menu. Like `Esc`, it can't be bound to anything else: `bind BACKSPACE …`
+  is refused, and a binding for it in an old `config.cfg` is dropped. In the
+  console and in chat it still deletes.
 - **Customize Controls: Backspace goes back, Del clears a binding.** Backspace
   cleared the highlighted binding on that screen while going back everywhere
   else, so pressing it to leave wiped a binding instead. It now goes back as
