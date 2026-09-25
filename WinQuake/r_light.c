@@ -467,7 +467,110 @@ static void R_FaceThisFrame (msurface_t *face)
 					s->spans ? "drawn somewhere" : "drawn nowhere");
 }
 
-static void R_DrawnReport (msurface_t *expected, vec3_t start, vec3_t dir)
+
+// How a face is lit at a point on it, given in its own model's space.
+static void R_ProbeLight (msurface_t *face, vec3_t local)
+{
+	int			s, t, ds, dt, smax, tmax, maps, j, light;
+	mtexinfo_t	*tex = face->texinfo;
+	byte		*lightmap;
+
+	if (face->flags & SURF_DRAWTILED)
+	{
+		Con_Printf ("not lightmapped: sky and liquids are drawn unlit\n");
+		return;
+	}
+	if (!cl.worldmodel->lightdata)
+	{
+		Con_Printf ("the map has no light data: drawn at full brightness\n");
+		return;
+	}
+	if (!face->samples)
+	{
+		Con_Printf ("no lightmap: drawn at full brightness\n");
+		return;
+	}
+
+	s = DotProduct (local, tex->vecs[0]) + tex->vecs[0][3];
+	t = DotProduct (local, tex->vecs[1]) + tex->vecs[1][3];
+
+	smax = (face->extents[0]>>4)+1;
+	tmax = (face->extents[1]>>4)+1;
+	ds = (s - face->texturemins[0]) >> 4;
+	dt = (t - face->texturemins[1]) >> 4;
+	ds = ds < 0 ? 0 : ds >= smax ? smax - 1 : ds;
+	dt = dt < 0 ? 0 : dt >= tmax ? tmax - 1 : dt;
+
+	Con_Printf ("lightmap %dx%d, styles", smax, tmax);
+	light = 0;
+	lightmap = face->samples + dt*smax + ds;
+	for (maps = 0 ; maps < MAXLIGHTMAPS && face->styles[maps] != 255 ; maps++)
+	{
+		j = face->styles[maps];
+		Con_Printf (" %d (sample %d x %d)", j, *lightmap, d_lightstylevalue[j]);
+		light += *lightmap * d_lightstylevalue[j];
+		lightmap += smax*tmax;
+	}
+	if (!maps)
+		Con_Printf (" none");
+	Con_Printf ("\nlight here %d, where 0 is black and 255 is full\n",
+				light >> 8);
+}
+
+//
+// The face drawn at the crosshair, when it is a brush model's: where the model
+// is, where along the line of sight its face actually lies, and how it is lit
+// there. A brush model's pieces are sorted by the world leaf each was clipped
+// into, not by distance, so a piece given the wrong leaf is drawn in front of
+// walls it is behind; this says whether that is what happened.
+//
+static void R_DrawnBmodelReport (msurface_t *pf, entity_t *ent, vec3_t start,
+								 vec3_t dir, float expecteddist)
+{
+	vec3_t	f, r, u, lstart, ldir, p;
+	float	d, t;
+	int		i;
+
+	Con_Printf ("  %s at (%.0f %.0f %.0f), angles (%.0f %.0f %.0f), alpha %d\n",
+				ent->model->name, ent->origin[0], ent->origin[1],
+				ent->origin[2], ent->angles[0], ent->angles[1], ent->angles[2],
+				ent->alpha);
+
+	for (i = 0 ; i < r_numbmodeloddfaces ; i++)
+		if (r_bmodeloddfaces[i] == pf)
+			break;
+	if (i < r_numbmodeloddfaces)
+		Con_Printf ("  this frame it crossed a world plane an odd number of "
+					"times, so it\n  was drawn uncut, in the leaf most of it "
+					"is in\n");
+	else if (r_bmodelodd)
+		Con_Printf ("  (%d face(s) of %s were drawn uncut this frame; not "
+					"this one)\n", r_bmodelodd,
+					r_bmodeloddname ? r_bmodeloddname : "a brush model");
+
+// the line of sight in the model's own space
+	AngleVectors (ent->angles, f, r, u);
+	R_ToModel (start, ent, f, r, u, lstart);
+	ldir[0] = DotProduct (dir, f);
+	ldir[1] = -DotProduct (dir, r);
+	ldir[2] = DotProduct (dir, u);
+
+	d = DotProduct (ldir, pf->plane->normal);
+	if (d > -0.0001 && d < 0.0001)
+	{
+		Con_Printf ("  its plane runs along the line of sight\n");
+		return;
+	}
+	t = (pf->plane->dist - DotProduct (lstart, pf->plane->normal)) / d;
+	VectorMA (lstart, t, ldir, p);
+	Con_Printf ("  the line of sight meets its plane %.0f units away, %s the "
+				"face;\n  the face that should be there is %.0f away\n", t,
+				R_PointInFace (pf, p) ? "inside" : "OUTSIDE", expecteddist);
+	R_ProbeLight (pf, p);
+}
+
+static void R_DrawnReport (msurface_t *expected, vec3_t start, vec3_t dir,
+						   float expecteddist)
 {
 	int			cx, cy, p;
 	msurface_t	*pf;
@@ -521,6 +624,8 @@ static void R_DrawnReport (msurface_t *expected, vec3_t start, vec3_t dir)
 	Con_Printf ("  key %d\n", r_probedrawn.key);
 	if (!r_probedrawn.insubmodel)
 		R_FaceEdgeReport (pf);
+	else if (r_probedrawn.entity)
+		R_DrawnBmodelReport (pf, r_probedrawn.entity, start, dir, expecteddist);
 }
 
 void R_SurfaceReport (void)
@@ -585,7 +690,7 @@ void R_SurfaceReport (void)
 	if (!best)
 	{
 		Con_Printf ("\nNo face under the crosshair within 8192 units.\n");
-		R_DrawnReport (NULL, start, forward);
+		R_DrawnReport (NULL, start, forward, 0);
 		return;
 	}
 
@@ -596,7 +701,7 @@ void R_SurfaceReport (void)
 				bestent ? bestent->model->name : cl.worldmodel->name,
 				(int)(best - cl.worldmodel->surfaces), bestdist,
 				besthit[0], besthit[1], besthit[2]);
-	R_DrawnReport (best, start, forward);
+	R_DrawnReport (best, start, forward, bestdist);
 
 	Con_Printf ("texture \"%s\", %dx%d%s%s%s%s\n", tx->name, tx->width,
 				tx->height,
@@ -642,28 +747,5 @@ void R_SurfaceReport (void)
 		R_ToModel (besthit, bestent, bestf, bestr, bestu, local);
 	else
 		VectorCopy (besthit, local);
-	s = DotProduct (local, tex->vecs[0]) + tex->vecs[0][3];
-	t = DotProduct (local, tex->vecs[1]) + tex->vecs[1][3];
-
-	smax = (best->extents[0]>>4)+1;
-	tmax = (best->extents[1]>>4)+1;
-	ds = (s - best->texturemins[0]) >> 4;
-	dt = (t - best->texturemins[1]) >> 4;
-	ds = ds < 0 ? 0 : ds >= smax ? smax - 1 : ds;
-	dt = dt < 0 ? 0 : dt >= tmax ? tmax - 1 : dt;
-
-	Con_Printf ("lightmap %dx%d, styles", smax, tmax);
-	light = 0;
-	lightmap = best->samples + dt*smax + ds;
-	for (maps = 0 ; maps < MAXLIGHTMAPS && best->styles[maps] != 255 ; maps++)
-	{
-		j = best->styles[maps];
-		Con_Printf (" %d (sample %d x %d)", j, *lightmap, d_lightstylevalue[j]);
-		light += *lightmap * d_lightstylevalue[j];
-		lightmap += smax*tmax;
-	}
-	if (!maps)
-		Con_Printf (" none");
-	Con_Printf ("\nlight here %d, where 0 is black and 255 is full\n",
-				light >> 8);
+	R_ProbeLight (best, local);
 }

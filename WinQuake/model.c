@@ -1127,6 +1127,15 @@ void CalcSurfaceExtents (msurface_t *s)
 
 		s->texturemins[i] = bmins[i] * 16;
 		s->extents[i] = (bmaxs[i] - bmins[i]) * 16;
+
+	// Only the first vertex of each edge is measured, as the light tools do,
+	// so the lightmap here is the size they made. A face whose edges do not
+	// close can have every one of those on the same line of the texture, and
+	// then this is 0: a surface 0 texels across, which D_SCAlloc refuses with
+	// a fatal error the first time the face is drawn. It is made one
+	// lightmap step across instead.
+		if (s->extents[i] < 16)
+			s->extents[i] = 16;
 		if ( !(tex->flags & TEX_SPECIAL) && s->extents[i] > 256)
 			Sys_Error ("Bad surface extents");
 	}
@@ -1823,6 +1832,155 @@ static void Mod_WidenBounds (mnode_t *node)
 	}
 }
 
+//
+// A face is a loop of edges, and everything that draws one relies on the loop
+// closing: the edge list opens a face's span at one edge and shuts it at
+// another, and cutting a brush model along a world plane joins the two points
+// where the loop crosses it. The re-release maps have faces whose loop does
+// not close -- one edge ends where the next does not begin -- and on a brush
+// model such a face was drawn with a span that nothing shut, or shut against a
+// point left over from another face: a thin bar of it stretched sideways
+// across the screen, lit by whatever was at the face's edge, which was black.
+//
+// So each gap is bridged here with an edge of its own, from where the loop
+// stops to where it picks up again. Only a face whose edges do not balance --
+// some point is left more often than it is reached -- is touched: a face that
+// balances is closed whatever order its edges come in, and bridging between
+// them would add edges that are not there.
+//
+static void Mod_EdgeEnds (model_t *mod, int lindex, mvertex_t **a, mvertex_t **b)
+{
+	medge_t	*e;
+
+	e = &mod->edges[lindex > 0 ? lindex : -lindex];
+	*a = &mod->vertexes[e->v[lindex > 0 ? 0 : 1]];
+	*b = &mod->vertexes[e->v[lindex > 0 ? 1 : 0]];
+}
+
+static qboolean Mod_SamePoint (mvertex_t *a, mvertex_t *b)
+{
+	return a == b || (a->position[0] == b->position[0]
+					  && a->position[1] == b->position[1]
+					  && a->position[2] == b->position[2]);
+}
+
+// How many bridges face s needs, or 0 when its edges balance.
+static int Mod_FaceGaps (model_t *mod, msurface_t *s)
+{
+	int			i, j, n, bal, gaps;
+	mvertex_t	*a, *b, *c, *d;
+	int			*se;
+
+	n = s->numedges;
+	if (n < 2)
+		return 0;
+	se = mod->surfedges + s->firstedge;
+
+	gaps = 0;
+	for (i=0 ; i<n ; i++)
+	{
+		Mod_EdgeEnds (mod, se[i], &a, &b);
+		Mod_EdgeEnds (mod, se[(i+1) % n], &c, &d);
+		if (!Mod_SamePoint (b, c))
+			gaps++;
+	}
+	if (!gaps)
+		return 0;
+
+// out of order but balanced: every point left as often as it is reached
+	for (i=0 ; i<n ; i++)
+	{
+		Mod_EdgeEnds (mod, se[i], &a, &b);
+		bal = 0;
+		for (j=0 ; j<n ; j++)
+		{
+			Mod_EdgeEnds (mod, se[j], &c, &d);
+			bal += Mod_SamePoint (a, c) - Mod_SamePoint (a, d);
+		}
+		if (bal)
+			return gaps;
+		Mod_EdgeEnds (mod, se[i], &a, &b);
+		bal = 0;
+		for (j=0 ; j<n ; j++)
+		{
+			Mod_EdgeEnds (mod, se[j], &c, &d);
+			bal += Mod_SamePoint (b, c) - Mod_SamePoint (b, d);
+		}
+		if (bal)
+			return gaps;
+	}
+	return 0;
+}
+
+static void Mod_CloseFaces (model_t *mod)
+{
+	int			i, k, n, gaps, faces, extra, extrase;
+	int			*newse, *se, *out;
+	medge_t		*newedges, *e;
+	mvertex_t	*a, *b, *c, *d;
+	msurface_t	*s;
+	int			numedges;
+
+	faces = extra = extrase = 0;
+	for (i=0 ; i<mod->numsurfaces ; i++)
+	{
+		gaps = Mod_FaceGaps (mod, &mod->surfaces[i]);
+		if (gaps)
+		{
+			faces++;
+			extra += gaps;
+			extrase += mod->surfaces[i].numedges + gaps;
+		}
+	}
+	if (!faces)
+		return;
+
+// new edges go on the end of the edge array, and each face is given a run of
+// surfedges of its own with its bridges in their places
+	numedges = mod->numedges;
+	newedges = Hunk_AllocName ((numedges + extra + 1) * sizeof(medge_t), loadname);
+	memcpy (newedges, mod->edges, (numedges + 1) * sizeof(medge_t));
+	newse = Hunk_AllocName ((mod->numsurfedges + extrase) * sizeof(int), loadname);
+	memcpy (newse, mod->surfedges, mod->numsurfedges * sizeof(int));
+
+	out = newse + mod->numsurfedges;
+	for (i=0 ; i<mod->numsurfaces ; i++)
+	{
+		s = &mod->surfaces[i];
+		if (!Mod_FaceGaps (mod, s))
+			continue;
+
+		n = s->numedges;
+		se = mod->surfedges + s->firstedge;
+		s->firstedge = out - newse;
+		for (k=0 ; k<n ; k++)
+		{
+			*out++ = se[k];
+			Mod_EdgeEnds (mod, se[k], &a, &b);
+			Mod_EdgeEnds (mod, se[(k+1) % n], &c, &d);
+			if (Mod_SamePoint (b, c))
+				continue;
+			e = &newedges[numedges];
+			e->v[0] = b - mod->vertexes;
+			e->v[1] = c - mod->vertexes;
+			*out++ = numedges++;
+		}
+		s->numedges = out - newse - s->firstedge;
+	}
+
+	if (out - newse != mod->numsurfedges + extrase
+		|| numedges != mod->numedges + extra)
+		Sys_Error ("Mod_CloseFaces: miscounted in %s", mod->name);
+
+	mod->edges = newedges;
+	mod->numedges = numedges;
+	mod->surfedges = newse;
+	mod->numsurfedges = out - newse;
+
+	Con_DPrintf ("%s: %d face(s) had edges that did not close; %d edge(s) "
+				 "added to close them.\n", mod->name, faces, extra);
+}
+
 /*
 =================
 Mod_LoadBrushModel
@@ -1938,6 +2096,8 @@ void Mod_LoadBrushModel (model_t *mod, void *buffer)
 	}
 
 // after the checksum, which is of what the file says
+	Mod_CloseFaces (mod);
+
 	mod_widened = 0;
 	mod_widest = 0;
 	for (i=0 ; i<mod->numsubmodels ; i++)

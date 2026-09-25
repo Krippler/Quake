@@ -56,6 +56,31 @@ int		intsintable[SIN_BUFFER_SIZE];
 mvertex_t	r_leftenter, r_leftexit;
 mvertex_t	r_rightenter, r_rightexit;
 
+//
+// Whether this face has set each of those. They are only ever written, never
+// cleared, so a face that crosses the left side of the view once rather than
+// twice would join its one crossing to the other end left by an earlier face:
+// an edge down the side of the screen, and a span from there across to this
+// face -- a bar of it stretched sideways. A closing edge is made only from two
+// ends this face made.
+//
+static qboolean	r_leftentered, r_leftexited;
+static qboolean	r_rightentered, r_rightexited;
+
+//
+// A vertex is measured against each view plane twice, as the end of one edge
+// and the start of the next, and under -ffast-math two inlined copies of the
+// sum can disagree in sign for a vertex on the plane (see R_BPlaneDist). One
+// function the compiler may not inline gives the same answer both times.
+//
+#ifdef __GNUC__
+__attribute__((noinline))
+#endif
+static float R_ClipDist (const mvertex_t *v, const clipplane_t *clip)
+{
+	return DotProduct (v->position, clip->normal) - clip->dist;
+}
+
 typedef struct
 {
 	float	u,v;
@@ -68,6 +93,7 @@ float			r_u1, r_v1, r_lzi1;
 int				r_ceilv1;
 
 qboolean	r_lastvertvalid;
+static mvertex_t	*r_lastvert;	// the vertex r_u1 and r_v1 are of
 
 //
 // A vertex that projects to something that is not a number.
@@ -210,7 +236,12 @@ void R_EmitEdge (mvertex_t *pv0, mvertex_t *pv1)
 	if (r_facebad)
 		return;
 
-	if (r_lastvertvalid)
+//
+// The cache is of the end of the last edge, and is right for this edge's start
+// only when that is the same vertex. id's faces always walked their edges end
+// to start; the re-release maps have faces whose edges come in another order.
+//
+	if (r_lastvertvalid && pv0 == r_lastvert)
 	{
 		u0 = r_u1;
 		v0 = r_v1;
@@ -313,6 +344,7 @@ void R_EmitEdge (mvertex_t *pv0, mvertex_t *pv1)
 	r_emitted = 1;
 
 	r_ceilv1 = (int) ceil(r_v1);
+	r_lastvert = pv1;
 
 
 // create the edge
@@ -458,8 +490,8 @@ void R_ClipEdge (mvertex_t *pv0, mvertex_t *pv1, clipplane_t *clip)
 	{
 		do
 		{
-			d0 = DotProduct (pv0->position, clip->normal) - clip->dist;
-			d1 = DotProduct (pv1->position, clip->normal) - clip->dist;
+			d0 = R_ClipDist (pv0, clip);
+			d1 = R_ClipDist (pv1, clip);
 
 			if (d0 >= 0)
 			{
@@ -487,11 +519,13 @@ void R_ClipEdge (mvertex_t *pv0, mvertex_t *pv1, clipplane_t *clip)
 				{
 					r_leftclipped = true;
 					r_leftexit = clipvert;
+					r_leftexited = true;
 				}
 				else if (clip->rightedge)
 				{
 					r_rightclipped = true;
 					r_rightexit = clipvert;
+					r_rightexited = true;
 				}
 
 				R_ClipEdge (pv0, &clipvert, clip->next);
@@ -528,11 +562,13 @@ void R_ClipEdge (mvertex_t *pv0, mvertex_t *pv1, clipplane_t *clip)
 				{
 					r_leftclipped = true;
 					r_leftenter = clipvert;
+					r_leftentered = true;
 				}
 				else if (clip->rightedge)
 				{
 					r_rightclipped = true;
 					r_rightenter = clipvert;
+					r_rightentered = true;
 				}
 
 				R_ClipEdge (&clipvert, pv1, clip->next);
@@ -662,6 +698,7 @@ void R_RenderFace (msurface_t *fa, int clipflags)
 	r_facebad = false;
 	firstown = edge_p;
 	makeleftedge = makerightedge = false;
+	r_leftentered = r_leftexited = r_rightentered = r_rightexited = false;
 	pedges = currententity->model->edges;
 	r_lastvertvalid = false;
 
@@ -758,7 +795,7 @@ void R_RenderFace (msurface_t *fa, int clipflags)
 // if there was a clip off the left edge, add that edge too
 // FIXME: faster to do in screen space?
 // FIXME: share clipped edges?
-	if (makeleftedge)
+	if (makeleftedge && r_leftentered && r_leftexited)
 	{
 		r_pedge = &tedge;
 		r_lastvertvalid = false;
@@ -766,7 +803,7 @@ void R_RenderFace (msurface_t *fa, int clipflags)
 	}
 
 // if there was a clip off the right edge, get the right r_nearzi
-	if (makerightedge)
+	if (makerightedge && r_rightentered && r_rightexited)
 	{
 		r_pedge = &tedge;
 		r_lastvertvalid = false;
@@ -867,6 +904,7 @@ void R_RenderBmodelFace (bedge_t *pedges, msurface_t *psurf)
 	r_facebad = false;
 	firstown = edge_p;
 	makeleftedge = makerightedge = false;
+	r_leftentered = r_leftexited = r_rightentered = r_rightexited = false;
 // FIXME: keep clipped bmodel edges in clockwise order so last vertex caching
 // can be used?
 	r_lastvertvalid = false;
@@ -885,14 +923,14 @@ void R_RenderBmodelFace (bedge_t *pedges, msurface_t *psurf)
 // if there was a clip off the left edge, add that edge too
 // FIXME: faster to do in screen space?
 // FIXME: share clipped edges?
-	if (makeleftedge)
+	if (makeleftedge && r_leftentered && r_leftexited)
 	{
 		r_pedge = &tedge;
 		R_ClipEdge (&r_leftexit, &r_leftenter, pclip->next);
 	}
 
 // if there was a clip off the right edge, get the right r_nearzi
-	if (makerightedge)
+	if (makerightedge && r_rightentered && r_rightexited)
 	{
 		r_pedge = &tedge;
 		r_nearzionly = true;
