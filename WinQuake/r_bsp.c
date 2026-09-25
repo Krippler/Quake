@@ -217,8 +217,15 @@ static void R_ReportBmodelShort (void)
 // and is drawn as it is when nothing cuts it. It was left out of the frame
 // before, and flickered.
 //
+// Mod_CloseFaces now closes those loops when the map is loaded, so a face
+// that still arrives here odd is one the arithmetic made odd.
+//
 int		r_bmodelodd;	// this frame, for the report in r_main.c
 char	*r_bmodeloddname;	// the model it was on
+
+// which faces, this frame, for the surface probe (r_light.c)
+msurface_t	*r_bmodeloddfaces[MAX_ODD_FACES];
+int			r_numbmodeloddfaces;
 
 #ifdef __GNUC__
 __attribute__((noinline))
@@ -290,6 +297,8 @@ void R_RecursiveClipBPoly (bedge_t *pedges, mnode_t *pnode, msurface_t *psurf)
 	{
 		r_bmodelodd++;
 		r_bmodeloddname = currententity->model->name;
+		if (r_numbmodeloddfaces < MAX_ODD_FACES)
+			r_bmodeloddfaces[r_numbmodeloddfaces++] = psurf;
 		psideedges[front*2 >= count ? 0 : 1] = pedges;
 		goto recurse;
 	}

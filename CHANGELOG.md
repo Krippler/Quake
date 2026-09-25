@@ -5,6 +5,25 @@ top section's heading is what the release workflow reads: `## [X.Y.Z] — DATE`
 on the default branch publishes that version, `## [Unreleased]` publishes only
 `edge`.
 
+## [Unreleased]
+
+### Fixed
+
+- **Thin black bars stretched sideways from moving brush models,** such as
+  the one beside the windmill in MG1's mge2m1. Some faces in the re-release
+  maps have edges that do not join up into a closed loop. The software
+  renderer then had nothing to end the face's span on some lines, and drew a
+  sliver of it across the screen. Those faces are now closed when the map
+  loads. The edge the renderer adds where a face is cut at the left side of
+  the view is now made only from the face's own two crossings, never from one
+  left over by an earlier face. `developer 1` reports how many faces a map
+  needed closing.
+- A face whose texture extents come out 0 texels across no longer stops the
+  game with `D_SCAlloc: bad cache size 0`.
+- **`surface`** also reports on a brush-model face drawn at the crosshair:
+  where its model is, whether it was drawn uncut this frame, where the line of
+  sight actually meets it, and how it is lit there.
+
 ## [1.18.0] — 2026-09-24
 
 ### Added

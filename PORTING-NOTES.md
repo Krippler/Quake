@@ -1784,6 +1784,48 @@ and x11vnc does much less, and both figures are several times what a browser
 can display. `QUAKE_X_DEPTH=8` restores the old path, and the smoke suite
 starts the engine on whichever depth the run is not using so neither rots.
 
+### `model.c`, `r_draw.c` — a face whose edges do not close
+
+A face is a loop of edges, and the edge list relies on the loop closing: each
+scanline a face's span is opened at one edge and shut at another. The
+re-release maps have faces whose loop does not close — one edge ends where
+the next does not begin — which is what the "drawn uncut" counter in
+`R_RecursiveClipBPoly` had been catching. Sending such a face
+through uncut kept it on screen but did not make it whole. On a scanline
+through the gap there is nothing to shut the span, so it ran on sideways.
+Where the face was cut at the left side of the view, the one crossing was
+joined to a crossing an earlier face had left behind (`r_leftenter` and
+`r_leftexit` were never cleared). The result was a thin bar of the face
+stretched across the screen, lit by whatever was at its edge, often black. MG1's
+mge2m1 has one beside the windmill.
+
+Three changes:
+
+- `Mod_CloseFaces`, at load, bridges each gap with an edge of its own, from
+  where the loop stops to where it picks up again. Only a face whose edges do
+  not balance (some point is left more often than it is reached) is touched:
+  one that balances is closed whatever order its edges are in. The texture
+  extents are still measured from the file's own edges, as the light tools
+  measure them, so the lightmap stays the size they made. `developer 1` says
+  how many faces a map needed.
+- `R_RenderFace` and `R_RenderBmodelFace` make the closing edge down the side
+  of the view only from two crossings the face itself made, and `R_ClipEdge`
+  measures a vertex against a view plane through one non-inlined function,
+  for the reason `R_BPlaneDist` does.
+- `R_EmitEdge` uses its cached projected vertex only when it is the vertex
+  the edge starts at. id's faces always walked their edges end to start, so
+  the cache was always right for them; a face whose edges come in another
+  order would start an edge from the wrong point.
+
+Tested by removing the last edge of every other face in e1m3, world and brush
+models alike, and playing demo1 through the old engine and the new. The old
+one draws black bars and slabs across the doors and walls. The new one draws
+the frames as the unmodified map does, to within the run-to-run difference
+between two plays of the unmodified map.
+`CalcSurfaceExtents` also no longer lets a face be 0 texels across. That
+happened to faces the test cut down to three collinear starting points, and
+`D_SCAlloc` treats a zero-size surface as fatal.
+
 ---
 
 ## New files
