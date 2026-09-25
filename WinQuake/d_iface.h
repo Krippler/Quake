@@ -22,7 +22,9 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 #define WARP_WIDTH		320
 #define WARP_HEIGHT		200
 
-#define MAX_LBM_HEIGHT	480
+// the tallest alias model skin: id's 480, and an enhanced model's skins, one
+// under another (model_md5.c), can be taller
+#define MAX_LBM_HEIGHT	4096
 
 typedef struct
 {

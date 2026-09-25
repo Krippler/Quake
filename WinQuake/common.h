@@ -165,6 +165,7 @@ char	*va(char *format, ...);
 //============================================================================
 
 extern int com_filesize;
+extern int com_filedepth;	// 0 the first place searched; set by COM_FindFile
 struct cache_user_s;
 
 extern	char	com_gamedir[MAX_OSPATH];

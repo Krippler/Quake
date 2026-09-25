@@ -58,6 +58,15 @@ on the default branch publishes that version, `## [Unreleased]` publishes only
   answers. That covers id1, Scourge of Armagon, Dissolution of Eternity and
   Dimension of the Machine from the re-release, but not 1996 game code, which
   never asks.
+- **Enhanced Models.** **Options → Display → Enhanced Models**
+  (`r_enhancedmodels`) draws the re-release's remade monsters and weapons in
+  place of 1996's, where its `id1/pak0.pak` has them. They're MD5 skeletal
+  models, which this software renderer can't draw directly. Each one is posed
+  frame by frame into an ordinary Quake model as it loads, with its own
+  palette skins, so everything else, interpolation included, works on it as
+  usual. It's off by default, since the extra detail costs some frame rate at
+  high resolutions. Switching it reloads the models in place. A mod's own model
+  still wins over the base game's enhanced one.
 
 ### Fixed
 

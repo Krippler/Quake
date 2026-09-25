@@ -236,6 +236,34 @@ void Mod_Init (void)
 {
 	memset (mod_novis, 0xff, sizeof(mod_novis));
 	Cmd_AddCommand ("bspchecksum", Mod_BspChecksum_f);
+	Cvar_RegisterVariable (&r_enhancedmodels);
+}
+
+/*
+===============
+Mod_FlushAliasModels
+
+Drops every alias model's data, so that each is read again the next time it is
+drawn -- for Enhanced Models, which decides what an alias model is made from as
+it is read. The model_t stays where it is, so every entity that uses it still
+does; what each remembers of the last pose it was drawn in, as an offset into
+the old data, is forgotten.
+===============
+*/
+void Mod_FlushAliasModels (void)
+{
+	int		i;
+	model_t	*mod;
+
+	for (i = 0, mod = mod_known ; i < mod_numknown ; i++, mod++)
+		if (mod->type == mod_alias && mod->cache.data)
+			Cache_Free (&mod->cache);
+
+	for (i = 0 ; i < MAX_EDICTS ; i++)
+		cl_entities[i].lerpmodel = NULL;
+	for (i = 0 ; i < MAX_STATIC_ENTITIES ; i++)
+		cl_static_entities[i].lerpmodel = NULL;
+	cl.viewent.lerpmodel = NULL;
 }
 
 /*
@@ -441,6 +469,7 @@ model_t *Mod_LoadModel (model_t *mod, qboolean crash)
 {
 	unsigned *buf;
 	byte	stackbuf[1024];		// avoid dirtying the cache heap
+	int		mdldepth = 0;
 
 	if (mod->type == mod_alias)
 	{
@@ -470,6 +499,7 @@ model_t *Mod_LoadModel (model_t *mod, qboolean crash)
 			Sys_Error ("Mod_NumForName: %s not found", mod->name);
 		return NULL;
 	}
+	mdldepth = com_filedepth;
 	
 //
 // allocate a new model
@@ -488,7 +518,19 @@ model_t *Mod_LoadModel (model_t *mod, qboolean crash)
 	switch (LittleLong(*(unsigned *)buf))
 	{
 	case IDPOLYHEADER:
-		Mod_LoadAliasModel (mod, buf);
+		{
+		// the re-release's enhanced model instead, if it has one and
+		// Enhanced Models is on (model_md5.c)
+			byte	*enhanced = Mod_EnhancedModel (mod, (byte *)buf, mdldepth);
+
+			if (enhanced)
+			{
+				Mod_LoadAliasModel (mod, enhanced);
+				free (enhanced);
+			}
+			else
+				Mod_LoadAliasModel (mod, buf);
+		}
 		break;
 		
 	case IDSPRITEHEADER:

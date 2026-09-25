@@ -1427,6 +1427,19 @@ void R_RenderView (void)
 {
 	int		dummy;
 	int		delta;
+
+// Enhanced Models decides what an alias model is made of as it is read, so a
+// change to it reads them all again (model.c)
+	{
+		static float	lastenhanced = -1;
+
+		if (r_enhancedmodels.value != lastenhanced)
+		{
+			if (lastenhanced >= 0)
+				Mod_FlushAliasModels ();
+			lastenhanced = r_enhancedmodels.value;
+		}
+	}
 	
 	delta = (byte *)&dummy - r_stack_start;
 	if (delta < -10000 || delta > 10000)

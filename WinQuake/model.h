@@ -392,6 +392,9 @@ void	Mod_Init (void);
 void	Mod_ClearAll (void);
 model_t *Mod_ForName (char *name, qboolean crash);
 void	*Mod_Extradata (model_t *mod);	// handles caching
+byte	*Mod_EnhancedModel (model_t *mod, byte *mdlbuf, int mdldepth);	// model_md5.c
+void	Mod_FlushAliasModels (void);
+extern cvar_t	r_enhancedmodels;
 void	Mod_TouchModel (char *name);
 
 mleaf_t *Mod_PointInLeaf (float *p, model_t *model);

@@ -836,9 +836,11 @@ R_AliasDrawModel
 */
 void R_AliasDrawModel (alight_t *plighting)
 {
-	finalvert_t		finalverts[MAXALIASVERTS +
+// static rather than on the stack: at the enhanced models' vertex counts
+// they come to a third of a megabyte
+	static finalvert_t	finalverts[MAXALIASVERTS +
 						((CACHE_SIZE - 1) / sizeof(finalvert_t)) + 1];
-	auxvert_t		auxverts[MAXALIASVERTS];
+	static auxvert_t	auxverts[MAXALIASVERTS];
 
 	r_amodels_drawn++;
 

@@ -1204,6 +1204,7 @@ QUAKE FILESYSTEM
 */
 
 int     com_filesize;
+int		com_filedepth;	// how far down the search path the last file was found
 
 
 //
@@ -1395,7 +1396,7 @@ int COM_FindFile (char *filename, int *handle, FILE **file)
 			search = search->next;
 	}
 
-	for ( ; search ; search = search->next)
+	for (com_filedepth = 0 ; search ; search = search->next, com_filedepth++)
 	{
 	// is the element a pak file?
 		if (search->pack)
