@@ -55,6 +55,20 @@ byte		*host_basepal;
 byte		*host_colormap;
 
 cvar_t	host_framerate = {"host_framerate","0"};	// set for slow motion
+
+//
+// Max FPS, as the re-release has it. id drew at most 72 frames a second, and
+// the game's physics was written for frames that short or longer: run it
+// faster and lifts, jumps and friction come out subtly different. So above 72
+// the game itself still runs at 72 -- the server's physics, and the client's
+// message to it -- and only the drawing runs faster. In between, the mouse and
+// the controller still turn the view every frame (CL_AccumulateCmd), and the
+// client interpolates between the game's ticks (CL_LerpPoint) so that what is
+// drawn moves every frame too. At 72 and below nothing is different.
+//
+cvar_t	host_maxfps = {"host_maxfps", "72", true};
+qboolean	host_decoupled;		// this frame: drawing faster than the game runs
+static double	host_netaccum;		// game time owed since its last tick
 cvar_t	host_speeds = {"host_speeds","0"};			// set for running times
 
 cvar_t	sys_ticrate = {"sys_ticrate","0.05"};
@@ -211,6 +225,7 @@ void Host_InitLocal (void)
 	Host_InitCommands ();
 	
 	Cvar_RegisterVariable (&host_framerate);
+	Cvar_RegisterVariable (&host_maxfps);
 	Cvar_RegisterVariable (&host_speeds);
 
 	Cvar_RegisterVariable (&sys_ticrate);
@@ -502,8 +517,16 @@ qboolean Host_FilterTime (float time)
 {
 	realtime += time;
 
-	if (!cls.timedemo && realtime - oldrealtime < 1.0/72.0)
-		return false;		// framerate is too high
+	{
+		float	maxfps = host_maxfps.value;
+
+		if (maxfps < 10)
+			maxfps = 10;
+		if (maxfps > 1000)
+			maxfps = 1000;
+		if (!cls.timedemo && realtime - oldrealtime < 1.0/maxfps)
+			return false;		// framerate is too high
+	}
 
 	host_frametime = realtime - oldrealtime;
 	oldrealtime = realtime;
@@ -636,6 +659,7 @@ void _Host_Frame (float time)
 	static double		time2 = 0;
 	static double		time3 = 0;
 	int			pass1, pass2, pass3;
+	qboolean	tick;
 
 	if (setjmp (host_abortserver) )
 		return;			// something bad happened, or the server disconnected
@@ -658,9 +682,28 @@ void _Host_Frame (float time)
 
 	NET_Poll();
 
+// Whether the game runs a tick this frame: always, unless frames are being
+// drawn faster than 72 a second, and then once 1/72 of a second is owed.
+	host_decoupled = host_maxfps.value > 72 && !cls.timedemo;
+	if (host_decoupled)
+	{
+		host_netaccum += host_frametime;
+		tick = host_netaccum >= 1.0/72.0 - 0.0005;
+	}
+	else
+	{
+		host_netaccum = 0;
+		tick = true;
+	}
+
 // if running the server locally, make intentions now
 	if (sv.active)
-		CL_SendCmd ();
+	{
+		if (tick)
+			CL_SendCmd ();
+		else
+			CL_AccumulateCmd ();
+	}
 	
 //-------------------
 //
@@ -671,8 +714,16 @@ void _Host_Frame (float time)
 // check for commands typed to the host
 	Host_GetConsoleCommands ();
 	
-	if (sv.active)
+	if (sv.active && tick)
+	{
+		double	frametime = host_frametime;
+
+	// the game's time, which is all the frames' since its last tick
+		if (host_decoupled)
+			host_frametime = host_netaccum;
 		Host_ServerFrame ();
+		host_frametime = frametime;
+	}
 
 //-------------------
 //
@@ -683,7 +734,14 @@ void _Host_Frame (float time)
 // if running the server remotely, send intentions now after
 // the incoming messages have been read
 	if (!sv.active)
-		CL_SendCmd ();
+	{
+		if (tick)
+			CL_SendCmd ();
+		else
+			CL_AccumulateCmd ();
+	}
+	if (tick)
+		host_netaccum = 0;
 
 	host_time += host_frametime;
 

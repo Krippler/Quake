@@ -1561,6 +1561,7 @@ typedef enum
 #define	OPT_PADNAME		12
 #define	OPT_CROSSHAIR	13
 #define	OPT_HUD			14
+#define	OPT_MAXFPS		15
 
 typedef struct
 {
@@ -1663,6 +1664,8 @@ static option_t	opt_display[] =
 	{"Screen Size",				o_custom, NULL,             0,     0,    0,    OPT_VIEWSIZE},
 	{"Brightness",				o_custom, NULL,             0,     0,    0,    OPT_GAMMA},
 	{"Field of View",			o_slider, "fov",            75,    130,  5,    0},
+// above 72 only the drawing goes faster; the game still runs at 72 (host.c)
+	{"Max FPS",					o_custom, NULL,             0,     0,    0,    OPT_MAXFPS},
 
 	{"Enhancements",			o_heading, NULL,            0,     0,    0,    0},
 	{"Texture Detail",			o_custom, NULL,             0,     0,    0,    OPT_DETAIL},
@@ -1732,6 +1735,8 @@ static int		opt_resume = -1;	// the page a submenu goes back to
 // Texture detail is d_mipcap, which is how blurry the far end of a wall may
 // get. Named rather than numbered, because "2" says nothing.
 static char	*options_detail[] = { "Sharp", "Softer", "Soft", "Softest" };
+static int	options_maxfps[] = { 60, 72, 100, 120, 144, 165, 200, 240, 300 };
+#define	NUM_MAXFPS	((int)(sizeof(options_maxfps)/sizeof(options_maxfps[0])))
 static char	*options_crosshair[] =
 	{ "Off", "Classic", "Cross", "Dot", "Circle", "Gap Cross", "Circle Dot" };
 #define	NUM_CROSSHAIRS	((int)(sizeof(options_crosshair)/sizeof(options_crosshair[0])))
@@ -1817,6 +1822,7 @@ static float M_Options_Value (option_t *o)
 		case OPT_DETAIL:	return Cvar_VariableValue ("d_mipcap");
 		case OPT_CROSSHAIR:	return Cvar_VariableValue ("crosshair");
 		case OPT_HUD:		return Cvar_VariableValue ("hud_style");
+		case OPT_MAXFPS:	return Cvar_VariableValue ("host_maxfps");
 		}
 		break;
 
@@ -1920,6 +1926,22 @@ void M_AdjustSliders (int dir)
 
 	case OPT_HUD:
 		Cvar_SetValue ("hud_style", Cvar_VariableValue ("hud_style") ? 0 : 1);
+		break;
+
+	case OPT_MAXFPS:
+		{
+			int		i, cur = (int)Cvar_VariableValue ("host_maxfps");
+
+		// the step after the nearest one at or below what it is set to
+			for (i = 0 ; i < NUM_MAXFPS - 1 && options_maxfps[i + 1] <= cur ; i++)
+				;
+			i += dir;
+			if (i < 0)
+				i = NUM_MAXFPS - 1;
+			if (i >= NUM_MAXFPS)
+				i = 0;
+			Cvar_SetValue ("host_maxfps", options_maxfps[i]);
+		}
 		break;
 
 	case OPT_CROSSHAIR:
@@ -2080,6 +2102,10 @@ static void M_OptPage_DrawValue (int right, int y, option_t *o)
 
 	case OPT_HUD:
 		M_PageChoice (right, y, v ? "Minimal" : "Classic");
+		break;
+
+	case OPT_MAXFPS:
+		M_PageChoice (right, y, va ("%d", (int)v));
 		break;
 
 	case OPT_CROSSHAIR:

@@ -648,13 +648,18 @@ void IN_PadMove (usercmd_t *cmd)
 
 // Walking: the stick is a speed, not a key. Pushed all the way it runs, if the
 // run key is not held already and Always Run is not on.
+// A frame between the game's ticks (Max FPS) only turns the view: the stick's
+// walking is a speed, which the tick's own command carries.
 	speed = 1;
 	if (in_speed.state & 1)
 		speed = cl_movespeedkey.value;
 	else if (joy_pushrun.value && m > 0.9 && cl_forwardspeed.value <= 200)
 		speed = cl_movespeedkey.value;
-	cmd->forwardmove -= my * cl_forwardspeed.value * speed;
-	cmd->sidemove += mx * cl_sidespeed.value * speed;
+	if (!in_accumulating)
+	{
+		cmd->forwardmove -= my * cl_forwardspeed.value * speed;
+		cmd->sidemove += mx * cl_sidespeed.value * speed;
+	}
 
 // Looking: degrees a second, on a curve so a small push aims finely. Turning
 // and looking up and down have speeds of their own, as the re-release's Aim X

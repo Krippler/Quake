@@ -405,7 +405,10 @@ float	CL_LerpPoint (void)
 
 	f = cl.mtime[0] - cl.mtime[1];
 	
-	if (!f || cl_nolerp.value || cls.timedemo || sv.active)
+// A game on this machine sends a message every frame, so there is nothing
+// between them to interpolate -- unless frames are drawn faster than the game
+// runs (host.c's Max FPS), and then there is.
+	if (!f || cl_nolerp.value || cls.timedemo || (sv.active && !host_decoupled))
 	{
 		cl.time = cl.mtime[0];
 		return 1;
@@ -757,6 +760,40 @@ int CL_ReadFromServer (void)
 
 /*
 =================
+CL_AccumulateCmd
+
+A frame drawn between the game's ticks (host.c's Max FPS). The view still turns
+with the keys, the mouse and the controller's look stick, every frame; what the
+mouse moves the player by (strafing with it, or walking with it with Mouse
+Look off) is kept for the next tick's command, which adds it in. Movement from
+keys and the controller's move stick is a speed, not a distance, and the
+tick's own command has all of it.
+=================
+*/
+static usercmd_t	cl_pendingmove;
+qboolean			in_accumulating;
+
+void CL_AccumulateCmd (void)
+{
+	usercmd_t	cmd;
+
+	if (cls.state != ca_connected || cls.signon != SIGNONS)
+		return;
+
+	CL_AdjustAngles ();
+
+	Q_memset (&cmd, 0, sizeof(cmd));
+	in_accumulating = true;
+	IN_Move (&cmd);
+	in_accumulating = false;
+
+	cl_pendingmove.forwardmove += cmd.forwardmove;
+	cl_pendingmove.sidemove += cmd.sidemove;
+	cl_pendingmove.upmove += cmd.upmove;
+}
+
+/*
+=================
 CL_SendCmd
 =================
 */
@@ -774,6 +811,12 @@ void CL_SendCmd (void)
 	
 	// allow mice or other external controllers to add to the move
 		IN_Move (&cmd);
+
+	// and what the mouse moved by in frames drawn since the last tick
+		cmd.forwardmove += cl_pendingmove.forwardmove;
+		cmd.sidemove += cl_pendingmove.sidemove;
+		cmd.upmove += cl_pendingmove.upmove;
+		Q_memset (&cl_pendingmove, 0, sizeof(cl_pendingmove));
 	
 	// send the unreliable message
 		CL_SendMove (&cmd);

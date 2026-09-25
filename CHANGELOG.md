@@ -39,6 +39,12 @@ on the default branch publishes that version, `## [Unreleased]` publishes only
   from one animation pose into the next, instead of stepping between them ten
   times a second. Walking monsters also glide between the steps the game moves
   them in. Flames and the like are left unblended, as in QuakeSpasm.
+- **Max FPS.** **Options → Display → Max FPS** (`host_maxfps`, 60 to 300)
+  lifts id's 72-frame cap, for high-refresh monitors on the desktop build.
+  The game itself still runs at 72: above that, only the drawing goes
+  faster. The mouse and controller turn the view every frame, and everything
+  moves smoothly between the game's ticks. Jumps, lifts and movement come out
+  exactly as at 72. The default stays 72, and nothing changes at 72 or below.
 
 ### Fixed
 
