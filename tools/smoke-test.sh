@@ -47,6 +47,15 @@ rm -rf "$work"
 mkdir -p "$work"
 cd "$work"
 
+# The localization parser needs no display and no game data, so it goes first.
+say "the localization file parser"
+${CC:-cc} -I"$here/WinQuake" -Dstricmp=strcasecmp -D_GNU_SOURCE -fcommon -w \
+    -o "$work/loc-test" "$here/tools/loc-test.c" -lz \
+    || die "tools/loc-test.c did not build"
+"$work/loc-test" >"$work/loc-test.log" 2>&1 \
+    || { cat "$work/loc-test.log" >&2; die "the localization parser got a string wrong"; }
+say "$(grep -c '^\[loc-test\] ok' "$work/loc-test.log") strings read as the progs expects"
+
 say "building synthetic game data"
 python3 "$here/tools/make-test-data.py" "$work" >/dev/null
 

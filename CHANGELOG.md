@@ -5,6 +5,15 @@ top section's heading is what the release workflow reads: `## [X.Y.Z] — DATE`
 on the default branch publishes that version, `## [Unreleased]` publishes only
 `edge`.
 
+## [Unreleased]
+
+### Fixed
+
+- **"You got5 cells": missing spaces in re-release messages.** The
+  localization file reader trimmed the trailing spaces off every quoted
+  string, so "You got " lost the space before the backpack's count. A
+  check of the reader now runs at the start of the smoke test.
+
 ## [1.18.2] — 2026-09-25
 
 ### Fixed

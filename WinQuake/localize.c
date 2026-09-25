@@ -347,6 +347,7 @@ static void LOC_FoldUTF8 (char *s)
 static void LOC_AddText (char *text, char *where)
 {
 	char		*cursor, *line, *equals, *key_end, *value, *src, *dst;
+	qboolean	closed;
 	int			before = loc_numentries;
 	locentry_t	*grown;
 
@@ -401,8 +402,14 @@ static void LOC_AddText (char *text, char *where)
 				break;
 			*dst++ = *src++;
 		}
+	// Asked before the terminator goes in: with no escape in the value, dst
+	// and src are the same place, and the 0 lands on the closing quote. Asked
+	// after, as it was, every quoted value looked unquoted and lost its
+	// trailing spaces -- "You got " came out "You got", and the backpack's
+	// message ran into the count that follows: "You got5 cells".
+		closed = (*src == '"');
 		*dst = 0;
-		if (*src != '"')	// unquoted: trim the end
+		if (!closed)	// unquoted: trim the end
 			while (dst > value && (dst[-1] == ' ' || dst[-1] == '\t'
 				   || dst[-1] == '\r'))
 				*--dst = 0;
