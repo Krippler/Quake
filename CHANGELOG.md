@@ -24,6 +24,11 @@ on the default branch publishes that version, `## [Unreleased]` publishes only
       the re-release, which asks plainly. Enter now confirms quitting too, so a
       controller's A button can quit.
   - **Customize Controls** lists **Quick Save**, **Quick Load** and **Chat**.
+- **Crosshair styles and colour.** **Options → Gameplay → Crosshair Style**
+  offers id's classic '+', a cross, a dot, a circle, a cross with a gap, and a
+  circle with a dot. **Red**, **Green** and **Blue** set its colour, drawn as
+  the nearest colour in Quake's palette. The shapes keep their size at any
+  window size. From the console: `crosshair 0`–`6`, `crosshair_r`, `_g`, `_b`.
 
 ## [1.18.3] — 2026-09-25
 

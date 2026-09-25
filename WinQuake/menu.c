@@ -1559,6 +1559,7 @@ typedef enum
 #define	OPT_KICK		9
 #define	OPT_DETAIL		10
 #define	OPT_PADNAME		12
+#define	OPT_CROSSHAIR	13
 
 typedef struct
 {
@@ -1636,7 +1637,10 @@ static option_t	opt_gameplay[] =
 	{"Classic Quit Prompt",		o_toggle, "m_classicquit",  0,     0,    0,    0},
 
 	{"Crosshair",				o_heading, NULL,            0,     0,    0,    0},
-	{"Show Crosshair",			o_toggle, "crosshair",      0,     0,    0,    0},
+	{"Crosshair Style",			o_custom, NULL,             0,     0,    0,    OPT_CROSSHAIR},
+	{"Red",						o_slider, "crosshair_r",    0,     255,  15,   0},
+	{"Green",					o_slider, "crosshair_g",    0,     255,  15,   0},
+	{"Blue",					o_slider, "crosshair_b",    0,     255,  15,   0},
 };
 
 static option_t	opt_sound[] =
@@ -1725,6 +1729,9 @@ static int		opt_resume = -1;	// the page a submenu goes back to
 // Texture detail is d_mipcap, which is how blurry the far end of a wall may
 // get. Named rather than numbered, because "2" says nothing.
 static char	*options_detail[] = { "Sharp", "Softer", "Soft", "Softest" };
+static char	*options_crosshair[] =
+	{ "Off", "Classic", "Cross", "Dot", "Circle", "Gap Cross", "Circle Dot" };
+#define	NUM_CROSSHAIRS	((int)(sizeof(options_crosshair)/sizeof(options_crosshair[0])))
 
 static void M_OptPage_Open (int page)
 {
@@ -1805,6 +1812,7 @@ static float M_Options_Value (option_t *o)
 		case OPT_BOB:		return Cvar_VariableValue ("cl_bob") != 0;
 		case OPT_KICK:		return Cvar_VariableValue ("v_kicktime") != 0;
 		case OPT_DETAIL:	return Cvar_VariableValue ("d_mipcap");
+		case OPT_CROSSHAIR:	return Cvar_VariableValue ("crosshair");
 		}
 		break;
 
@@ -1904,6 +1912,16 @@ void M_AdjustSliders (int dir)
 	case OPT_KICK:
 	// How long the view is thrown by a hit. Zero is no throw at all.
 		Cvar_SetValue ("v_kicktime", Cvar_VariableValue ("v_kicktime") ? 0 : 0.5);
+		break;
+
+	case OPT_CROSSHAIR:
+	// round the styles, off included, either way (view.c draws them)
+		v = (int)Cvar_VariableValue ("crosshair") + dir;
+		if (v < 0)
+			v = NUM_CROSSHAIRS - 1;
+		if (v >= NUM_CROSSHAIRS)
+			v = 0;
+		Cvar_SetValue ("crosshair", v);
 		break;
 
 	case OPT_DETAIL:
@@ -2050,6 +2068,11 @@ static void M_OptPage_DrawValue (int right, int y, option_t *o)
 	case OPT_DETAIL:
 		M_PageChoice (right, y,
 			options_detail[(int)v < 0 ? 0 : ((int)v > 3 ? 3 : (int)v)]);
+		break;
+
+	case OPT_CROSSHAIR:
+		M_PageChoice (right, y, options_crosshair[(int)v < 0 ? 0
+			: ((int)v >= NUM_CROSSHAIRS ? 1 : (int)v)]);
 		break;
 
 	case OPT_PADNAME:
