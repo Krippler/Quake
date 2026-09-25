@@ -1560,6 +1560,7 @@ typedef enum
 #define	OPT_DETAIL		10
 #define	OPT_PADNAME		12
 #define	OPT_CROSSHAIR	13
+#define	OPT_HUD			14
 
 typedef struct
 {
@@ -1632,6 +1633,7 @@ static option_t	opt_gameplay[] =
 	{"Always Run",				o_custom, NULL,             0,     0,    0,    OPT_ALWAYSRUN},
 	{"View Bob",				o_custom, NULL,             0,     0,    0,    OPT_BOB},
 	{"View Kick",				o_custom, NULL,             0,     0,    0,    OPT_KICK},
+	{"HUD Style",				o_custom, NULL,             0,     0,    0,    OPT_HUD},
 	{"Show Weapon",				o_toggle, "r_drawviewmodel",0,     0,    0,    0},
 	{"Toggle Scoreboard",		o_toggle, "cl_togglescores",0,     0,    0,    0},
 	{"Classic Quit Prompt",		o_toggle, "m_classicquit",  0,     0,    0,    0},
@@ -1813,6 +1815,7 @@ static float M_Options_Value (option_t *o)
 		case OPT_KICK:		return Cvar_VariableValue ("v_kicktime") != 0;
 		case OPT_DETAIL:	return Cvar_VariableValue ("d_mipcap");
 		case OPT_CROSSHAIR:	return Cvar_VariableValue ("crosshair");
+		case OPT_HUD:		return Cvar_VariableValue ("hud_style");
 		}
 		break;
 
@@ -1912,6 +1915,10 @@ void M_AdjustSliders (int dir)
 	case OPT_KICK:
 	// How long the view is thrown by a hit. Zero is no throw at all.
 		Cvar_SetValue ("v_kicktime", Cvar_VariableValue ("v_kicktime") ? 0 : 0.5);
+		break;
+
+	case OPT_HUD:
+		Cvar_SetValue ("hud_style", Cvar_VariableValue ("hud_style") ? 0 : 1);
 		break;
 
 	case OPT_CROSSHAIR:
@@ -2068,6 +2075,10 @@ static void M_OptPage_DrawValue (int right, int y, option_t *o)
 	case OPT_DETAIL:
 		M_PageChoice (right, y,
 			options_detail[(int)v < 0 ? 0 : ((int)v > 3 ? 3 : (int)v)]);
+		break;
+
+	case OPT_HUD:
+		M_PageChoice (right, y, v ? "Minimal" : "Classic");
 		break;
 
 	case OPT_CROSSHAIR:

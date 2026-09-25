@@ -29,6 +29,11 @@ on the default branch publishes that version, `## [Unreleased]` publishes only
   circle with a dot. **Red**, **Green** and **Blue** set its colour, drawn as
   the nearest colour in Quake's palette. The shapes keep their size at any
   window size. From the console: `crosshair 0`–`6`, `crosshair_r`, `_g`, `_b`.
+- **Minimal HUD.** **Options → Gameplay → HUD Style → Minimal** (`hud_style 1`)
+  drops the status bar and lets the view fill the screen. Your face and
+  health go in the bottom left, with armour after them when you have some,
+  and ammo in the bottom right. Keys and powerups show in a row above. The
+  scoreboard, intermission and deathmatch overlays are unchanged.
 
 ## [1.18.3] — 2026-09-25
 

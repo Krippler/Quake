@@ -204,6 +204,7 @@ void Sbar_Init (void)
 	sb_face_quad = Draw_PicFromWad ("face_quad");
 
 	Cvar_RegisterVariable (&cl_togglescores);
+	Cvar_RegisterVariable (&hud_style);
 	Cmd_AddCommand ("+showscores", Sbar_ShowScores);
 	Cmd_AddCommand ("-showscores", Sbar_DontShowScores);
 
@@ -268,6 +269,31 @@ void Sbar_Init (void)
 
 // drawing routines are relative to the status bar location
 
+//
+// HUD Style, as the re-release has it. 0 is id's status bar. 1 is Minimal: the
+// same numbers and icons with no bar behind them, armour and health in the
+// bottom left corner and ammunition in the bottom right, over a view that
+// fills the screen.
+//
+// The pieces are id's own, drawn by id's code; Minimal only moves where the
+// bar's left edge is taken to be (sb_origin), and draws them every frame,
+// since the view is drawn under them every frame.
+//
+cvar_t	hud_style = {"hud_style", "0", true};
+
+#define	SB_CENTRED	(-100000)
+static int	sb_origin = SB_CENTRED;	// the bar's x on the canvas, or id's centring
+static int	sb_yoff;			// and how far above its usual row
+
+static int Sbar_X (int x)
+{
+	if (sb_origin != SB_CENTRED)
+		return x + sb_origin;
+	if (cl.gametype == GAME_DEATHMATCH)
+		return x;
+	return x + ((vid.conwidth - 320)>>1);
+}
+
 /*
 =============
 Sbar_DrawPic
@@ -275,10 +301,10 @@ Sbar_DrawPic
 */
 void Sbar_DrawPic (int x, int y, qpic_t *pic)
 {
-	if (cl.gametype == GAME_DEATHMATCH)
-		Draw_Pic (x /* + ((vid.conwidth - 320)>>1)*/, y + (vid.conheight-SBAR_HEIGHT), pic);
+	if (sb_origin != SB_CENTRED)	// nothing behind it, so nothing drawn solid
+		Draw_TransPic (Sbar_X (x), y + (vid.conheight-SBAR_HEIGHT) - sb_yoff, pic);
 	else
-		Draw_Pic (x + ((vid.conwidth - 320)>>1), y + (vid.conheight-SBAR_HEIGHT), pic);
+		Draw_Pic (Sbar_X (x), y + (vid.conheight-SBAR_HEIGHT), pic);
 }
 
 /*
@@ -288,10 +314,7 @@ Sbar_DrawTransPic
 */
 void Sbar_DrawTransPic (int x, int y, qpic_t *pic)
 {
-	if (cl.gametype == GAME_DEATHMATCH)
-		Draw_TransPic (x /*+ ((vid.conwidth - 320)>>1)*/, y + (vid.conheight-SBAR_HEIGHT), pic);
-	else
-		Draw_TransPic (x + ((vid.conwidth - 320)>>1), y + (vid.conheight-SBAR_HEIGHT), pic);
+	Draw_TransPic (Sbar_X (x), y + (vid.conheight-SBAR_HEIGHT) - sb_yoff, pic);
 }
 
 /*
@@ -303,10 +326,7 @@ Draws one solid graphics character
 */
 void Sbar_DrawCharacter (int x, int y, int num)
 {
-	if (cl.gametype == GAME_DEATHMATCH)
-		Draw_Character ( x /*+ ((vid.conwidth - 320)>>1) */ + 4 , y + vid.conheight-SBAR_HEIGHT, num);
-	else
-		Draw_Character ( x + ((vid.conwidth - 320)>>1) + 4 , y + vid.conheight-SBAR_HEIGHT, num);
+	Draw_Character (Sbar_X (x) + 4, y + vid.conheight-SBAR_HEIGHT - sb_yoff, num);
 }
 
 /*
@@ -865,14 +885,11 @@ void Sbar_DrawFace (void)
 		top = Sbar_ColorForMap (top);
 		bottom = Sbar_ColorForMap (bottom);
 
-		if (cl.gametype == GAME_DEATHMATCH)
-			xofs = 113;
-		else
-			xofs = ((vid.conwidth - 320)>>1) + 113;
+		xofs = Sbar_X (113);
 
 		Sbar_DrawPic (112, 0, rsb_teambord);
-		Draw_Fill (xofs, vid.conheight-SBAR_HEIGHT+3, 22, 9, top);
-		Draw_Fill (xofs, vid.conheight-SBAR_HEIGHT+12, 22, 9, bottom);
+		Draw_Fill (xofs, vid.conheight-SBAR_HEIGHT+3 - sb_yoff, 22, 9, top);
+		Draw_Fill (xofs, vid.conheight-SBAR_HEIGHT+12 - sb_yoff, 22, 9, bottom);
 
 		// draw number
 		f = s->frags;
@@ -940,11 +957,41 @@ void Sbar_DrawFace (void)
 Sbar_Draw
 ===============
 */
+//
+// Minimal's extras: the keys and powerups the inventory row would have shown,
+// small, in a row above the armour and health.
+//
+static void Sbar_DrawMinimalItems (void)
+{
+	int		i, x, y;
+
+	x = 8;
+	y = vid.conheight - SBAR_HEIGHT - 8 - 16;
+	for (i = 0 ; i < 6 ; i++)
+		if (cl.items & (1 << (17 + i)))
+		{
+			Draw_TransPic (x, y, sb_items[i]);
+			x += 18;
+		}
+	if (!rogue && !hipnotic)
+		for (i = 0 ; i < 4 ; i++)
+			if (cl.items & (1 << (28 + i)))
+			{
+				Draw_TransPic (x, y, sb_sigil[i]);
+				x += 10;
+			}
+}
+
 void Sbar_Draw (void)
 {
+	qboolean	minimal;
+
 	if (scr_con_current == vid.conheight)
 		return;		// console is full screen
 
+	minimal = hud_style.value >= 1 && !cl.intermission;
+	if (minimal)
+		sb_updates = 0;		// the view under it was redrawn
 	if (sb_updates >= vid.numpages)
 		return;
 
@@ -968,21 +1015,35 @@ void Sbar_Draw (void)
 		Sbar_DrawScoreboard ();
 		sb_updates = 0;
 	}
-	else if (sb_lines)
+	else if (sb_lines || minimal)
 	{
-		Sbar_DrawPic (0, 0, sb_sbar);
+		if (minimal)
+		{
+		// 8 up from the bottom; each group moves the bar's left end so that
+		// it lands where Minimal wants it
+			Sbar_DrawMinimalItems ();
+			sb_yoff = 8;
+		}
+		else
+			Sbar_DrawPic (0, 0, sb_sbar);
 
    // keys (hipnotic only)
       //MED 01/04/97 moved keys here so they would not be overwritten
-      if (hipnotic)
+      if (hipnotic && !minimal)		// Minimal has them with the other items
       {
          if (cl.items & IT_KEY1)
             Sbar_DrawPic (209, 3, sb_items[0]);
          if (cl.items & IT_KEY2)
             Sbar_DrawPic (209, 12, sb_items[1]);
       }
-   // armor
-		if (cl.items & IT_INVULNERABILITY)
+   // armor; in Minimal after the health (the bar's 0 goes at 116), and left
+   // out at 0, where there is no bar to fill
+		if (minimal)
+			sb_origin = 116;
+		if (minimal && !cl.stats[STAT_ARMOR]
+			&& !(cl.items & IT_INVULNERABILITY))
+			;
+		else if (cl.items & IT_INVULNERABILITY)
 		{
 			Sbar_DrawNum (24, 0, 666, 3, 1);
 			Sbar_DrawPic (0, 0, draw_disc);
@@ -1013,14 +1074,19 @@ void Sbar_Draw (void)
 			}
 		}
 
-	// face
+	// face, and health; in Minimal the face goes in the corner (the bar's 112
+	// at 8)
+		if (minimal)
+			sb_origin = 8 - 112;
 		Sbar_DrawFace ();
 
 	// health
 		Sbar_DrawNum (136, 0, cl.stats[STAT_HEALTH], 3
 		, cl.stats[STAT_HEALTH] <= 25);
 
-	// ammo icon
+	// ammo icon; in Minimal, with its number, in the other corner
+		if (minimal)
+			sb_origin = vid.conwidth - 8 - 320;
 		if (rogue)
 		{
 			if (cl.items & RIT_SHELLS)
@@ -1052,6 +1118,9 @@ void Sbar_Draw (void)
 
 		Sbar_DrawNum (248, 0, cl.stats[STAT_AMMO], 3,
 					  cl.stats[STAT_AMMO] <= 10);
+
+		sb_origin = SB_CENTRED;
+		sb_yoff = 0;
 	}
 
 	if (vid.conwidth > 320) {
