@@ -5,6 +5,18 @@ top section's heading is what the release workflow reads: `## [X.Y.Z] — DATE`
 on the default branch publishes that version, `## [Unreleased]` publishes only
 `edge`.
 
+## [1.19.2] — 2026-10-01
+
+### Fixed
+
+- **Docker images report their real version.** Every image was labelled
+  `master` as its version (`org.opencontainers.image.version`), which is what
+  `docker inspect`, Diun and Watchtower show. CI took the label from the first
+  tag it published, which is the branch name. It is now the build stamp the
+  game prints at startup: the release number on a release image, and the commit
+  (`git describe`) on edge and branch builds. Images already published keep
+  `master`.
+
 ## [1.19.1] — 2026-09-25
 
 ### Changed

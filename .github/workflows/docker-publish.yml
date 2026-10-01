@@ -81,6 +81,24 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
+      # Stamped into the client and printed at startup. A release build says
+      # its version; anything else says which commit it came from, so a bug
+      # report can be tied to a build without guessing.
+      - name: Work out the build stamp
+        id: stamp
+        run: |
+          set -euo pipefail
+          VER="${{ steps.detect.outputs.version }}"
+          if [ -z "$VER" ]; then
+            # No branch name here: it identifies nothing the sha does not, and
+            # this project's branches have slashes in them.
+            VER="$(git describe --tags --always --dirty 2>/dev/null || echo dev)"
+          fi
+          echo "version=${VER}" >> "$GITHUB_OUTPUT"
+          # the image's version label, which has no use for git's v
+          echo "label=${VER#v}" >> "$GITHUB_OUTPUT"
+          echo "build stamp: ${VER}"
+
       - name: Extract Docker metadata
         id: meta
         uses: docker/metadata-action@96383f45573cb7f253c731d3b3ab81c87ef81934 # v5.0.0
@@ -95,6 +113,13 @@ jobs:
           #   • plain merge to master      → edge
           flavor: |
             latest=false
+          # metadata-action takes org.opencontainers.image.version from the
+          # first tag on the list, and the branch name comes first, so every
+          # image said "master" -- the version docker inspect, Diun and
+          # Watchtower report. It is the build stamp instead: 1.19.2 on a
+          # release, and the commit (via git describe) on anything else.
+          labels: |
+            org.opencontainers.image.version=${{ steps.stamp.outputs.label }}
           tags: |
             # A branch or PR build matches none of the version rules below, and
             # build-push-action fails immediately when handed an empty tag
@@ -116,22 +141,6 @@ jobs:
             type=raw,value=${{ steps.detect.outputs.major_minor }},enable=${{ steps.detect.outputs.is_release_merge == 'true' }}
             type=raw,value=${{ steps.detect.outputs.major }},enable=${{ steps.detect.outputs.is_release_merge == 'true' }}
             type=raw,value=latest,enable=${{ steps.detect.outputs.is_release_merge == 'true' }}
-
-      # Stamped into the client and printed at startup. A release build says
-      # its version; anything else says which commit it came from, so a bug
-      # report can be tied to a build without guessing.
-      - name: Work out the build stamp
-        id: stamp
-        run: |
-          set -euo pipefail
-          VER="${{ steps.detect.outputs.version }}"
-          if [ -z "$VER" ]; then
-            # No branch name here: it identifies nothing the sha does not, and
-            # this project's branches have slashes in them.
-            VER="$(git describe --tags --always --dirty 2>/dev/null || echo dev)"
-          fi
-          echo "version=${VER}" >> "$GITHUB_OUTPUT"
-          echo "build stamp: ${VER}"
 
       - name: Build and push Docker image
         id: build-and-push
