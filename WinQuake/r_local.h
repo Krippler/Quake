@@ -307,6 +307,22 @@ extern qboolean	r_probe, r_probefound;
 extern surf_t	r_probedrawn;
 void R_SurfaceReport (void);
 void R_FaceEdgeReport (msurface_t *face);
+extern int		r_probedrawnindex;	// its place in surfaces[] that frame
+
+// r_draw.c: on that frame, every edge emitted across the crosshair's row
+typedef struct
+{
+	int			surf;			// the surface it opens or closes
+	qboolean	leading;		// opens it (false: closes it)
+	float		u;				// where it crosses the row
+	vec3_t		p0, p1;			// its ends, in its model's space
+} probeedge_t;
+
+#define	MAX_PROBEEDGES	1024
+extern probeedge_t	r_probeedges[MAX_PROBEEDGES];
+extern int			r_numprobeedges;	// can run past MAX_PROBEEDGES
+void R_ProbeEdge (mvertex_t *pv0, mvertex_t *pv1, int v, int v2, float u,
+				  float u_step, qboolean trailing);
 
 // r_bsp.c: brush-model cuts that crossed a plane only once (see R_BPlaneDist)
 extern int		r_bmodelodd;

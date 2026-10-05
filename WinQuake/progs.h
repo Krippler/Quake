@@ -31,14 +31,25 @@ typedef union eval_s
 	int				edict;
 } eval_t;	
 
-#define	MAX_ENT_LEAFS	16
+//
+// The leaves an entity touches, for the server to tell whether a client can
+// see it. id kept 16, as shorts. A brush model in a map from a modern compiler
+// can touch far more than 16 -- detail cuts the world into many small leaves --
+// and if none of the 16 it kept is in the client's view, the entity was never
+// sent: a staircase or a wall that vanished as the player turned or moved.
+// Past the limit an entity is now always sent (QuakeSpasm's answer), the
+// limit is 32 as there, and leaf numbers are ints, since a big map has more
+// than 32767 leaves.
+//
+#define	MAX_ENT_LEAFS	32
 typedef struct edict_s
 {
 	qboolean	free;
 	link_t		area;				// linked to a division node or leaf
 	
 	int			num_leafs;
-	short		leafnums[MAX_ENT_LEAFS];
+	int			leafnums[MAX_ENT_LEAFS];
+	qboolean	leafsoverflowed;	// touches more leaves than leafnums holds
 
 	entity_state_t	baseline;
 	

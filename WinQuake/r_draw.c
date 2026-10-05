@@ -450,6 +450,9 @@ void R_EmitEdge (mvertex_t *pv0, mvertex_t *pv1)
 		return;
 	}
 
+	if (r_probe)
+		R_ProbeEdge (pv0, pv1, v, v2, u, u_step, side == 0);
+
 //
 // sort the edge in normally
 //
@@ -582,6 +585,37 @@ void R_ClipEdge (mvertex_t *pv0, mvertex_t *pv1, clipplane_t *clip)
 }
 
 #endif	// !id386
+
+
+//
+// For "surface": the edges emitted across the crosshair's row on the frame it
+// reports. Each opens or closes one surface there, and a surface drawn past its
+// own edge on that row is one that was opened and never closed. With the ends
+// of each edge in its model's space, the report gives enough to rebuild the
+// geometry and the view in a test map.
+//
+probeedge_t	r_probeedges[MAX_PROBEEDGES];
+int			r_numprobeedges;
+
+void R_ProbeEdge (mvertex_t *pv0, mvertex_t *pv1, int v, int v2, float u,
+				  float u_step, qboolean trailing)
+{
+	int			cy;
+	probeedge_t	*pe;
+
+	cy = r_refdef.vrect.y + r_refdef.vrect.height/2;
+	if (cy < v || cy > v2)
+		return;
+
+	if (r_numprobeedges++ >= MAX_PROBEEDGES)
+		return;
+	pe = &r_probeedges[r_numprobeedges - 1];
+	pe->surf = surface_p - surfaces;
+	pe->leading = !trailing;
+	pe->u = u + (cy - v) * u_step;
+	VectorCopy (pv0->position, pe->p0);
+	VectorCopy (pv1->position, pe->p1);
+}
 
 
 /*

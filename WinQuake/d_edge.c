@@ -182,6 +182,7 @@ static void D_ProbeSpans (void)
 			if (span->v == cy && span->u <= cx && cx < span->u + span->count)
 			{
 				r_probedrawn = *s;
+				r_probedrawnindex = s - surfaces;
 				r_probefound = true;
 				return;
 			}

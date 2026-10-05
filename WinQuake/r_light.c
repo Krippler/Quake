@@ -406,6 +406,7 @@ static void R_ToModel (vec3_t p, entity_t *ent, vec3_t f, vec3_t r, vec3_t u,
 qboolean	r_probe;		// set by "surface", cleared by R_SurfaceReport
 qboolean	r_probefound;	// an edge-list surface covered the crosshair
 surf_t		r_probedrawn;	// a copy of it
+int			r_probedrawnindex;
 
 void R_Surface_f (void)
 {
@@ -418,6 +419,7 @@ void R_Surface_f (void)
 	// reported at the end of the next frame, once it has been drawn
 	r_probe = true;
 	r_probefound = false;
+	r_numprobeedges = 0;
 }
 
 // this frame's edge-list entry for a face, if it made one
@@ -515,6 +517,91 @@ static void R_ProbeLight (msurface_t *face, vec3_t local)
 		Con_Printf (" none");
 	Con_Printf ("\nlight here %d, where 0 is black and 255 is full\n",
 				light >> 8);
+}
+
+//
+// What opened and closed the drawn surface on the crosshair's row. A surface
+// is drawn from an edge that opens it to the next that closes it; one drawn
+// where its face is not was left open, and this shows which edges it had there.
+// Each edge's ends are in its model's space, so with the view and the face's
+// corners the scene can be rebuilt in a test map.
+//
+static void R_ProbeRowReport (void)
+{
+	int			i, n, opens, closes, cx;
+	probeedge_t	*pe;
+
+	cx = r_refdef.vrect.x + r_refdef.vrect.width/2;
+	n = r_numprobeedges < MAX_PROBEEDGES ? r_numprobeedges : MAX_PROBEEDGES;
+	Con_Printf ("  on the crosshair's row (y %d, x %d), its edges:\n",
+				r_refdef.vrect.y + r_refdef.vrect.height/2, cx);
+	opens = closes = 0;
+	for (i=0, pe=r_probeedges ; i<n ; i++, pe++)
+	{
+		if (pe->surf != r_probedrawnindex)
+			continue;
+		if (pe->leading)
+			opens++;
+		else if (pe->u >= cx)
+			closes++;
+		Con_Printf ("    %s at x %.2f, from (%.3f %.3f %.3f) to (%.3f %.3f "
+					"%.3f)\n", pe->leading ? "opens " : "closes", pe->u,
+					pe->p0[0], pe->p0[1], pe->p0[2],
+					pe->p1[0], pe->p1[1], pe->p1[2]);
+	}
+	if (!opens)
+		Con_Printf ("    none that open it\n");
+	if (!closes)
+		Con_Printf ("    NOTHING CLOSES IT right of the crosshair\n");
+	if (r_numprobeedges > MAX_PROBEEDGES)
+		Con_Printf ("    (%d edges crossed the row; only the first %d were "
+					"kept)\n", r_numprobeedges, MAX_PROBEEDGES);
+}
+
+//
+// The drawn face's own corners and plane, in its model's space, and how far
+// the eye is from that plane. A face seen almost edge-on has its plane within
+// a unit or two of the eye, and a corner off the plane by a fraction of that
+// puts the face on both sides of the line it is seen along.
+//
+static void R_FaceShapeReport (msurface_t *pf, entity_t *ent)
+{
+	int			i, lindex;
+	model_t		*m;
+	medge_t		*edge;
+	float		*v, d, worst;
+	vec3_t		eye, f, r, u;
+
+	m = ent ? ent->model : cl.worldmodel;
+	Con_Printf ("  seen from (%.3f %.3f %.3f), angles (%.4f %.4f %.4f)\n",
+				r_refdef.vieworg[0], r_refdef.vieworg[1], r_refdef.vieworg[2],
+				r_refdef.viewangles[0], r_refdef.viewangles[1],
+				r_refdef.viewangles[2]);
+	if (ent)
+	{
+		AngleVectors (ent->angles, f, r, u);
+		R_ToModel (r_refdef.vieworg, ent, f, r, u, eye);
+	}
+	else
+		VectorCopy (r_refdef.vieworg, eye);
+	Con_Printf ("  its plane (%.5f %.5f %.5f) %.3f%s; the eye is %.4f units "
+				"from it\n", pf->plane->normal[0], pf->plane->normal[1],
+				pf->plane->normal[2], pf->plane->dist,
+				(pf->flags & SURF_PLANEBACK) ? ", facing back" : "",
+				DotProduct (eye, pf->plane->normal) - pf->plane->dist);
+	Con_Printf ("  its %d corners, and each one's distance off the plane:\n",
+				pf->numedges);
+	worst = 0;
+	for (i=0 ; i<pf->numedges ; i++)
+	{
+		lindex = m->surfedges[pf->firstedge + i];
+		edge = &m->edges[lindex > 0 ? lindex : -lindex];
+		v = m->vertexes[edge->v[lindex > 0 ? 0 : 1]].position;
+		d = DotProduct (v, pf->plane->normal) - pf->plane->dist;
+		if (fabs (d) > worst)
+			worst = fabs (d);
+		Con_Printf ("    (%.3f %.3f %.3f) %.4f\n", v[0], v[1], v[2], d);
+	}
 }
 
 //
@@ -626,6 +713,9 @@ static void R_DrawnReport (msurface_t *expected, vec3_t start, vec3_t dir,
 		R_FaceEdgeReport (pf);
 	else if (r_probedrawn.entity)
 		R_DrawnBmodelReport (pf, r_probedrawn.entity, start, dir, expecteddist);
+	R_ProbeRowReport ();
+	R_FaceShapeReport (pf, r_probedrawn.insubmodel ? r_probedrawn.entity
+					   : NULL);
 }
 
 void R_SurfaceReport (void)
