@@ -220,6 +220,18 @@ static void R_ReportBmodelShort (void)
 // Mod_CloseFaces now closes those loops when the map is loaded, so a face
 // that still arrives here odd is one the arithmetic made odd.
 //
+// A convex face cut through its middle crosses the plane exactly twice, and
+// the cut keeps one way in and one way out. MG3's start map has a ramp whose
+// edge lies along a world plane, with three corners on it, each a hair to one
+// side or the other. That face crosses four times; the cut joined the wrong
+// way in to the wrong way out, and the closing edge it made ran backwards.
+// The piece opened twice and closed once on those rows, and was drawn from the
+// ramp to the right edge of the screen: a black bar across everything. A face
+// that crosses neither none nor twice is now treated as an odd one is, and
+// goes uncut to the side most of it is on; what lies across the plane is no
+// wider than that hair, so which side gets it does not show. In id's three
+// demos no face crosses more than twice, so they draw as before.
+//
 int		r_bmodelodd;	// this frame, for the report in r_main.c
 char	*r_bmodeloddname;	// the model it was on
 
@@ -293,7 +305,7 @@ void R_RecursiveClipBPoly (bedge_t *pedges, mnode_t *pnode, msurface_t *psurf)
 		count++;
 	}
 
-	if (crossings & 1)
+	if (crossings != 0 && crossings != 2)
 	{
 		r_bmodelodd++;
 		r_bmodeloddname = currententity->model->name;
