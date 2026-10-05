@@ -5,6 +5,23 @@ top section's heading is what the release workflow reads: `## [X.Y.Z] — DATE`
 on the default branch publishes that version, `## [Unreleased]` publishes only
 `edge`.
 
+## [1.19.4] — 2026-10-05
+
+### Fixed
+
+- **A black bar across the screen from a ramp on MG3's start map.** Brush
+  models are cut along the world's planes as they are drawn, and a face cut
+  through its middle crosses the plane twice: once in, once out. The ramp's
+  edge lies along a world plane instead, with three of its corners on it,
+  each a hair to one side or the other, so the face crossed four times. The
+  cut joined the wrong way in to the wrong way out and made an edge that ran
+  backwards, which opened the face a second time where it should have
+  closed. Nothing closed it after that, and it was drawn to the right edge
+  of the screen, in front of everything. A face that crosses a plane any
+  number of times other than twice is now drawn uncut, as one that crosses
+  an odd number of times already was. In id's maps no face crosses more than
+  twice, so they draw exactly as before.
+
 ## [1.19.3] — 2026-10-05
 
 ### Fixed

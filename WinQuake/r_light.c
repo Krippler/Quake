@@ -627,8 +627,8 @@ static void R_DrawnBmodelReport (msurface_t *pf, entity_t *ent, vec3_t start,
 		if (r_bmodeloddfaces[i] == pf)
 			break;
 	if (i < r_numbmodeloddfaces)
-		Con_Printf ("  this frame it crossed a world plane an odd number of "
-					"times, so it\n  was drawn uncut, in the leaf most of it "
+		Con_Printf ("  this frame it crossed a world plane other than twice, "
+					"so it\n  was drawn uncut, in the leaf most of it "
 					"is in\n");
 	else if (r_bmodelodd)
 		Con_Printf ("  (%d face(s) of %s were drawn uncut this frame; not "
