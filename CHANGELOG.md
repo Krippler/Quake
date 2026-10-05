@@ -5,6 +5,33 @@ top section's heading is what the release workflow reads: `## [X.Y.Z] — DATE`
 on the default branch publishes that version, `## [Unreleased]` publishes only
 `edge`.
 
+## [Unreleased]
+
+### Fixed
+
+- **Stairs, walls and other brush models vanishing as you turn or move,**
+  such as the stairs on MG3's start map, which left the slope under them
+  showing. The server sends the client only the entities it can see. It
+  judges that by the map leaves each entity touches, and id's code kept at
+  most 16 of them per entity. Maps from modern compilers cut the world into
+  many small leaves, and a brush model can touch far more than 16. When none
+  of the 16 it kept was in view, the entity was not sent at all, though the
+  rest of it was in plain sight. An entity that touches more leaves than the
+  list holds is now always sent, as QuakeSpasm does, and the list holds 32.
+  Leaf numbers are now stored as full integers. id's were 16-bit, which
+  wraps on a map with more than 32767 leaves.
+
+### Changed
+
+- **`surface` says more about a face drawn where it isn't.** The black bar
+  on MG3's start map is a brush model's floor drawn past its own edge, seen
+  almost exactly edge-on: its plane passes within a unit or two of the eye.
+  The report now lists the edges that open and close that face on the
+  crosshair's row, and says so when nothing closes it. It also gives the
+  position and angles of the view, the face's plane and how far the eye is
+  from it, and each corner of the face with its distance off that plane.
+  That is enough to rebuild the face and the view in a test map.
+
 ## [1.19.2] — 2026-10-01
 
 ### Fixed
