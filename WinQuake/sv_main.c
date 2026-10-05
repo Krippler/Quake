@@ -503,7 +503,9 @@ void SV_WriteEntitiesToClient (edict_t	*clent, sizebuf_t *msg)
 				if (pvs[ent->leafnums[i] >> 3] & (1 << (ent->leafnums[i]&7) ))
 					break;
 				
-			if (i == ent->num_leafs)
+		// one that touches more leaves than it could list may be in view
+		// through a leaf it didn't, so it is sent (see MAX_ENT_LEAFS)
+			if (i == ent->num_leafs && !ent->leafsoverflowed)
 				continue;		// not visible
 		}
 
