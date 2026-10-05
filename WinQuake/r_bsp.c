@@ -227,10 +227,10 @@ static void R_ReportBmodelShort (void)
 // way in to the wrong way out, and the closing edge it made ran backwards.
 // The piece opened twice and closed once on those rows, and was drawn from the
 // ramp to the right edge of the screen: a black bar across everything. A face
-// that crosses neither none nor twice is now treated as an odd one is, and
-// goes uncut to the side most of it is on; what lies across the plane is no
-// wider than that hair, so which side gets it does not show. In id's three
-// demos no face crosses more than twice, so they draw as before.
+// that crosses any number of times but none or two is now treated as an odd
+// one is, and goes uncut to the side most of it is on; what lies across the
+// plane is no wider than that hair, so which side gets it does not show. In
+// id's three demos no face crosses more than twice, so they draw as before.
 //
 int		r_bmodelodd;	// this frame, for the report in r_main.c
 char	*r_bmodeloddname;	// the model it was on
