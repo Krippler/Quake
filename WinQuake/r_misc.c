@@ -520,6 +520,7 @@ r_refdef.viewangles[2]=    0;
 	r_edgesoutofrange = 0;
 	r_facesdiscarded = 0;
 	r_clampedfrac = 0;
+	r_openfaces = 0;
 	r_bmodelodd = 0;
 	r_numbmodeloddfaces = 0;
 

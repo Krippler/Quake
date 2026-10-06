@@ -48,6 +48,7 @@ qboolean	r_reportedshort;
 qboolean	r_reportedrange;
 qboolean	r_reportedclamp;	// once per map, for R_SafeFrac
 qboolean	r_reportedodd;		// once per map, for r_bmodelodd
+qboolean	r_reportedopen;		// once per map, for r_openfaces
 
 qboolean	r_dowarp, r_dowarpold, r_viewchanged;
 
@@ -382,6 +383,7 @@ void R_NewMap (void)
 	r_badsource[0] = 0;
 	r_reportedclamp = false;
 	r_reportedodd = false;
+	r_reportedopen = false;
 
 // a map that sets no fog must not inherit the last one's; the level's own
 // fog command, if it has one, runs after this
@@ -1410,6 +1412,19 @@ SetVisibilityByPassages ();
 		Con_Printf ("%d face(s) of %s could not be cut along a world plane, "
 					"and were drawn uncut across it\n", r_bmodelodd,
 					r_bmodeloddname ? r_bmodeloddname : "a brush model");
+	}
+
+// a face lost the edge that ends it on some rows and would have been drawn
+// across the screen; it was closed at its own edge instead (see r_draw.c).
+// Nothing is wrong on screen, but the cause is a renderer bug worth a report.
+	if (r_openfaces && !r_reportedopen)
+	{
+		r_reportedopen = true;
+		Con_Printf ("\nA face lost the edge that ends it on %d row(s) and was "
+					"closed at its own\nedge instead of running across the "
+					"screen: %s.\nIt would have been a black bar. If anything "
+					"looks wrong there, aim at it\nand type \"surface\".\n",
+					r_openrows, r_openface);
 	}
 
 	if (r_clampedfrac && !r_reportedclamp)

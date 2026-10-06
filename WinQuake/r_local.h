@@ -315,12 +315,19 @@ typedef struct
 	int			surf;			// the surface it opens or closes
 	qboolean	leading;		// opens it (false: closes it)
 	float		u;				// where it crosses the row
+	qboolean	added;			// made by R_CloseOpenFace, not by the face
 	vec3_t		p0, p1;			// its ends, in its model's space
 } probeedge_t;
 
 #define	MAX_PROBEEDGES	1024
 extern probeedge_t	r_probeedges[MAX_PROBEEDGES];
 extern int			r_numprobeedges;	// can run past MAX_PROBEEDGES
+
+// r_draw.c: faces left open on a row and closed at their own right-hand edge
+// (see R_CloseOpenFace); this frame's count and the first of them
+extern int			r_openfaces;
+extern int			r_openrows;
+extern char			r_openface[96];
 void R_ProbeEdge (mvertex_t *pv0, mvertex_t *pv1, int v, int v2, float u,
 				  float u_step, qboolean trailing);
 

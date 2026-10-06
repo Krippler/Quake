@@ -154,6 +154,8 @@ typedef struct edge_s
 	struct edge_s	*nextremove;
 	float			nearzi;
 	medge_t			*owner;
+	short			v, v2;		// the first and last scanline it crosses
+	float			umax;		// how far right it reaches, in pixels
 } edge_t;
 
 #endif	// _R_SHARED_H_
