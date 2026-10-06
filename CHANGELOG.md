@@ -5,6 +5,36 @@ top section's heading is what the release workflow reads: `## [X.Y.Z] — DATE`
 on the default branch publishes that version, `## [Unreleased]` publishes only
 `edge`.
 
+## [Unreleased]
+
+### Fixed
+
+- **Light sheared into diagonals and steps on a few faces, with patches of the
+  wrong colour.** A face's lightmap is a grid of samples, and how many make a
+  row comes from where the face's corners fall on its texture. The engine has
+  to arrive at the same number as the light tool did. If it is one out, every
+  row is read at the wrong length, the light on that face shears, and its
+  colour is taken from the wrong place. That only happens to faces whose edge
+  sits within a hair of a 16-texel line, which is why most of a map can look
+  right while one wall does not.
+  - The engine now works the position out the light tools' way: ericw-tools
+    computes in long double, and id's tools ran on x87, which did the same.
+    id's engine computed in float.
+  - Every face is also checked against the light data itself. The tools lay
+    the lightmaps end to end, so the gap to the next one is the size the tool
+    used. A face that doesn't fit its gap is measured from the other side of
+    that 16-texel line, and given the size that fits.
+  - The console says how many faces were corrected, or how many could not
+    be. A test map with every face pushed a fiftieth of a texel over its line
+    reads correctly. 1.20.1 sheared it.
+  - id's maps, and the ericw-tools maps tested, need no correction and draw
+    as before.
+
+### Changed
+
+- **`surface` gives the lightmap's place in the light data, and its colour**
+  when the map has coloured light, beside each sample.
+
 ## [1.20.1] — 2026-10-06
 
 ### Fixed
