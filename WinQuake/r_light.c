@@ -503,13 +503,21 @@ static void R_ProbeLight (msurface_t *face, vec3_t local)
 	ds = ds < 0 ? 0 : ds >= smax ? smax - 1 : ds;
 	dt = dt < 0 ? 0 : dt >= tmax ? tmax - 1 : dt;
 
-	Con_Printf ("lightmap %dx%d, styles", smax, tmax);
+	Con_Printf ("lightmap %dx%d at %d in the light data, styles", smax, tmax,
+				(int)(face->samples - cl.worldmodel->lightdata));
 	light = 0;
 	lightmap = face->samples + dt*smax + ds;
 	for (maps = 0 ; maps < MAXLIGHTMAPS && face->styles[maps] != 255 ; maps++)
 	{
 		j = face->styles[maps];
-		Con_Printf (" %d (sample %d x %d)", j, *lightmap, d_lightstylevalue[j]);
+		Con_Printf (" %d (sample %d x %d", j, *lightmap, d_lightstylevalue[j]);
+		if (face->rgbsamples)
+		{
+			byte	*rgb = face->rgbsamples
+				+ (maps*smax*tmax + dt*smax + ds)*3;
+			Con_Printf (", colour %d %d %d", rgb[0], rgb[1], rgb[2]);
+		}
+		Con_Printf (")");
 		light += *lightmap * d_lightstylevalue[j];
 		lightmap += smax*tmax;
 	}

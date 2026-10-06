@@ -1149,19 +1149,24 @@ CalcSurfaceExtents
 Fills in s->texturemins[] and s->extents[]
 ================
 */
-void CalcSurfaceExtents (msurface_t *s)
+//
+// Where a face's corners fall on its texture, the bounds its lightmap is laid
+// out from. That size has to be the one the light tool used: it is how many
+// samples make a row of the lightmap, and one sample out shears the light on
+// the face into diagonals and steps and takes its colour from the wrong place.
+// ericw-tools works this out in long double and keeps it as a float, and id's
+// tools ran on x87, which did the same; doing it in float here, as id's engine
+// did, can land the other side of a 16-texel line. So it is done their way.
+//
+static void Mod_FaceTexBounds (msurface_t *s, float *mins, float *maxs)
 {
-	float	mins[2], maxs[2], val;
-	int		i,j, e;
+	int			i, j, e;
 	mvertex_t	*v;
-	mtexinfo_t	*tex;
-	int		bmins[2], bmaxs[2];
+	mtexinfo_t	*tex = s->texinfo;
+	volatile float	val;
 
 	mins[0] = mins[1] = 999999;
 	maxs[0] = maxs[1] = -99999;
-
-	tex = s->texinfo;
-	
 	for (i=0 ; i<s->numedges ; i++)
 	{
 		e = loadmodel->surfedges[s->firstedge+i];
@@ -1169,19 +1174,29 @@ void CalcSurfaceExtents (msurface_t *s)
 			v = &loadmodel->vertexes[loadmodel->edges[e].v[0]];
 		else
 			v = &loadmodel->vertexes[loadmodel->edges[-e].v[1]];
-		
 		for (j=0 ; j<2 ; j++)
 		{
-			val = v->position[0] * tex->vecs[j][0] + 
-				v->position[1] * tex->vecs[j][1] +
-				v->position[2] * tex->vecs[j][2] +
-				tex->vecs[j][3];
+			val = (float)((long double)v->position[0] * tex->vecs[j][0]
+						+ (long double)v->position[1] * tex->vecs[j][1]
+						+ (long double)v->position[2] * tex->vecs[j][2]
+						+ (long double)tex->vecs[j][3]);
 			if (val < mins[j])
 				mins[j] = val;
 			if (val > maxs[j])
 				maxs[j] = val;
 		}
 	}
+}
+
+void CalcSurfaceExtents (msurface_t *s)
+{
+	float	mins[2], maxs[2];
+	int		i;
+	mtexinfo_t	*tex;
+	int		bmins[2], bmaxs[2];
+
+	tex = s->texinfo;
+	Mod_FaceTexBounds (s, mins, maxs);
 
 	for (i=0 ; i<2 ; i++)
 	{	
@@ -1293,29 +1308,12 @@ static void Mod_ScaledLightmap (msurface_t *s, int shift, int ofs,
 {
 	int			i, j, e, m, nstyles, scale, w[2], lmins[2], smax, tmax;
 	int			srcsize, dstsize, x0, y0, x1, y1;
-	float		mins[2], maxs[2], val, fx, fy, ax, ay;
+	float		mins[2], maxs[2], fx, fy, ax, ay;
 	float		f00, f01, f10, f11;
 	byte		*src, *dst, *rsrc, *rdst;
-	mvertex_t	*v;
-	mtexinfo_t	*tex = s->texinfo;
 
 	scale = 1 << shift;
-	mins[0] = mins[1] = 999999;
-	maxs[0] = maxs[1] = -99999;
-	for (i=0 ; i<s->numedges ; i++)
-	{
-		e = loadmodel->surfedges[s->firstedge+i];
-		v = &loadmodel->vertexes[e >= 0 ? loadmodel->edges[e].v[0]
-								 : loadmodel->edges[-e].v[1]];
-		for (j=0 ; j<2 ; j++)
-		{
-			val = DotProduct (v->position, tex->vecs[j]) + tex->vecs[j][3];
-			if (val < mins[j])
-				mins[j] = val;
-			if (val > maxs[j])
-				maxs[j] = val;
-		}
-	}
+	Mod_FaceTexBounds (s, mins, maxs);
 	for (j=0 ; j<2 ; j++)
 	{
 		lmins[j] = floor (mins[j] / scale);
@@ -1389,6 +1387,110 @@ static void Mod_ScaledLightmap (msurface_t *s, int shift, int ofs,
 	for (i=0 ; i<MAXLIGHTMAPS ; i++)
 		s->styles[i] = i < nstyles ? styles[i] : 255;
 	mod_lmscaled++;
+}
+
+
+/*
+=================
+Mod_CheckLightmapSizes
+
+The light tools lay the lightmaps out end to end, each padded to four bytes,
+so the gap from one face's lightmap to the next is the size the tool gave it.
+A face whose size here doesn't fit its gap was measured differently from how
+the map was lit. Its bounds then sit within a hair of a 16-texel line, so the
+other side of that line is tried; one that fits the gap is the tool's.
+=================
+*/
+static int	mod_lmfixed, mod_lmmismatch;
+
+static int Mod_CmpInt (const void *a, const void *b)
+{
+	int	x = *(const int *)a, y = *(const int *)b;
+	return x < y ? -1 : x > y;
+}
+
+static qboolean Mod_FitsGap (int need, int gap)
+{
+	return need <= gap && gap - need < 4;
+}
+
+static void Mod_CheckLightmapSizes (void)
+{
+	int			i, k, n, lo, hi, mid, ofs, gap, nstyles, need;
+	int			*offsets, mark, a, b, c, d, cand[2][2][2];
+	float		mins[2], maxs[2];
+	msurface_t	*s;
+
+	mod_lmfixed = mod_lmmismatch = 0;
+	if (!loadmodel->lightdata || !loadmodel->numsurfaces)
+		return;
+
+	mark = Hunk_LowMark ();
+	offsets = Hunk_AllocName (loadmodel->numsurfaces * sizeof(int), "lmcheck");
+	for (i=n=0, s=loadmodel->surfaces ; i<loadmodel->numsurfaces ; i++, s++)
+		if (s->samples)
+			offsets[n++] = s->samples - loadmodel->lightdata;
+	qsort (offsets, n, sizeof(int), Mod_CmpInt);
+
+	for (i=0, s=loadmodel->surfaces ; i<loadmodel->numsurfaces ; i++, s++)
+	{
+		if (!s->samples || (s->texinfo->flags & TEX_SPECIAL))
+			continue;
+		for (nstyles=0 ; nstyles<MAXLIGHTMAPS && s->styles[nstyles] != 255
+			 ; nstyles++)
+			;
+		if (!nstyles)
+			continue;
+
+	// the next lightmap after this one starts where this one ends
+		ofs = s->samples - loadmodel->lightdata;
+		lo = 0;
+		hi = n;
+		while (lo < hi)
+		{
+			mid = (lo + hi) / 2;
+			if (offsets[mid] <= ofs)
+				lo = mid + 1;
+			else
+				hi = mid;
+		}
+		gap = (lo < n ? offsets[lo] : mod_lightlen) - ofs;
+
+		need = ((s->extents[0]>>4)+1) * ((s->extents[1]>>4)+1) * nstyles;
+		if (Mod_FitsGap (need, gap))
+			continue;
+
+	// each end of each axis on either side of its 16-texel line
+		Mod_FaceTexBounds (s, mins, maxs);
+		for (k=0 ; k<2 ; k++)
+		{
+			cand[k][0][0] = floor ((mins[k] - 0.05) / 16);
+			cand[k][0][1] = floor ((mins[k] + 0.05) / 16);
+			cand[k][1][0] = ceil ((maxs[k] - 0.05) / 16);
+			cand[k][1][1] = ceil ((maxs[k] + 0.05) / 16);
+		}
+		for (a=0 ; a<2 ; a++) for (b=0 ; b<2 ; b++)
+		for (c=0 ; c<2 ; c++) for (d=0 ; d<2 ; d++)
+		{
+			int		e0 = (cand[0][1][b] - cand[0][0][a]) * 16;
+			int		e1 = (cand[1][1][d] - cand[1][0][c]) * 16;
+
+			if (e0 < 16 || e1 < 16 || e0 > 256 || e1 > 256)
+				continue;
+			if (!Mod_FitsGap (((e0>>4)+1) * ((e1>>4)+1) * nstyles, gap))
+				continue;
+			s->texturemins[0] = cand[0][0][a] * 16;
+			s->texturemins[1] = cand[1][0][c] * 16;
+			s->extents[0] = e0;
+			s->extents[1] = e1;
+			mod_lmfixed++;
+			goto next;
+		}
+		mod_lmmismatch++;
+next:	;
+	}
+
+	Hunk_FreeToLowMark (mark);
 }
 
 
@@ -1605,6 +1707,20 @@ void Mod_LoadFaces (lump_t *l)
 			}
 			continue;
 		}
+	}
+
+	if (!lmshift && worldshift < 0)
+	{
+		Mod_CheckLightmapSizes ();
+		if (mod_lmfixed)
+			Con_Printf ("%s: %d face(s) measured for a lightmap of another "
+						"size than the map\nwas lit with; given the size it "
+						"was lit with.\n", loadmodel->name, mod_lmfixed);
+		if (mod_lmmismatch)
+			Con_Printf ("%s: %d face(s) have lightmaps of a size that does "
+						"not fit the light data;\nthey may be lit wrongly. "
+						"Please report this line.\n", loadmodel->name,
+						mod_lmmismatch);
 	}
 
 	if (mod_lmscaled)
