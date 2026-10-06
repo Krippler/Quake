@@ -5,6 +5,30 @@ top section's heading is what the release workflow reads: `## [X.Y.Z] — DATE`
 on the default branch publishes that version, `## [Unreleased]` publishes only
 `edge`.
 
+## [1.20.0] — 2026-10-06
+
+### Added
+
+- **A safeguard against black bars from any cause.** The renderer draws each
+  face along every scanline, from an edge that opens it to one that closes it.
+  A face that loses its closing edge runs on to the right of the screen over
+  everything behind it, and every black bar so far was that, from one cause
+  or another, each found and fixed on its own. Now, whatever the cause, a face
+  cannot run past itself. While its edges are drawn, each row counts the ones
+  that open it and the ones that close it. A row left open is closed at the
+  face's own right-hand limit, so at worst the face is drawn a little too wide
+  inside its own outline, instead of a bar across the screen. A face that
+  really does reach the right edge of the screen is left alone, as id's code
+  closes it there on purpose. In id's three demos, at 640x480 and 1280x960,
+  the safeguard never triggers, so they draw as before. With 1.19.4's fix for
+  the MG3 ramp taken back out, the safeguard alone keeps that bar off the
+  screen.
+- **The console names a face the safeguard closed,** once per map: the map or
+  brush model, the face, and how many rows it would have run across the
+  screen on. Nothing looks wrong when that happens, but it means a bug in the
+  renderer, and the line is what to send. `surface` aimed at the face marks
+  the closing edge the safeguard added.
+
 ## [1.19.4] — 2026-10-05
 
 ### Fixed

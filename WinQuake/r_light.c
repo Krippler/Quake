@@ -544,6 +544,12 @@ static void R_ProbeRowReport (void)
 			opens++;
 		else if (pe->u >= cx)
 			closes++;
+		if (pe->added)
+		{
+			Con_Printf ("    closes at x %.2f: ADDED, as nothing else closed "
+						"it there\n", pe->u);
+			continue;
+		}
 		Con_Printf ("    %s at x %.2f, from (%.3f %.3f %.3f) to (%.3f %.3f "
 					"%.3f)\n", pe->leading ? "opens " : "closes", pe->u,
 					pe->p0[0], pe->p0[1], pe->p0[2],

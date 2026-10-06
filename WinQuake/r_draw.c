@@ -171,6 +171,211 @@ static void R_RecordBad (const float *world, const vec3_t transformed)
 	r_badmodel[sizeof(r_badmodel) - 1] = 0;
 }
 
+//
+// Every face is drawn on each scanline from an edge that opens it to one that
+// closes it. Lose the closing edge and the face runs on to the right of the
+// screen over everything behind it: every black bar so far was one cause or
+// another of exactly that -- faces outside their node, edges walked the same
+// way twice, loops that did not close, a cut joined to the wrong point. Each
+// was found and fixed on its own, and a map can always find another.
+//
+// So whatever the cause, a face can no longer run past itself. While its edges
+// are emitted, each row counts the edges that open it and close it, and notes
+// how far right any of them reaches. A row it is opened on more often than
+// closed gets a closing edge at that right-hand limit: the face then covers no
+// more than its own outline, where at worst it is drawn a little too wide. A
+// face that reaches the right edge of the screen is left alone, since there id
+// closes it at the screen edge on purpose (see R_FaceReachesRight). The first
+// one in a frame is named once per map, so the map and the face come with the
+// report.
+//
+static int		r_rowbal[MAXHEIGHT + 1];	// opens minus closes, from each row on
+static int		r_balmin, r_balmax;		// rows touched; none when min > max
+static float	r_faceumax;				// the face's rightmost reach
+
+int		r_openfaces;
+int		r_openrows;
+char	r_openface[96];
+
+static void R_BeginBalance (void)
+{
+	int		v;
+
+	for (v = r_balmin ; v <= r_balmax ; v++)
+		r_rowbal[v] = 0;
+	r_balmin = MAXHEIGHT;
+	r_balmax = -1;
+	r_faceumax = -1;
+}
+
+static void R_BalanceEdge (int v, int v2, qboolean leading, float umax)
+{
+	int		d;
+
+	d = leading ? 1 : -1;
+	r_rowbal[v] += d;
+	r_rowbal[v2 + 1] -= d;
+	if (v < r_balmin)
+		r_balmin = v;
+	if (v2 + 1 > r_balmax)
+		r_balmax = v2 + 1;
+	if (umax > r_faceumax)
+		r_faceumax = umax;
+}
+
+// a closing edge straight down rows v to v2 at the face's right-hand limit
+static void R_AddClosingEdge (int v, int v2, msurface_t *face)
+{
+	edge_t	*edge, *pcheck;
+	int		u_check;
+
+	if (edge_p >= edge_max)
+	{
+		r_outofedges++;
+		return;
+	}
+	edge = edge_p++;
+	edge->owner = NULL;
+	edge->nearzi = 0;
+	edge->surfs[0] = surface_p - surfaces;
+	edge->surfs[1] = 0;
+	edge->u_step = 0;
+	edge->u = r_faceumax*0x100000 + 0xFFFFF;
+	if (edge->u > r_refdef.vrectright_adj_shift20)
+		edge->u = r_refdef.vrectright_adj_shift20;
+	edge->v = v;
+	edge->v2 = v2;
+	edge->umax = r_faceumax;
+
+	if (r_probe)
+	{
+		int			cy = r_refdef.vrect.y + r_refdef.vrect.height/2;
+		probeedge_t	*pe;
+
+		if (cy >= v && cy <= v2 && r_numprobeedges++ < MAX_PROBEEDGES)
+		{
+			pe = &r_probeedges[r_numprobeedges - 1];
+			memset (pe, 0, sizeof(*pe));
+			pe->surf = surface_p - surfaces;
+			pe->u = r_faceumax;
+			pe->added = true;
+		}
+	}
+
+// sorted in as R_EmitEdge does, trailers after leaders
+	u_check = edge->u + 1;
+	if (!newedges[v] || newedges[v]->u >= u_check)
+	{
+		edge->next = newedges[v];
+		newedges[v] = edge;
+	}
+	else
+	{
+		pcheck = newedges[v];
+		while (pcheck->next && pcheck->next->u < u_check)
+			pcheck = pcheck->next;
+		edge->next = pcheck->next;
+		pcheck->next = edge;
+	}
+	edge->nextremove = removeedges[v2];
+	removeedges[v2] = edge;
+}
+
+//
+// Whether a face may run to the right edge of the screen as id draws it: when
+// part of it lies past that edge, its edges there are clipped away and the
+// screen edge closes it instead. Its emitted edges can't say so -- they may all
+// be on the left -- so its corners are projected: one at or past the edge, or
+// one behind the eye (the face then reaches out of view), and it may.
+//
+static qboolean R_FaceReachesRight (msurface_t *face)
+{
+	int			i, lindex;
+	model_t		*m;
+	medge_t		*edge;
+	float		*v, u;
+	vec3_t		local, t;
+
+	m = currententity->model;
+	for (i=0 ; i<face->numedges ; i++)
+	{
+		lindex = m->surfedges[face->firstedge + i];
+		edge = &m->edges[lindex > 0 ? lindex : -lindex];
+		v = m->vertexes[edge->v[lindex > 0 ? 0 : 1]].position;
+		VectorSubtract (v, modelorg, local);
+		TransformVector (local, t);
+		if (!(t[2] > NEAR_CLIP))
+			return true;
+		u = xcenter + xscale*t[0]/t[2];
+		if (!(u < r_refdef.fvrectright_adj - 1))
+			return true;
+	}
+	return false;
+}
+
+// called once a face's edges are all out, before its surface is posted
+static void R_CloseOpenFace (msurface_t *face)
+{
+	int		v, k, run, deepest, rows;
+	model_t	*m;
+
+	if (r_balmax < 0)
+		return;
+
+// running totals: how many times each row is left open
+	deepest = 0;
+	for (v = r_balmin + 1 ; v <= r_balmax ; v++)
+		r_rowbal[v] += r_rowbal[v - 1];
+	for (v = r_balmin ; v <= r_balmax ; v++)
+		if (r_rowbal[v] > deepest)
+			deepest = r_rowbal[v];
+
+	if (deepest <= 0 || r_faceumax >= r_refdef.fvrectright_adj - 1
+		|| R_FaceReachesRight (face))
+	{
+		for (v = r_balmin ; v <= r_balmax ; v++)
+			r_rowbal[v] = 0;
+		r_balmax = -1;
+		return;
+	}
+
+	rows = 0;
+	for (k = 1 ; k <= deepest ; k++)
+	{
+		run = -1;
+		for (v = r_balmin ; v <= r_balmax ; v++)
+		{
+			if (r_rowbal[v] >= k)
+			{
+				if (run < 0)
+					run = v;
+				if (k == 1)
+					rows++;
+			}
+			else if (run >= 0)
+			{
+				R_AddClosingEdge (run, v - 1, face);
+				run = -1;
+			}
+		}
+		if (run >= 0)
+			R_AddClosingEdge (run, r_balmax, face);
+	}
+
+	for (v = r_balmin ; v <= r_balmax ; v++)
+		r_rowbal[v] = 0;
+	r_balmax = -1;
+
+	if (!r_openfaces++)
+	{
+		r_openrows = rows;
+		m = currententity->model;
+		snprintf (r_openface, sizeof(r_openface), "%s face %d",
+				  m->name, (int)(face - m->surfaces));
+	}
+}
+
+
 /*
 ================
 R_DiscardFace
@@ -453,6 +658,11 @@ void R_EmitEdge (mvertex_t *pv0, mvertex_t *pv1)
 	if (r_probe)
 		R_ProbeEdge (pv0, pv1, v, v2, u, u_step, side == 0);
 
+	edge->v = v;
+	edge->v2 = v2;
+	edge->umax = u0 > r_u1 ? u0 : r_u1;
+	R_BalanceEdge (v, v2, side != 0, edge->umax);
+
 //
 // sort the edge in normally
 //
@@ -611,6 +821,7 @@ void R_ProbeEdge (mvertex_t *pv0, mvertex_t *pv1, int v, int v2, float u,
 		return;
 	pe = &r_probeedges[r_numprobeedges - 1];
 	pe->surf = surface_p - surfaces;
+	pe->added = false;
 	pe->leading = !trailing;
 	pe->u = u + (cy - v) * u_step;
 	VectorCopy (pv0->position, pe->p0);
@@ -662,9 +873,15 @@ void R_EmitCachedEdge (void)
 	pedge_t = (edge_t *)((unsigned long)r_edges + r_pedge->cachededgeoffset);
 
 	if (!pedge_t->surfs[0])
+	{
 		pedge_t->surfs[0] = surface_p - surfaces;
+		R_BalanceEdge (pedge_t->v, pedge_t->v2, false, pedge_t->umax);
+	}
 	else
+	{
 		pedge_t->surfs[1] = surface_p - surfaces;
+		R_BalanceEdge (pedge_t->v, pedge_t->v2, true, pedge_t->umax);
+	}
 
 	if (pedge_t->nearzi > r_nearzi)	// for mipmap finding
 		r_nearzi = pedge_t->nearzi;
@@ -731,6 +948,7 @@ void R_RenderFace (msurface_t *fa, int clipflags)
 	r_nearzionly = false;
 	r_facebad = false;
 	firstown = edge_p;
+	R_BeginBalance ();
 	makeleftedge = makerightedge = false;
 	r_leftentered = r_leftexited = r_rightentered = r_rightexited = false;
 	pedges = currententity->model->edges;
@@ -856,6 +1074,8 @@ void R_RenderFace (msurface_t *fa, int clipflags)
 	if (!r_emitted)
 		return;
 
+	R_CloseOpenFace (fa);
+
 	r_polycount++;
 
 	surface_p->data = (void *)fa;
@@ -937,6 +1157,7 @@ void R_RenderBmodelFace (bedge_t *pedges, msurface_t *psurf)
 	r_nearzionly = false;
 	r_facebad = false;
 	firstown = edge_p;
+	R_BeginBalance ();
 	makeleftedge = makerightedge = false;
 	r_leftentered = r_leftexited = r_rightentered = r_rightexited = false;
 // FIXME: keep clipped bmodel edges in clockwise order so last vertex caching
@@ -981,6 +1202,8 @@ void R_RenderBmodelFace (bedge_t *pedges, msurface_t *psurf)
 // if no edges made it out, return without posting the surface
 	if (!r_emitted)
 		return;
+
+	R_CloseOpenFace (psurf);
 
 	r_polycount++;
 
