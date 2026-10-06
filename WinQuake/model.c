@@ -792,6 +792,42 @@ void Mod_LoadTextures (lump_t *l)
 }
 
 static int	mod_lightlen;	// bytes of light data, for Mod_LoadFaces to check against
+static int	mod_bspsize;	// the map file's size: loading a .lit changes com_filesize
+
+//
+// A named lump in the map's BSPX block, the table of extra lumps modern
+// compilers append after the standard fifteen: "BSPX", a count, then 24 bytes
+// of name, an offset and a length for each. NULL if the map has none of that
+// name, or its bytes would run past the end of the file.
+//
+static byte *Mod_BSPXLump (const char *name, int *len)
+{
+	dheader_t	*header = (dheader_t *)mod_base;
+	int			i, end, count, ofs, l;
+	byte		*e;
+
+	end = 0;
+	for (i=0 ; i<HEADER_LUMPS ; i++)
+		if (header->lumps[i].fileofs + header->lumps[i].filelen > end)
+			end = header->lumps[i].fileofs + header->lumps[i].filelen;
+	end = (end + 3) & ~3;
+	if (end + 8 > mod_bspsize || memcmp (mod_base + end, "BSPX", 4))
+		return NULL;
+	count = LittleLong (*(int *)(mod_base + end + 4));
+	for (i=0 ; i<count && end + 8 + (i+1)*32 <= mod_bspsize ; i++)
+	{
+		e = mod_base + end + 8 + i*32;
+		if (strncmp ((char *)e, name, 24))
+			continue;
+		ofs = LittleLong (*(int *)(e + 24));
+		l = LittleLong (*(int *)(e + 28));
+		if (ofs < 0 || l < 0 || ofs > mod_bspsize - l)
+			return NULL;
+		*len = l;
+		return mod_base + ofs;
+	}
+	return NULL;
+}
 
 /*
 =================
@@ -816,42 +852,27 @@ static void Mod_LoadColouredLight (void)
 {
 	char		litname[MAX_QPATH];
 	byte		*lit;
-	int			i, end, count, mark;
-	dheader_t	*header = (dheader_t *)mod_base;
+	int			count, mark;
 
 	if (strlen (loadmodel->name) < 5 || strlen (loadmodel->name) >= MAX_QPATH)
 		return;
 
 // the map's own BSPX lump first: it cannot be stale
-	end = 0;
-	for (i=0 ; i<HEADER_LUMPS ; i++)
-		if (header->lumps[i].fileofs + header->lumps[i].filelen > end)
-			end = header->lumps[i].fileofs + header->lumps[i].filelen;
-	end = (end + 3) & ~3;
-	if (end + 8 <= com_filesize && !memcmp (mod_base + end, "BSPX", 4))
+	lit = Mod_BSPXLump ("RGBLIGHTING", &count);
+	if (lit)
 	{
-		count = LittleLong (*(int *)(mod_base + end + 4));
-		for (i=0 ; i<count && end + 8 + (i+1)*32 <= com_filesize ; i++)
+		if (count != mod_lightlen * 3)
 		{
-			byte	*e = mod_base + end + 8 + i*32;
-			int		ofs = LittleLong (*(int *)(e + 24));
-			int		len = LittleLong (*(int *)(e + 28));
-
-			if (strncmp ((char *)e, "RGBLIGHTING", 24))
-				continue;
-			if (len != mod_lightlen * 3 || ofs < 0 || ofs + len > com_filesize)
-			{
-				Con_DPrintf ("%s: BSPX RGBLIGHTING is %d bytes, not %d; "
-							 "grey light only\n", loadmodel->name, len,
-							 mod_lightlen * 3);
-				return;
-			}
-			loadmodel->rgblightdata = Hunk_AllocName (len, loadname);
-			memcpy (loadmodel->rgblightdata, mod_base + ofs, len);
-			Con_DPrintf ("%s: coloured light from its BSPX lump\n",
-						 loadmodel->name);
+			Con_DPrintf ("%s: BSPX RGBLIGHTING is %d bytes, not %d; "
+						 "grey light only\n", loadmodel->name, count,
+						 mod_lightlen * 3);
 			return;
 		}
+		loadmodel->rgblightdata = Hunk_AllocName (count, loadname);
+		memcpy (loadmodel->rgblightdata, lit, count);
+		Con_DPrintf ("%s: coloured light from its BSPX lump\n",
+					 loadmodel->name);
+		return;
 	}
 
 // then a .lit beside it
@@ -1186,6 +1207,193 @@ void CalcSurfaceExtents (msurface_t *s)
 
 /*
 =================
+Mod_ScaledLightmap
+
+A lightmap is one sample every 16 texels in id's maps, and everything that
+draws or probes a surface works in those. ericw-tools can light at a finer
+scale -- every 8 texels, say, set by _lightmap_scale on the map -- and records
+each face's scale in a BSPX lump, LMSHIFT, as a power of two. Where the whole
+map uses one scale, the face's own lightmap is that finer one: there is no
+16-texel copy beside it. Read as id's, its rows are the wrong length, so the
+light comes out sheared into diagonals and steps, and the coloured light that
+goes with it lands in the wrong places -- the slanted shafts and the red wedge
+on a wall of one MG3 map, where the re-release has straight shafts and no red.
+
+So a face lit at another scale has its lightmap resampled when the map loads,
+to id's spacing, from the samples either side of each point (and its colour
+with it). LMOFFSET, when the map has it, says where that face's scaled data
+is, and LMSTYLE or LMSTYLE16 its light styles, which can differ from the
+face's own for the same reason.
+=================
+*/
+//
+// ericw-tools' light also takes "_lightmap_scale" on the map's worldspawn: it
+// then lights every face at that scale, writes the result over the ordinary
+// lightmaps, and leaves no LMSHIFT lump -- the key is all that says so, and
+// engines that support it read it from there. The shift for that scale, or -1
+// when the map has no such key or not a power of two.
+//
+static int Mod_WorldLightmapShift (void)
+{
+	dheader_t	*header = (dheader_t *)mod_base;
+	char		*text, *end, key[64], value[64];
+	const char	*p;
+	int			n, shift, len;
+
+	len = LittleLong (header->lumps[LUMP_ENTITIES].filelen);
+	if (len <= 0 || LittleLong (header->lumps[LUMP_ENTITIES].fileofs) < 0
+		|| LittleLong (header->lumps[LUMP_ENTITIES].fileofs) > mod_bspsize - len)
+		return -1;
+	text = (char *)mod_base + LittleLong (header->lumps[LUMP_ENTITIES].fileofs);
+
+// the first entity is worldspawn: its "key" "value" pairs up to the '}'
+	end = memchr (text, '}', len);
+	if (!end)
+		return -1;
+	p = text;
+	while (p < end)
+	{
+		const char	*q;
+
+		if (!(q = memchr (p, '"', end - p)))
+			break;
+		p = q + 1;
+		if (!(q = memchr (p, '"', end - p)) || q - p >= (int)sizeof(key))
+			break;
+		memcpy (key, p, q - p);
+		key[q - p] = 0;
+		p = q + 1;
+		if (!(q = memchr (p, '"', end - p)))
+			break;
+		p = q + 1;
+		if (!(q = memchr (p, '"', end - p)) || q - p >= (int)sizeof(value))
+			break;
+		memcpy (value, p, q - p);
+		value[q - p] = 0;
+		p = q + 1;
+
+		if (!Q_strcasecmp (key, "_lightmap_scale")
+			|| !Q_strcasecmp (key, "lightmap_scale"))
+		{
+			n = Q_atoi (value);
+			for (shift=0 ; shift<8 ; shift++)
+				if (n == 1 << shift)
+					return shift;
+			return -1;
+		}
+	}
+	return -1;
+}
+
+static int	mod_lmscaled;		// faces resampled, for the line after loading
+static int	mod_lmscalebad;		// scaled lightmaps that ran past the data
+
+static void Mod_ScaledLightmap (msurface_t *s, int shift, int ofs,
+								const byte *styles)
+{
+	int			i, j, e, m, nstyles, scale, w[2], lmins[2], smax, tmax;
+	int			srcsize, dstsize, x0, y0, x1, y1;
+	float		mins[2], maxs[2], val, fx, fy, ax, ay;
+	float		f00, f01, f10, f11;
+	byte		*src, *dst, *rsrc, *rdst;
+	mvertex_t	*v;
+	mtexinfo_t	*tex = s->texinfo;
+
+	scale = 1 << shift;
+	mins[0] = mins[1] = 999999;
+	maxs[0] = maxs[1] = -99999;
+	for (i=0 ; i<s->numedges ; i++)
+	{
+		e = loadmodel->surfedges[s->firstedge+i];
+		v = &loadmodel->vertexes[e >= 0 ? loadmodel->edges[e].v[0]
+								 : loadmodel->edges[-e].v[1]];
+		for (j=0 ; j<2 ; j++)
+		{
+			val = DotProduct (v->position, tex->vecs[j]) + tex->vecs[j][3];
+			if (val < mins[j])
+				mins[j] = val;
+			if (val > maxs[j])
+				maxs[j] = val;
+		}
+	}
+	for (j=0 ; j<2 ; j++)
+	{
+		lmins[j] = floor (mins[j] / scale);
+		w[j] = (int)ceil (maxs[j] / scale) - lmins[j] + 1;
+	}
+
+	for (nstyles=0 ; nstyles<MAXLIGHTMAPS && styles[nstyles] != 255 ; nstyles++)
+		;
+	srcsize = w[0] * w[1];
+	if (!nstyles || w[0] < 1 || w[1] < 1 || ofs < 0
+		|| ofs > mod_lightlen - srcsize*nstyles)
+	{
+		if (nstyles)
+			mod_lmscalebad++;
+		s->samples = NULL;
+		s->rgbsamples = NULL;
+		return;
+	}
+
+	smax = (s->extents[0]>>4)+1;
+	tmax = (s->extents[1]>>4)+1;
+	dstsize = smax * tmax;
+	s->samples = Hunk_AllocName (dstsize * nstyles, loadname);
+	s->rgbsamples = loadmodel->rgblightdata
+		? Hunk_AllocName (dstsize * nstyles * 3, loadname) : NULL;
+
+	for (m=0 ; m<nstyles ; m++)
+	{
+		src = loadmodel->lightdata + ofs + m*srcsize;
+		dst = s->samples + m*dstsize;
+		rsrc = loadmodel->rgblightdata
+			? loadmodel->rgblightdata + (ofs + m*srcsize)*3 : NULL;
+		rdst = s->rgbsamples ? s->rgbsamples + m*dstsize*3 : NULL;
+
+		for (j=0 ; j<tmax ; j++)
+		{
+		// where this sample is in the scaled lightmap, held inside it
+			fy = (float)(s->texturemins[1] + j*16) / scale - lmins[1];
+			fy = fy < 0 ? 0 : fy > w[1]-1 ? w[1]-1 : fy;
+			y0 = (int)fy;
+			y1 = y0 + 1 < w[1] ? y0 + 1 : y0;
+			ay = fy - y0;
+			for (i=0 ; i<smax ; i++)
+			{
+				fx = (float)(s->texturemins[0] + i*16) / scale - lmins[0];
+				fx = fx < 0 ? 0 : fx > w[0]-1 ? w[0]-1 : fx;
+				x0 = (int)fx;
+				x1 = x0 + 1 < w[0] ? x0 + 1 : x0;
+				ax = fx - x0;
+
+				f00 = (1-ax)*(1-ay);
+				f01 = ax*(1-ay);
+				f10 = (1-ax)*ay;
+				f11 = ax*ay;
+				dst[j*smax + i] = (byte)(f00*src[y0*w[0] + x0]
+					+ f01*src[y0*w[0] + x1] + f10*src[y1*w[0] + x0]
+					+ f11*src[y1*w[0] + x1] + 0.5);
+				if (rdst)
+				{
+					for (e=0 ; e<3 ; e++)
+						rdst[(j*smax + i)*3 + e] = (byte)(
+							f00*rsrc[(y0*w[0] + x0)*3 + e]
+							+ f01*rsrc[(y0*w[0] + x1)*3 + e]
+							+ f10*rsrc[(y1*w[0] + x0)*3 + e]
+							+ f11*rsrc[(y1*w[0] + x1)*3 + e] + 0.5);
+				}
+			}
+		}
+	}
+
+	for (i=0 ; i<MAXLIGHTMAPS ; i++)
+		s->styles[i] = i < nstyles ? styles[i] : 255;
+	mod_lmscaled++;
+}
+
+
+/*
+=================
 Mod_LoadFaces
 =================
 */
@@ -1195,6 +1403,8 @@ void Mod_LoadFaces (lump_t *l)
 	byte		*inbase;
 	int			i, count, surfnum, recsize;
 	int			planenum, side;
+	byte		*lmshift, *lmoffset, *lmstyle;
+	int			len, lmstylebytes, lmstyles, worldshift, shift;
 
 	recsize = loadmodel_bsp2 ? sizeof(dface2_t) : sizeof(dface_t);
 	inbase = (byte *)(mod_base + l->fileofs);
@@ -1205,6 +1415,35 @@ void Mod_LoadFaces (lump_t *l)
 
 	loadmodel->surfaces = out;
 	loadmodel->numsurfaces = count;
+
+// lightmaps at another scale than id's (see Mod_ScaledLightmap)
+	lmshift = lmoffset = lmstyle = NULL;
+	lmstylebytes = lmstyles = 0;
+	mod_lmscaled = mod_lmscalebad = 0;
+	worldshift = -1;
+	if (loadmodel->lightdata && !(lmshift = Mod_BSPXLump ("LMSHIFT", &len)))
+		worldshift = Mod_WorldLightmapShift ();
+	if (lmshift)
+	{
+		if (len != count)
+			lmshift = NULL;
+		if ((lmoffset = Mod_BSPXLump ("LMOFFSET", &len)) && len != count*4)
+			lmoffset = NULL;
+		if ((lmstyle = Mod_BSPXLump ("LMSTYLE16", &len)) && count
+			&& len > 0 && len % (count*2) == 0)
+		{
+			lmstylebytes = 2;
+			lmstyles = len / (count*2);
+		}
+		else if ((lmstyle = Mod_BSPXLump ("LMSTYLE", &len)) && count
+				 && len > 0 && len % count == 0)
+		{
+			lmstylebytes = 1;
+			lmstyles = len / count;
+		}
+		else
+			lmstyle = NULL;
+	}
 
 	for ( surfnum=0 ; surfnum<count ; surfnum++, out++)
 	{
@@ -1291,7 +1530,11 @@ void Mod_LoadFaces (lump_t *l)
 	// A lightmap that runs past the end of the light data would be read from
 	// whatever follows it in memory. Sky and water have none to check.
 	//
-		if (out->samples && !(out->texinfo->flags & TEX_SPECIAL))
+		shift = lmshift ? lmshift[surfnum] : worldshift;
+		if (shift == 4 || shift >= 8)
+			shift = -1;			// id's own scale, or none this can read
+
+		if (out->samples && shift < 0 && !(out->texinfo->flags & TEX_SPECIAL))
 		{
 			int		nstyles, size;
 
@@ -1307,6 +1550,33 @@ void Mod_LoadFaces (lump_t *l)
 				out->samples = NULL;
 				out->rgbsamples = NULL;
 			}
+		}
+
+		if (lmoffset)
+			lightofs = LittleLong (((int *)lmoffset)[surfnum]);
+		if (shift >= 0 && lightofs != -1 && !(out->texinfo->flags & TEX_SPECIAL))
+		{
+			byte	st[MAXLIGHTMAPS];
+			int		k, sv;
+
+			for (k=0 ; k<MAXLIGHTMAPS ; k++)
+			{
+				if (!lmstyle)
+					st[k] = styles[k];
+				else if (k >= lmstyles)
+					st[k] = 255;
+				else if (lmstylebytes == 2)
+				{
+					sv = LittleShort (((short *)lmstyle)[surfnum*lmstyles + k])
+						& 0xffff;
+					st[k] = sv >= 255 ? 255 : sv;
+				}
+				else
+					st[k] = lmstyle[surfnum*lmstyles + k];
+				if (k && st[k-1] == 255)
+					st[k] = 255;
+			}
+			Mod_ScaledLightmap (out, shift, lightofs, st);
 		}
 		
 	// set the drawing flags flag
@@ -1336,6 +1606,15 @@ void Mod_LoadFaces (lump_t *l)
 			continue;
 		}
 	}
+
+	if (mod_lmscaled)
+		Con_Printf ("%s: %d face(s) lit at another scale than id's lightmaps "
+					"(%s),\nresampled to them.\n", loadmodel->name,
+					mod_lmscaled, lmshift ? "BSPX LMSHIFT" : "_lightmap_scale");
+	if (mod_lmscalebad)
+		Con_Printf ("%s: %d scaled lightmap(s) run past the light data; "
+					"those faces are drawn without one.\n", loadmodel->name,
+					mod_lmscalebad);
 }
 
 
@@ -2035,6 +2314,7 @@ void Mod_LoadBrushModel (model_t *mod, void *buffer)
 	dmodel_t 	*bm;
 	
 	loadmodel->type = mod_brush;
+	mod_bspsize = com_filesize;
 	
 	header = (dheader_t *)buffer;
 

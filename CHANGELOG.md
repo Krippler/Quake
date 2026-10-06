@@ -5,6 +5,30 @@ top section's heading is what the release workflow reads: `## [X.Y.Z] — DATE`
 on the default branch publishes that version, `## [Unreleased]` publishes only
 `edge`.
 
+## [Unreleased]
+
+### Fixed
+
+- **Light on some modern maps came out sheared into diagonals and steps,
+  with patches of the wrong colour,** such as the slanted light shafts and the
+  red wedge on a wall of map1, where the re-release has straight shafts and no
+  red. id's lightmaps have one sample every 16 texels. ericw-tools can light
+  at a finer scale, every 8 texels for instance, and a map that asks for that
+  with `_lightmap_scale` on its worldspawn stores those finer lightmaps in
+  place of the ordinary ones. The only sign of it is that key. Read as id's,
+  every lightmap row was the wrong length, and the coloured light from the
+  map's `.lit` landed in the wrong places with it.
+  - Such maps are now read as built. A face lit at another scale has its
+    lightmap resampled to id's 16-texel spacing when the map loads, colour
+    included, so nothing else in the renderer changes.
+  - This also covers the other way ericw-tools records a lighting scale, a
+    per-face `LMSHIFT` lump, with the `LMOFFSET`, `LMSTYLE` and `LMSTYLE16`
+    lumps that go with it.
+  - Rebuilt in a test map lit at 8 texels both ways, the result is within
+    about 1 brightness level of the same map lit at 16, where 1.20.0 was 11
+    to 13 levels off. The console says how many faces were resampled. Maps
+    without these settings, id's included, load as before.
+
 ## [1.20.0] — 2026-10-06
 
 ### Added
